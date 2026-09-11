@@ -1,0 +1,85 @@
+# TEAM configuration for Auckland.
+#
+# Paths under `data` are relative to the data root, set with --data-root or
+# the TEAM_DATA_ROOT environment variable. Outputs go to <data root>/team
+# unless --out is given. docs/running.md describes the expected layout.
+
+name: auckland
+region: Auckland Council area
+
+data:
+  osm: processed/auckland/osm/auckland_bbox.osm.pbf
+  gtfs: raw/auckland/gtfs/at_gtfs_2026-09-01.zip
+  grid: processed/auckland/grid/auckland_h3_r9_population.parquet
+  jobs_grid: processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet
+  schools: raw/auckland/education/educationcounts_schools_auckland.json
+  census_sa1: raw/auckland/census/statsnz_census_sa1_2023_auckland.geojson
+  census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
+  census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
+  commute_share: processed/auckland/census/sa2_commute_car_share.csv
+  cycling_network: raw/auckland/cycling/at_cycling_network.geojson
+
+origins:
+  # Cells with fewer residents than this are slivers left by spreading census
+  # blocks over the hexagon grid (water, parks, motorway reserve).
+  min_population: 0.75
+
+routing:
+  date: "2026-09-15"          # a Tuesday in school term 3
+  java_home: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  max_memory: 14G
+  max_minutes: 60
+  batch_size: 2000
+  speed_walking_kmh: 4.8
+  speed_cycling_kmh: 15
+  windows:
+    am_peak: {start: "07:00", minutes: 120}
+    interpeak: {start: "10:00", minutes: 120}
+  modes:
+    walk: {kind: walk, label: Walking}
+    bike_low_stress: {kind: cycle, max_traffic_stress: 2, label: Cycling on low-stress routes}
+    bike: {kind: cycle, max_traffic_stress: 3, label: Cycling on any bikeable street}
+    pt: {kind: transit, max_walk_minutes: 15, label: Public transport}
+    car: {kind: car, label: Car}
+
+# Modes that count towards an access standard. Cycling counts only on
+# low-stress routes. Car times are kept for reference and never count.
+standard_modes: [walk, bike_low_stress, pt]
+
+services:
+  supermarket:
+    label: Supermarket
+    window: interpeak
+    standard_minutes: 20
+    osm: {shop: [supermarket]}
+  gp:
+    label: GP or medical centre
+    window: interpeak
+    standard_minutes: 20
+    osm: {amenity: [doctors, clinic], healthcare: [doctor, clinic, centre]}
+  pharmacy:
+    label: Pharmacy
+    window: interpeak
+    standard_minutes: 20
+    osm: {amenity: [pharmacy], healthcare: [pharmacy]}
+  primary_school:
+    label: Primary school
+    window: am_peak
+    standard_minutes: 15
+    school_types: [Contributing, Full Primary, Composite, Composite (Year 1-10)]
+  intermediate_school:
+    label: Intermediate school
+    window: am_peak
+    standard_minutes: 20
+    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Yr 7-10)]
+  secondary_school:
+    label: Secondary school
+    window: am_peak
+    standard_minutes: 30
+    school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
+
+jobs:
+  window: am_peak
+  resolution: 8
+  thresholds: [30, 45]
+  modes: [walk, bike_low_stress, bike, pt, car]

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "team-access"
+version = "0.1.0"
+description = "Transport Equity and Access Model: who can reach everyday needs without a car, and what would change that."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Timothy F. Welch", email = "t.welch@auckland.ac.nz" }]
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pyarrow>=12",
+  "geopandas>=0.14",
+  "shapely>=2.0",
+  "h3>=4.0",
+  "pyyaml>=6.0",
+  "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+routing = ["r5py>=0.1.2"]
+test = ["pytest>=7"]
+
+[project.scripts]
+team = "team.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

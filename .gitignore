@@ -1,0 +1,31 @@
+# Source data, routing caches and build outputs live outside git.
+# See docs/running.md for the data root layout.
+data/
+build/
+runs/
+web/data/
+*.parquet
+*.gpkg
+*.osm.pbf
+*.zip
+*.npz
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Node (web checks only)
+node_modules/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local agent and preview settings
+.claude/

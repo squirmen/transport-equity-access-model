@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TEAM">
+  <title>TEAM</title>
+  <!--
+    The Better Places Lab frame (two opposing corner brackets) around one
+    hexagon of the analysis grid. Grid 64; brackets as in the lab mark, drawn a
+    little lighter so the hexagon holds at favicon size.
+  -->
+  <g fill="none" stroke="#0c0c48" stroke-width="8" stroke-linejoin="miter">
+    <path d="M29 9H55V35"/>
+    <path d="M35 55H9V29"/>
+  </g>
+  <polygon points="32,20.5 42,26.25 42,37.75 32,43.5 22,37.75 22,26.25" fill="#1f6178"/>
+</svg>

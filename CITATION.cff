@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use TEAM, please cite it as below."
+title: "TEAM: Transport Equity and Access Model"
+version: 0.1.0
+abstract: >-
+  Travel times from every populated part of Auckland to everyday services and
+  jobs by walking, low-stress cycling and public transport; the people beyond
+  stated access standards by deprivation, car ownership and age; and screening
+  reasons that point to the kind of change that would bring each place within
+  reach.
+authors:
+  - family-names: Welch
+    given-names: Timothy F.
+    affiliation: "Better Places Lab, Waipapa Taumata Rau | University of Auckland"
+    email: t.welch@auckland.ac.nz
+license: MIT
+repository-code: "https://github.com/squirmen/transport-equity-access-model"
+url: "https://team.tfwelch.com"
+keywords:
+  - accessibility
+  - transport equity
+  - public transport
+  - cycling
+  - walking
+  - Auckland

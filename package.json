@@ -1,0 +1,9 @@
+{
+  "name": "team-web",
+  "private": true,
+  "type": "module",
+  "description": "Checks for the TEAM web app. The app itself has no build step.",
+  "scripts": {
+    "test": "node --test tests/web/*.test.mjs"
+  }
+}
