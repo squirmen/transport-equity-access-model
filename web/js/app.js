@@ -371,11 +371,15 @@ function renderMini() {
 }
 
 function update() {
+  const t0 = performance.now();
   current = compute();
+  const t1 = performance.now();
   paintCells(map, current.classes, current.colours);
+  const t2 = performance.now();
   renderStandard();
   renderView(current);
   renderMini();
+  window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2) };
   showDestinationsFor(map, state.service === 'jobs' ? null : state.service);
   if (state.selected != null) showPlace(state.selected);
 }

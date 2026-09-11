@@ -6,10 +6,15 @@ low-stress route) so every view and control can be exercised. Never publish them
 
     python tests/fixtures/make_web_fixture.py
     open http://localhost:8812/web/?data=../tests/fixtures/web/
+
+A larger area, for checking speed at the size of a real build:
+
+    python tests/fixtures/make_web_fixture.py --out build/fixture-large --bbox 174.45 -37.25 175.05 -36.60
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
@@ -42,8 +47,15 @@ def cap(value: float) -> int | None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Write a synthetic TEAM web dataset.")
+    parser.add_argument("--out", default=str(OUT), help="folder to write the JSON files to")
+    parser.add_argument("--bbox", nargs=4, type=float, default=BBOX, metavar=("WEST", "SOUTH", "EAST", "NORTH"))
+    args = parser.parse_args()
+    out = Path(args.out)
     random.seed(7)
-    lon0, lat0, lon1, lat1 = BBOX
+    lon0, lat0, lon1, lat1 = args.bbox
+    # Keep the density of destinations the same when the area changes.
+    scale = max(1.0, ((lon1 - lon0) * (lat1 - lat0)) / ((BBOX[2] - BBOX[0]) * (BBOX[3] - BBOX[1])))
     ring = [[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]
     cells = sorted(h3.geo_to_cells({"type": "Polygon", "coordinates": [ring]}, 9))
     centres = [(lng, lat) for lat, lng in (h3.cell_to_latlng(c) for c in cells)]
@@ -51,21 +63,22 @@ def main() -> None:
     destinations, dest_points = [], {}
     for service, (label, _, _, n) in SERVICES.items():
         dest_points[service] = []
-        for k in range(n):
+        for k in range(max(1, round(n * scale))):
             point = (random.uniform(lon0, lon1), random.uniform(lat0, lat1))
             dest_points[service].append((len(destinations), point))
             destinations.append({"name": f"Test {label.lower()} {k + 1}", "services": [service], "lon": round(point[0], 5), "lat": round(point[1], 5)})
 
-    parents = sorted({h3.cell_to_parent(c, 7) for c in cells})
+    members_by_parent: dict[str, list[int]] = {}
+    for i, cell in enumerate(cells):
+        members_by_parent.setdefault(h3.cell_to_parent(cell, 7), []).append(i)
     places = []
     parent_index = {}
-    for k, parent in enumerate(parents):
-        members = [i for i, c in enumerate(cells) if h3.cell_to_parent(c, 7) == parent]
+    for k, (parent, members) in enumerate(sorted(members_by_parent.items())):
         lons = [centres[i][0] for i in members]
         lats = [centres[i][1] for i in members]
         parent_index[parent] = k
         places.append({
-            "name": f"Test area {k + 1:02d}",
+            "name": f"Test area {k + 1:03d}",
             "board": "Board A" if sum(lons) / len(lons) < CBD[0] else "Board B",
             "lon": round(sum(lons) / len(lons), 5),
             "lat": round(sum(lats) / len(lats), 5),
@@ -81,9 +94,9 @@ def main() -> None:
     jobs = {m: {"30": [], "45": []} for m in MODES}
     fair = {"pt": {"30": [], "45": []}, "bike_low_stress": {"30": [], "45": []}}
 
-    for i, (cell, centre) in enumerate(zip(cells, centres)):
-        east = (centre[0] - CBD[0]) / (lon1 - lon0)
-        south = (CBD[1] - centre[1]) / (lat1 - lat0)
+    for cell, centre in zip(cells, centres):
+        east = (centre[0] - CBD[0]) / (BBOX[2] - BBOX[0])
+        south = (CBD[1] - centre[1]) / (BBOX[3] - BBOX[1])
         nzdep = max(1, min(10, round(5 + 6 * east + 5 * south + random.gauss(0, 1.5))))
         pop = round(random.uniform(20, 380), 1)
         severed = random.random() < 0.08
@@ -122,8 +135,8 @@ def main() -> None:
 
         to_cbd = km(centre, CBD)
         base = 42 * math.exp(-to_cbd / 5.5)
-        for mode, scale in {"walk": 0.12, "bike_low_stress": 0.45, "bike": 0.8, "pt": 1.0, "car": 2.1}.items():
-            share45 = max(0.1, min(95.0, base * scale * random.uniform(0.8, 1.2)))
+        for mode, factor in {"walk": 0.12, "bike_low_stress": 0.45, "bike": 0.8, "pt": 1.0, "car": 2.1}.items():
+            share45 = max(0.1, min(95.0, base * factor * random.uniform(0.8, 1.2)))
             jobs[mode]["45"].append(round(share45, 2))
             jobs[mode]["30"].append(round(share45 * 0.55, 2))
         for mode in fair:
@@ -145,7 +158,7 @@ def main() -> None:
         "services": {s: {"label": v[0], "standard_minutes": v[2], "window": v[1]} for s, v in SERVICES.items()},
         "jobs": {"thresholds": [30, 45], "window": "am_peak", "total": 850000},
         "totals": {"cells": len(cells), "population": round(sum(fields["pop"]))},
-        "destinations": {s: v[3] for s, v in SERVICES.items()},
+        "destinations": {s: len(v) for s, v in dest_points.items()},
     }
 
     def line(points):
@@ -161,7 +174,7 @@ def main() -> None:
         ]},
     }
 
-    OUT.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "jobs": jobs, "fair": fair}
     files = {
         "cells.json": payload,
@@ -171,8 +184,8 @@ def main() -> None:
         "overlays.json": overlays,
     }
     for name, content in files.items():
-        (OUT / name).write_text(json.dumps(content, separators=(",", ":")), encoding="utf-8")
-    print(f"wrote {len(cells)} synthetic cells to {OUT}")
+        (out / name).write_text(json.dumps(content, separators=(",", ":")), encoding="utf-8")
+    print(f"wrote {len(cells)} synthetic cells to {out}")
 
 
 if __name__ == "__main__":

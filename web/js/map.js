@@ -1,11 +1,14 @@
 // MapLibre map: basemaps, the hexagon layer, network overlays and selection.
 // Cell colours are set per feature through feature-state `k`, an index into the
 // colour list of the current view, so switching views never rebuilds geometry.
+// Hover and selection outlines use one-feature sources of their own, so moving
+// the pointer never touches the 30,000-cell layer.
 
 /* global maplibregl, h3 */
 
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 const EMPTY = { type: 'FeatureCollection', features: [] };
+const CLEAR = 'rgba(0,0,0,0)';
 
 export const BASEMAPS = {
   light: { label: 'Light', layers: ['bm-light', 'bm-light-labels'] },
@@ -20,17 +23,15 @@ export const OVERLAYS = {
   destinations: { label: 'Destinations', layers: ['destinations'] },
 };
 
+let cells = EMPTY;
+let lastClasses = null;
+
 function raster(url, maxzoom, attribution) {
   return { type: 'raster', tiles: [url], tileSize: 256, maxzoom, ...(attribution ? { attribution } : {}) };
 }
 
 function cellColour(colours) {
-  return [
-    'case',
-    ['==', ['typeof', ['feature-state', 'k']], 'number'],
-    ['to-color', ['at', ['to-number', ['feature-state', 'k']], ['literal', colours]]],
-    'rgba(0,0,0,0)',
-  ];
+  return ['match', ['feature-state', 'k'], ...colours.flatMap((colour, k) => [k, colour]), CLEAR];
 }
 
 export function createMap(container) {
@@ -46,6 +47,8 @@ export function createMap(container) {
         'Imagery &copy; Esri, Maxar, Earthstar Geographics'),
       'esri-imagery-labels': raster(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, 19),
       cells: { type: 'geojson', data: EMPTY },
+      hover: { type: 'geojson', data: EMPTY },
+      selected: { type: 'geojson', data: EMPTY },
       rail: { type: 'geojson', data: EMPTY },
       ferry: { type: 'geojson', data: EMPTY },
       frequent_bus: { type: 'geojson', data: EMPTY },
@@ -59,7 +62,7 @@ export function createMap(container) {
       { id: 'bm-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'none' } },
       { id: 'cells-fill', type: 'fill', source: 'cells', paint: { 'fill-color': cellColour(['#000000']), 'fill-opacity': 0.84 } },
       {
-        id: 'cells-gap', type: 'line', source: 'cells',
+        id: 'cells-gap', type: 'line', source: 'cells', minzoom: 11,
         paint: { 'line-color': '#ffffff', 'line-opacity': 0.75, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0, 13, 0.5, 16, 1.5] },
       },
       {
@@ -90,14 +93,8 @@ export function createMap(container) {
           'circle-stroke-width': 1.5,
         },
       },
-      {
-        id: 'cells-hover', type: 'line', source: 'cells',
-        paint: { 'line-color': '#0c0c48', 'line-width': 1.5, 'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0] },
-      },
-      {
-        id: 'cells-selected', type: 'line', source: 'cells',
-        paint: { 'line-color': '#0c0c48', 'line-width': 3, 'line-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 1, 0] },
-      },
+      { id: 'cell-hover', type: 'line', source: 'hover', paint: { 'line-color': '#0c0c48', 'line-width': 1.5 } },
+      { id: 'cell-selected', type: 'line', source: 'selected', paint: { 'line-color': '#0c0c48', 'line-width': 3 } },
     ],
   };
   const map = new maplibregl.Map({
@@ -129,10 +126,10 @@ export function cellCollection(ids) {
 }
 
 export function setCells(map, collection) {
+  cells = collection;
+  lastClasses = null;
   map.getSource('cells').setData(collection);
 }
-
-let lastClasses = null;
 
 /** Colour every cell: `classes[i]` indexes `colours`, or is -1 to leave the cell clear.
  *  Only cells whose class changed since the last call are touched. */
@@ -179,15 +176,16 @@ export function onCells(map, { hover, leave, click }) {
   map.on('mousemove', 'cells-fill', (event) => {
     const feature = event.features && event.features[0];
     if (!feature) return;
-    if (hovered !== null && hovered !== feature.id) map.setFeatureState({ source: 'cells', id: hovered }, { hover: false });
-    hovered = feature.id;
-    map.setFeatureState({ source: 'cells', id: hovered }, { hover: true });
+    if (hovered !== feature.id) {
+      hovered = feature.id;
+      map.getSource('hover').setData(cells.features[hovered] || EMPTY);
+    }
     map.getCanvas().style.cursor = 'pointer';
     hover(feature.id, event.point);
   });
   map.on('mouseleave', 'cells-fill', () => {
-    if (hovered !== null) map.setFeatureState({ source: 'cells', id: hovered }, { hover: false });
     hovered = null;
+    map.getSource('hover').setData(EMPTY);
     map.getCanvas().style.cursor = '';
     leave();
   });
@@ -198,8 +196,7 @@ export function onCells(map, { hover, leave, click }) {
 }
 
 export function select(map, previous, next) {
-  if (previous != null) map.setFeatureState({ source: 'cells', id: previous }, { selected: false });
-  if (next != null) map.setFeatureState({ source: 'cells', id: next }, { selected: true });
+  map.getSource('selected').setData(next != null && cells.features[next] ? cells.features[next] : EMPTY);
 }
 
 export function fitPlace(map, bbox) {
