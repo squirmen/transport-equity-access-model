@@ -31,15 +31,17 @@ export const REASON_GROUPS = [
 ];
 export const REASON_CLASS = { 1: 0, 2: 1, 3: 2, 4: 2, 5: 3 };
 
-/** Class edges for minutes, relative to the standard T: T/2, 3T/4, T, 1.5T, 2.25T (capped at 60). */
+/** Class edges for minutes, relative to the standard T: T/2, 3T/4, T, 1.5T, 2.25T.
+ *  Times stop at 60 minutes, so once 2.25T passes 60 the two upper edges share
+ *  the room left between T and 60. */
 export function accessBreaks(standard) {
-  const cap = (v) => Math.min(60, v);
+  const top = Math.min(60, Math.round(standard * 2.25));
   return [
     Math.round(standard * 0.5),
     Math.round(standard * 0.75),
     standard,
-    cap(Math.round(standard * 1.5)),
-    cap(Math.round(standard * 2.25)),
+    Math.min(Math.round(standard * 1.5), Math.round((standard + top) / 2)),
+    top,
   ];
 }
 

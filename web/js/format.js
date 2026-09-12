@@ -40,7 +40,7 @@ export const MODE_NOTES = {
   walk: 'Walking at 4.8 km/h on footpaths and paths.',
   bike_low_stress: 'Cycling at 15 km/h on paths, protected lanes and quiet streets only.',
   bike: 'Cycling at 15 km/h on any street a bike is allowed on, including busy roads. Shown for comparison; it does not count towards the standard.',
-  pt: 'Public transport with walking at each end, median over the time window. Walking all the way counts when it is faster.',
+  pt: 'Public transport with walking at each end, median over the time window. A walk of up to 15 minutes also counts.',
   car: 'Driving time with no traffic delay or parking. Shown for comparison only.',
 };
 

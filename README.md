@@ -26,6 +26,27 @@ at Waipapa Taumata Rau | University of Auckland.
   indirect walk, no low-stress bike route, infrequent or slow public transport,
   or nothing within reach. Each points to a different kind of fix.
 
+## First results
+
+From the first full build (timetable of 1 September 2026, routed for a
+school-term Tuesday, 2023 Census):
+
+- 87% of Aucklanders can reach a GP within 20 minutes without a car. Two-thirds
+  of the 203,000 who cannot live outside the main Auckland urban area, where
+  fewer than half of residents meet the standard. Inside it, 95% do.
+- People in the most deprived fifth of neighbourhoods are more likely to meet
+  the GP standard (94%) than people in the least deprived fifth (78%). Part of
+  the difference is location: 28% of the least deprived fifth live outside the
+  main urban area, against 4% of the most deprived. Inside the urban area the
+  figures are 96% and 91%.
+- For a typical resident, about 5% of the region's jobs are within 45 minutes by
+  public transport, against 96% by car in free-flowing traffic.
+- Across 611 SA2s, job access by public transport rises with the share of
+  workers who did not drive to work in the 2023 Census (Spearman's rho 0.61).
+
+These figures depend on the standards, which are settings. The app recalculates
+them for any other standard.
+
 ## How it works
 
 Travel times come from the R5 routing engine, using OpenStreetMap streets and
