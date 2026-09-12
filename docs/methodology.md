@@ -39,6 +39,8 @@ falls in (or the nearest block within 500 m, for coastal cells):
 | Share of workers who drove to work | 2023 Census journey to work, by SA2 |
 
 These are properties of small areas, not of the people in a given hexagon.
+Local boards come from Auckland Council's 2025 local board boundaries, by the
+same rule.
 
 ## 2. Destinations
 
@@ -68,6 +70,8 @@ Travel times come from the R5 routing engine (Conway, Byrd & van der Linden,
 2017) through r5py (Fink et al., 2022), using the OpenStreetMap street and path
 network and the Auckland Transport GTFS timetable. Routing starts at the centre
 of each populated hexagon and runs to every destination, up to 60 minutes.
+Mavoa et al. (2012) measured access to destinations in Auckland by public
+transport and walking from timetable and network data in a similar way.
 
 | Mode | Settings |
 | --- | --- |
@@ -162,8 +166,7 @@ estimate for an area rather than a count of individuals.
 Results are also broken down by NZDep quintile (deciles 1–2 through 9–10),
 giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
-Figures are summarised for each SA2 and, where the boundary data allows, each
-local board.
+Figures are summarised for each SA2 and each of Auckland's 21 local boards.
 
 ## 7. Why a place misses a standard
 
@@ -189,11 +192,13 @@ first. A local study is still needed to design one.
   ([`tests/test_core.py`](../tests/test_core.py)). The browser copy of the reason
   rules is tested against the same cases
   ([`tests/web/diagnose.test.mjs`](../tests/web/diagnose.test.mjs)).
-- Public transport access is compared with the share of people who travel to
-  work by public transport in the 2023 Census, by SA2. This is a check on
-  whether the pattern is plausible, not a calibration.
+- For each SA2, job access by public transport (the population-weighted share
+  of Auckland's jobs within 45 minutes) is compared with the share of workers
+  who did not drive to work in the 2023 Census, using Spearman's rank
+  correlation. The result is recorded under `checks` in `summary.json`. It
+  shows whether the pattern is plausible; it is not a calibration.
 - Every routing run writes a manifest with its inputs, settings, date and row
-  counts.
+  counts, including any empty tables left out of the timetable feed.
 
 ## 9. What TEAM does not do
 

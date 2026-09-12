@@ -55,6 +55,7 @@ def run(settings: Settings) -> None:
     summary = {
         "services": equity.service_summary(table, settings),
         "jobs": equity.jobs_summary(table, settings),
+        "checks": {"commute": equity.commute_check(table)},
     }
     areas = {}
     for key in ("sa2", "local_board"):

@@ -161,3 +161,33 @@ def area_summary(table: pd.DataFrame, settings: Settings, key: str) -> pd.DataFr
                 row[f"why_{service}"] = 0
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def commute_check(table: pd.DataFrame, mode: str = "pt", minutes: int = 45) -> dict | None:
+    """Rank correlation across SA2s between job access and not driving to work.
+
+    A plausibility check, not a calibration: areas where more jobs are within
+    reach without a car should tend to be areas where more workers got to work
+    without driving in the 2023 Census. Each SA2's job access is the
+    population-weighted mean over its hexagons.
+    """
+    column = f"jobshare{minutes}_{mode}"
+    needed = ["sa2", "population", column, "commute_car_share"]
+    if not set(needed) <= set(table.columns):
+        return None
+    frame = table[needed].dropna()
+    frame = frame[frame["population"] > 0]
+    frame = frame.assign(weighted=frame[column] * frame["population"])
+    areas = frame.groupby("sa2").agg(
+        weighted=("weighted", "sum"), population=("population", "sum"), drove=("commute_car_share", "first")
+    )
+    if len(areas) < 3:
+        return None
+    access = areas["weighted"] / areas["population"]
+    rho = access.rank().corr((1.0 - areas["drove"]).rank())
+    return {
+        "measure": column,
+        "census": "share of workers who did not drive to work, 2023 Census",
+        "areas": int(len(areas)),
+        "spearman": round(float(rho), 3),
+    }
