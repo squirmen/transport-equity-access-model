@@ -16,6 +16,7 @@ Check each provider's current terms before redistributing their data.
 | 2023 Census: main means of travel to work by SA2 | Stats NZ | share of workers who drove to work | CC BY 4.0 | `processed/auckland/census/sa2_commute_car_share.csv` |
 | Business demography, employee counts by SA2, 2024 | Stats NZ | jobs | CC BY 4.0 | `processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet` (column `dest_jobs`) |
 | NZDep2023 | University of Otago, Wellington | neighbourhood deprivation | free to use with citation | carried in the SA1 boundary file |
+| Local board boundaries, 2025 elections | Auckland Council | local board of each hexagon, for summaries | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `raw/auckland/geography/auckland_council_local_boards.geojson` |
 
 ## Prepared inputs
 

@@ -14,14 +14,14 @@ end.
 | Question | How much public transport service is near here? | How easily can people reach opportunities from here by public transport, relative to elsewhere? | How long does it take to reach everyday needs without a car, who lives where that is too long, and why? |
 | Measure | walk time to stops plus average wait, from frequency | gravity model: opportunities weighted by attractiveness, discounted by travel time | minutes to the nearest service; jobs within 30 and 45 minutes |
 | Result | index, grouped into levels 0 to 6b | raw score, published in deciles of relative access | minutes, counts and people; whether a stated standard is met |
-| Destinations | none | 15 sub-categories across education, employment, health, social and leisure, and other | supermarkets, GPs, pharmacies, primary, intermediate and secondary schools, and jobs |
+| Destinations | none | 15 sub-categories in 8 broad groups, including employment, education, health, food shopping, and social and leisure | supermarkets, GPs, pharmacies, primary, intermediate and secondary schools, and jobs |
+| How extra opportunities count | – | each further opportunity of the same kind adds less (diminishing marginal utility) | the nearest service only; job access also adjusted for workers competing for the same jobs |
 | Modes | public transport, walking to stops | public transport and walking | walking, low-stress cycling, public transport; cycling on any street and car for comparison |
-| Time | a fixed peak period | hourly snapshots (prototype: weekday 08:00–09:00 and 12:00–13:00) | median over a two-hour window (07:00–09:00 for schools and jobs, 10:00–12:00 for other services) |
-| Spatial unit | grid points | H3 resolution 10 (about 150 m) | H3 resolution 9 (about 350 m) |
+| Time | a fixed peak period | hourly scores for a typical Tuesday and Saturday; the prototype maps weekday 08:00–09:00 and 12:00–13:00 | median over a two-hour window (07:00–09:00 for schools and jobs, 10:00–12:00 for other services) |
+| Spatial unit | grid points | H3 resolution 10 (about 0.015 km², 130 m across) | H3 resolution 9 (about 0.1 km², 350 m across) |
 | People | not included | can be overlaid by the user | built in: people below each standard by deprivation, car ownership and age |
 | Why access is poor | not reported | not reported | a screening reason for each place that misses a standard |
-| Competition for opportunities | no | diminishing returns within a category | job access adjusted for competing workers |
-| Routing | – | R5 with GTFS | R5 with GTFS |
+| Travel times | – | hourly matrices from the GTFS timetable | R5 with the GTFS timetable |
 
 ## Where the three differ
 
@@ -43,10 +43,11 @@ short list of everyday services one at a time, using the nearest of each, and
 counts jobs within fixed times. TEAM's figures are simpler and can be checked
 by hand; TAI-PT's single score covers more of daily life.
 
-**Modes.** TAI-PT measures public transport with walking. TEAM also measures
-walking and cycling on their own, and separates cycling on low-stress routes
-from cycling on any street, so the gap between the two shows where a safe
-connection is missing.
+**Modes.** TAI-PT measures public transport with walking, and does not assess
+the quality of walking or cycling routes. TEAM also measures walking and
+cycling on their own, and separates cycling on low-stress routes from cycling
+on any street, so the gap between the two shows where a safe connection is
+missing.
 
 **People.** TEAM counts the residents behind each result and breaks them down
 by deprivation, households without a car, children and older people. TAI-PT
@@ -57,7 +58,7 @@ reason: an indirect walking route, no low-stress bike route, infrequent public
 transport, a slow public transport trip, or no service nearby. Neither PTAL nor
 TAI-PT reports why access is poor.
 
-**Time of day.** TAI-PT reports hourly snapshots. TEAM takes the median over
+**Time of day.** TAI-PT scores each hour separately. TEAM takes the median over
 every departure minute in a two-hour window, so waiting for an infrequent
 service is part of each time.
 

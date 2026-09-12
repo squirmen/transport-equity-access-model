@@ -11,7 +11,8 @@ First release.
   them.
 - Jobs within 30 and 45 minutes, with a version adjusted for competing workers.
 - People below each standard by neighbourhood deprivation, households without
-  a car, children and people aged 65 and over.
+  a car, children and people aged 65 and over, for the region and by local
+  board and SA2.
 - Screening reasons for each place that misses a standard.
 - A new web app with an adjustable standard, place details, search and
   downloadable data.

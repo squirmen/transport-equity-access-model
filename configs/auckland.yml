@@ -18,6 +18,7 @@ data:
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
   commute_share: processed/auckland/census/sa2_commute_car_share.csv
   cycling_network: raw/auckland/cycling/at_cycling_network.geojson
+  local_boards: raw/auckland/geography/auckland_council_local_boards.geojson
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
