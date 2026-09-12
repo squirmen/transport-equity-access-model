@@ -8,10 +8,11 @@
 - [osmium](https://osmcode.org/osmium-tool/) for filtering OpenStreetMap.
 - Node 20 or later, only for the web tests.
 
-A full build routes about 30,000 origins to around 3,000 service locations and
-3,000 job cells by five modes. The walking, cycling and car runs take minutes
-each; the public transport runs take hours. Every run is split into batches
-written as they finish, so a stopped run resumes where it left off.
+A full build routes about 30,000 origins to around 1,500 service locations and
+7,000 job cells by five modes. In a single process the walking and cycling runs
+take minutes each, and the car and public transport runs take hours. Every run
+is split into batches written as they finish, so a stopped run resumes where
+it left off.
 
 ## Data root
 
@@ -38,6 +39,25 @@ To time a run before committing to it, route the first few origins:
 ```sh
 team --data-root DATA route services pt --window interpeak --limit 500
 ```
+
+### Splitting a run across processes
+
+r5py routes one origin at a time within a process, so long runs go faster
+split across several processes. `--shard I/N` makes a process take every Nth
+batch. Sharded processes only write batches; a final run without `--shard`
+combines them.
+
+```sh
+export TEAM_MAX_MEMORY=6G    # each process loads its own copy of the network
+team --data-root DATA route --all --shard 1/3 &
+team --data-root DATA route --all --shard 2/3 &
+team --data-root DATA route --all --shard 3/3 &
+wait
+team --data-root DATA route --all
+```
+
+`TEAM_MAX_MEMORY` overrides `routing.max_memory` in the configuration. Each
+process needed about 3 GB for Auckland.
 
 ## What a build writes
 

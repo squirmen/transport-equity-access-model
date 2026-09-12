@@ -10,6 +10,8 @@ per-origin summaries only:
   for the competition-adjusted job measure.
 
 Batches are written as they finish, so a stopped run resumes where it left off.
+r5py routes one origin at a time within a process, so long runs can be split
+across processes with `shard`; a later unsharded run combines the batches.
 """
 
 from __future__ import annotations
@@ -39,11 +41,15 @@ REQUIRED_GTFS = {"agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_tim
 
 
 def prepare_java(settings: Settings) -> None:
-    """Point r5py at the configured JDK and heap size. Call before importing r5py."""
+    """Point r5py at the configured JDK and heap size. Call before importing r5py.
+
+    TEAM_MAX_MEMORY overrides routing.max_memory, for running several
+    processes at once.
+    """
     java_home = settings.routing.get("java_home")
     if java_home and not os.environ.get("JAVA_HOME") and Path(java_home).exists():
         os.environ["JAVA_HOME"] = java_home
-    memory = settings.routing.get("max_memory")
+    memory = os.environ.get("TEAM_MAX_MEMORY") or settings.routing.get("max_memory")
     if memory and "--max-memory" not in sys.argv:
         sys.argv.extend(["--max-memory", str(memory)])
 
@@ -70,7 +76,7 @@ def prepare_gtfs(settings: Settings) -> tuple[Path, list[str]]:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     left_out = []
-    tmp = target.with_suffix(".tmp")
+    tmp = target.with_suffix(f".{os.getpid()}.tmp")
     with zipfile.ZipFile(source) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
         for info in src.infolist():
             data = src.read(info)
@@ -84,6 +90,19 @@ def prepare_gtfs(settings: Settings) -> tuple[Path, list[str]]:
     record.write_text(json.dumps({"source": str(source), "sha256_prefix": digest, "left_out": left_out}, indent=2))
     log.info("timetable copy %s leaves out empty tables: %s", target.name, ", ".join(left_out) or "none")
     return target, left_out
+
+
+def batch_starts(total: int, size: int, shard: tuple[int, int] | None = None) -> list[int]:
+    """First origin of each batch this process should route.
+
+    With `shard=(i, n)`, only every n-th batch from the i-th (counting from 0)
+    is kept, so n processes can share a run without routing the same origins.
+    """
+    starts = list(range(0, total, size))
+    if shard is None:
+        return starts
+    i, n = shard
+    return starts[i::n]
 
 
 def load_origins(settings: Settings):
@@ -191,7 +210,10 @@ def run(
     window: str | None = None,
     limit: int | None = None,
     force: bool = False,
-) -> Path:
+    shard: tuple[int, int] | None = None,
+) -> Path | None:
+    """Route one run. With `shard`, route only that share of the batches and
+    leave combining to a later run without it."""
     prepare_java(settings)
     import r5py
 
@@ -222,15 +244,20 @@ def run(
     size = int(settings.routing.get("batch_size", 2000))
     max_minutes = int(settings.routing.get("max_minutes", 60))
     thresholds = [int(t) for t in settings.jobs["thresholds"]]
+    starts = batch_starts(len(origins), size, shard)
+    todo = [s for s in starts if force or not (batch_dir / f"origins_{s:06d}.parquet").exists()]
 
     log.info("%s: %d origins, %d destinations, departure %s + %s", tag, len(origins), len(targets), departure, window_length)
-    gtfs, gtfs_left_out = prepare_gtfs(settings)
-    network = r5py.TransportNetwork(settings.data("osm"), [gtfs])
+    if shard is not None:
+        log.info("%s: shard %d/%d, %d of %d batches to route", tag, shard[0] + 1, shard[1], len(todo), len(starts))
     started = time.monotonic()
-    for start in range(0, len(origins), size):
+    gtfs, gtfs_left_out = prepare_gtfs(settings)
+    if todo:
+        network = r5py.TransportNetwork(settings.data("osm"), [gtfs])
+    for start in todo:
         path = batch_dir / f"origins_{start:06d}.parquet"
         if path.exists() and not force:
-            continue
+            continue  # another process finished it meanwhile
         chunk = origins.iloc[start : start + size]
         t0 = time.monotonic()
         try:
@@ -255,14 +282,20 @@ def run(
         if dataset == "jobs":
             summary, pairs = summarise_jobs(matrix, table, thresholds)
             pairs_dir.mkdir(parents=True, exist_ok=True)
-            pairs.to_parquet(pairs_dir / path.name, index=False)
+            pairs_tmp = pairs_dir / f"{path.stem}.{os.getpid()}.tmp.parquet"
+            pairs.to_parquet(pairs_tmp, index=False)
+            pairs_tmp.replace(pairs_dir / path.name)
         else:
             summary = summarise_services(matrix, table)
-        tmp = path.with_name(path.stem + ".tmp.parquet")
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.parquet")
         summary.to_parquet(tmp, index=False)
         tmp.replace(path)
         done = min(start + size, len(origins))
         log.info("%s: %d/%d origins, batch %.0fs", tag, done, len(origins), time.monotonic() - t0)
+
+    if shard is not None:
+        log.info("%s: shard %d/%d done; run again without --shard to combine", tag, shard[0] + 1, shard[1])
+        return None
 
     batches = sorted(batch_dir.glob("origins_*[0-9].parquet"))
     result = pd.concat([pd.read_parquet(p) for p in batches], ignore_index=True)
@@ -306,7 +339,12 @@ def plan(settings: Settings) -> list[tuple[str, str, str | None]]:
     return runs
 
 
-def run_plan(settings: Settings, force: bool = False, only: list[str] | None = None) -> None:
+def run_plan(
+    settings: Settings,
+    force: bool = False,
+    only: list[str] | None = None,
+    shard: tuple[int, int] | None = None,
+) -> None:
     for dataset, mode_id, window in plan(settings):
         tag = run_tag(dataset, mode_id, window, window is not None)
         if only and tag not in only:
@@ -314,4 +352,4 @@ def run_plan(settings: Settings, force: bool = False, only: list[str] | None = N
         if settings.out("routing", f"{tag}.parquet").exists() and not force:
             log.info("%s: already done", tag)
             continue
-        run(settings, dataset, mode_id, window, force=force)
+        run(settings, dataset, mode_id, window, force=force, shard=shard)

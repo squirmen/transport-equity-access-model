@@ -1,9 +1,10 @@
 """Command line for TEAM.
 
-    team destinations            build the service and job destination sets
-    team route --all             run every routing job (resumable)
-    team route services walk     run one job
-    team build                   measures, people, context, summaries and web data
+    team destinations                  build the service and job destination sets
+    team route --all                   run every routing job (resumable)
+    team route --all --shard 1/3       route every third batch, to split work across processes
+    team route services walk           run one job
+    team build                         measures, people, context, summaries and web data
 """
 
 from __future__ import annotations
@@ -21,6 +22,19 @@ def _settings(args: argparse.Namespace) -> config_module.Settings:
     return config_module.load(args.config, args.data_root, args.out, args.cache)
 
 
+def _shard(value: str | None) -> tuple[int, int] | None:
+    """Parse --shard I/N into a zero-based (index, count) pair."""
+    if not value:
+        return None
+    try:
+        i, n = (int(part) for part in value.split("/"))
+    except ValueError:
+        raise SystemExit("--shard takes the form I/N, for example 1/3.") from None
+    if not 1 <= i <= n:
+        raise SystemExit("--shard I/N needs 1 <= I <= N.")
+    return i - 1, n
+
+
 def cmd_destinations(args: argparse.Namespace) -> int:
     from . import destinations
 
@@ -36,12 +50,13 @@ def cmd_route(args: argparse.Namespace) -> int:
     from . import routing
 
     settings = _settings(args)
+    shard = _shard(args.shard)
     if args.all or args.only:
-        routing.run_plan(settings, force=args.force, only=args.only)
+        routing.run_plan(settings, force=args.force, only=args.only, shard=shard)
         return 0
     if not args.dataset or not args.mode:
         raise SystemExit("Give a dataset and mode, or --all.")
-    routing.run(settings, args.dataset, args.mode, args.window, limit=args.limit, force=args.force)
+    routing.run(settings, args.dataset, args.mode, args.window, limit=args.limit, force=args.force, shard=shard)
     return 0
 
 
@@ -82,6 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="run every planned job")
     p.add_argument("--only", nargs="+", help="run only these planned jobs, by tag")
     p.add_argument("--force", action="store_true", help="recompute finished batches")
+    p.add_argument(
+        "--shard",
+        help="route every Nth batch only, given as I/N (for example 1/3); run again without it to combine",
+    )
     p.set_defaults(func=cmd_route)
 
     p = sub.add_parser("plan", help="list routing jobs and which are done")

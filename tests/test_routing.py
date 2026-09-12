@@ -1,9 +1,12 @@
-"""The timetable copy handed to R5."""
+"""The timetable copy handed to R5, and how runs are split into batches."""
 
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from team import routing
+from team.cli import _shard
 from team.config import Settings
 
 
@@ -60,3 +63,20 @@ def test_copy_is_reused_until_the_feed_changes(tmp_path: Path):
     changed, left_out = routing.prepare_gtfs(settings)
     assert changed != first
     assert left_out == []
+
+
+def test_shards_split_the_batches_without_overlap():
+    starts = routing.batch_starts(9500, 2000)
+    assert starts == [0, 2000, 4000, 6000, 8000]
+    shards = [routing.batch_starts(9500, 2000, (i, 3)) for i in range(3)]
+    assert shards == [[0, 6000], [2000, 8000], [4000]]
+    assert sorted(start for shard in shards for start in shard) == starts
+
+
+def test_shard_argument():
+    assert _shard(None) is None
+    assert _shard("1/3") == (0, 3)
+    assert _shard("3/3") == (2, 3)
+    for bad in ("0/3", "4/3", "2", "a/b"):
+        with pytest.raises(SystemExit):
+            _shard(bad)
