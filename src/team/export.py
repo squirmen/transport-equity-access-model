@@ -227,7 +227,71 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
     for path in sorted(folder.glob("team_auckland_h3.*")) + [folder / "fields.csv"]:
         sums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
     (folder / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
+    write_downloads_page(folder)
     return folder
+
+
+DOWNLOAD_NOTES = {
+    "team_auckland_h3.gpkg": "Every field for every populated hexagon, with the hexagon shapes (GeoPackage, for GIS).",
+    "team_auckland_h3.csv": "The same fields without shapes.",
+    "fields.csv": "What each field means.",
+    "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
+}
+
+DOWNLOADS_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TEAM data</title>
+<link rel="icon" href="../assets/team-mark.svg" type="image/svg+xml">
+<style>
+body { max-width: 760px; margin: 40px auto; padding: 0 20px; color: #15252e; font: 15px/1.55 Inter, ui-sans-serif, system-ui, sans-serif; }
+h1 { margin: 12px 0 8px; color: #0c0c48; font-size: 26px; }
+h2 { margin: 28px 0 6px; font-size: 17px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 9px 8px; border-bottom: 1px solid #e1e4e6; text-align: left; vertical-align: top; }
+th { color: #55646c; font-weight: 600; font-size: 13px; }
+td:last-child { white-space: nowrap; color: #55646c; }
+a { color: #1f6178; }
+</style>
+</head>
+<body>
+<p><a href="../">Back to TEAM</a></p>
+<h1>TEAM data</h1>
+<p>Travel times, standards, reasons, job access and census characteristics for every populated hexagon in Auckland. Version __VERSION__, built __BUILT__.</p>
+<table>
+<thead><tr><th>File</th><th>Contents</th><th>Size</th></tr></thead>
+<tbody>
+__ROWS__
+</tbody>
+</table>
+<h2>Terms</h2>
+<p>The data is derived from OpenStreetMap (Open Database Licence), Stats NZ and the Ministry of Education (CC BY 4.0), and Auckland Transport open data. Parts derived from OpenStreetMap are shared under the Open Database Licence.</p>
+<h2>Citation</h2>
+<p>Welch, T. F. (2026). TEAM: Transport Equity and Access Model, Auckland. Version __VERSION__. Better Places Lab, University of Auckland.</p>
+</body>
+</html>
+"""
+
+
+def _size(path: Path) -> str:
+    size = path.stat().st_size
+    return f"{size / 1e6:.1f} MB" if size >= 1e6 else f"{max(1, round(size / 1e3))} KB"
+
+
+def write_downloads_page(folder: Path) -> None:
+    rows = []
+    for name, note in DOWNLOAD_NOTES.items():
+        path = folder / name
+        if path.exists():
+            rows.append(f'<tr><td><a href="{name}">{name}</a></td><td>{note}</td><td>{_size(path)}</td></tr>')
+    page = (
+        DOWNLOADS_PAGE.replace("__ROWS__", "\n".join(rows))
+        .replace("__VERSION__", __version__)
+        .replace("__BUILT__", dt.date.today().isoformat())
+    )
+    (folder / "index.html").write_text(page, encoding="utf-8")
 
 
 def assemble_site(settings: Settings) -> Path:

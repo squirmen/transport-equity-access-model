@@ -78,27 +78,29 @@ function readHash() {
   return params.get('at');
 }
 
+function hashNow() {
+  const params = new URLSearchParams();
+  params.set('s', state.service);
+  params.set('v', state.view);
+  if (state.service === 'jobs') {
+    params.set('j', [state.jobsMode, state.jobsLimit, state.jobsFair ? 'f' : ''].join('.'));
+  } else {
+    params.set('m', state.mode);
+    params.set('t', String(standardFor(state.service)));
+  }
+  if (state.group !== 'everyone') params.set('g', state.group);
+  if (state.basemap !== 'light') params.set('b', state.basemap);
+  if (map) {
+    const c = map.getCenter();
+    params.set('at', `${map.getZoom().toFixed(1)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`);
+  }
+  window.history.replaceState(null, '', `#${params.toString()}`);
+}
+
 let hashTimer = 0;
 function writeHash() {
   window.clearTimeout(hashTimer);
-  hashTimer = window.setTimeout(() => {
-    const params = new URLSearchParams();
-    params.set('s', state.service);
-    params.set('v', state.view);
-    if (state.service === 'jobs') {
-      params.set('j', [state.jobsMode, state.jobsLimit, state.jobsFair ? 'f' : ''].join('.'));
-    } else {
-      params.set('m', state.mode);
-      params.set('t', String(standardFor(state.service)));
-    }
-    if (state.group !== 'everyone') params.set('g', state.group);
-    if (state.basemap !== 'light') params.set('b', state.basemap);
-    if (map) {
-      const c = map.getCenter();
-      params.set('at', `${map.getZoom().toFixed(1)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`);
-    }
-    window.history.replaceState(null, '', `#${params.toString()}`);
-  }, 250);
+  hashTimer = window.setTimeout(hashNow, 250);
 }
 
 function set(patch) {
@@ -421,6 +423,17 @@ function wireControls() {
     writeHash();
   });
   $('place-close').addEventListener('click', closePlace);
+  $('share').addEventListener('click', async () => {
+    hashNow();
+    const button = $('share');
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      button.textContent = 'Link copied';
+    } catch {
+      button.textContent = 'Copy the address bar';
+    }
+    window.setTimeout(() => { button.textContent = 'Copy link'; }, 2000);
+  });
   $('about-open').addEventListener('click', () => {
     renderAbout($('about-body'), data.meta);
     $('about').showModal();
@@ -465,7 +478,13 @@ function wireControls() {
       if (!current) return;
       tooltip.replaceChildren(el('strong', null, placeName(i)), ...current.tooltip(i).map((line) => el('span', null, line)));
       tooltip.hidden = false;
-      tooltip.style.transform = `translate(${Math.round(point.x + 14)}px, ${Math.round(point.y + 14)}px)`;
+      // Keep the tooltip clear of the place panel and the window edge.
+      const room = window.innerWidth - ($('place').hidden ? 0 : 360);
+      const x = Math.round(point.x + 14);
+      const y = Math.round(point.y + 14);
+      tooltip.style.transform = point.x + 300 > room
+        ? `translate(${Math.round(point.x - 14)}px, ${y}px) translateX(-100%)`
+        : `translate(${x}px, ${y}px)`;
     },
     leave() {
       tooltip.hidden = true;
