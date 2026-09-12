@@ -15,11 +15,13 @@ Batches are written as they finish, so a stopped run resumes where it left off.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +34,9 @@ log = logging.getLogger("team.routing")
 
 SERVICE_COUNT_MINUTES = (10, 15, 20, 30)
 
+# GTFS tables every feed must carry. Anything else is optional.
+REQUIRED_GTFS = {"agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_times.txt"}
+
 
 def prepare_java(settings: Settings) -> None:
     """Point r5py at the configured JDK and heap size. Call before importing r5py."""
@@ -41,6 +46,44 @@ def prepare_java(settings: Settings) -> None:
     memory = settings.routing.get("max_memory")
     if memory and "--max-memory" not in sys.argv:
         sys.argv.extend(["--max-memory", str(memory)])
+
+
+def _has_rows(data: bytes) -> bool:
+    return sum(1 for line in data.splitlines() if line.strip()) > 1
+
+
+def prepare_gtfs(settings: Settings) -> tuple[Path, list[str]]:
+    """The timetable feed as R5 will load it, and the tables left out of it.
+
+    R5 refuses optional tables that have a header and no rows. Auckland
+    Transport's feed ships its fare and frequency tables that way. The copy
+    leaves out such tables and changes nothing else, so any other fault in the
+    feed, including an empty required table, still stops the run. Copies are
+    kept in the cache and named by the source file's hash.
+    """
+    source = settings.data("gtfs")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()[:12]
+    target = settings.cache_dir / "gtfs" / f"{source.stem}-{digest}.zip"
+    record = target.with_suffix(".json")
+    if target.exists() and record.exists():
+        return target, json.loads(record.read_text())["left_out"]
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    left_out = []
+    tmp = target.with_suffix(".tmp")
+    with zipfile.ZipFile(source) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            data = src.read(info)
+            name = Path(info.filename).name
+            if name.endswith(".txt") and name not in REQUIRED_GTFS and not _has_rows(data):
+                left_out.append(name)
+                continue
+            dst.writestr(info, data)
+    tmp.replace(target)
+    left_out.sort()
+    record.write_text(json.dumps({"source": str(source), "sha256_prefix": digest, "left_out": left_out}, indent=2))
+    log.info("timetable copy %s leaves out empty tables: %s", target.name, ", ".join(left_out) or "none")
+    return target, left_out
 
 
 def load_origins(settings: Settings):
@@ -181,7 +224,8 @@ def run(
     thresholds = [int(t) for t in settings.jobs["thresholds"]]
 
     log.info("%s: %d origins, %d destinations, departure %s + %s", tag, len(origins), len(targets), departure, window_length)
-    network = r5py.TransportNetwork(settings.data("osm"), [settings.data("gtfs")])
+    gtfs, gtfs_left_out = prepare_gtfs(settings)
+    network = r5py.TransportNetwork(settings.data("osm"), [gtfs])
     started = time.monotonic()
     for start in range(0, len(origins), size):
         path = batch_dir / f"origins_{start:06d}.parquet"
@@ -238,6 +282,8 @@ def run(
         "rows": int(len(result)),
         "osm": str(settings.data("osm")),
         "gtfs": str(settings.data("gtfs")),
+        "gtfs_copy": str(gtfs),
+        "gtfs_left_out": gtfs_left_out,
         "r5py": getattr(r5py, "__version__", "unknown"),
         "elapsed_seconds_this_session": round(time.monotonic() - started, 1),
         "written": dt.datetime.now().isoformat(timespec="seconds"),
