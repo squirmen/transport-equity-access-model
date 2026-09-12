@@ -550,7 +550,9 @@ async function init() {
   map = createMap('map');
   // Exposed for browser tests and scripted tours.
   window.team = { map, state };
-  const ready = new Promise((resolve) => map.on('load', resolve));
+  // Start once the style is ready. The 'load' event also waits for every basemap
+  // tile, which would hold up the whole app on a slow connection.
+  const ready = new Promise((resolve) => map.once('style.load', resolve));
   try {
     data = await load(DATA_BASE);
   } catch (error) {
