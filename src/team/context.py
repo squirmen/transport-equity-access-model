@@ -29,6 +29,7 @@ RAIL_TYPES = {0, 1, 2}
 FERRY_TYPES = {4}
 STOP_RADIUS_M = 800.0
 FREQUENT_PER_HOUR = 4.0
+LINE_TOLERANCE_DEG = 0.0001  # about 10 m, for simplifying network lines drawn on the map
 
 
 def _read(zf: zipfile.ZipFile, name: str, **kwargs) -> pd.DataFrame:
@@ -172,16 +173,23 @@ def overlays(settings: Settings) -> dict[str, dict]:
     shape_labels["rank"] = shape_labels["layer"].map(rank)
     best = shape_labels.sort_values("rank").drop_duplicates("shape_id").set_index("shape_id")["layer"]
 
+    import shapely
+
     with zipfile.ZipFile(settings.data("gtfs")) as zf:
         shapes = _read(zf, "shapes.txt")
     shapes = shapes[shapes["shape_id"].isin(best.index)].copy()
     shapes["seq"] = shapes["shape_pt_sequence"].astype(int)
-    shapes[["lon", "lat"]] = shapes[["shape_pt_lon", "shape_pt_lat"]].astype(float).round(5)
+    shapes[["lon", "lat"]] = shapes[["shape_pt_lon", "shape_pt_lat"]].astype(float)
     layers: dict[str, list] = {name: [] for name in rank}
     seen: set[tuple] = set()
     for shape_id, points in shapes.sort_values(["shape_id", "seq"]).groupby("shape_id"):
-        coords = points[["lon", "lat"]].to_numpy().tolist()
-        signature = (tuple(coords[0]), tuple(coords[-1]), len(coords))
+        if len(points) < 2:
+            continue
+        # Timetable shapes carry a point every few metres; about 10 m is plenty
+        # for a network drawn over the map.
+        line = shapely.simplify(shapely.LineString(points[["lon", "lat"]].to_numpy()), LINE_TOLERANCE_DEG)
+        coords = np.round(shapely.get_coordinates(line), 5).tolist()
+        signature = tuple(map(tuple, coords))
         if len(coords) < 2 or signature in seen:
             continue
         seen.add(signature)

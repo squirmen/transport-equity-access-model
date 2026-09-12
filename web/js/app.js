@@ -2,7 +2,7 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, load, meetsFlags, peopleBelow, peopleByReason, rankPlaces, reasons as reasonCodes,
+  byQuintile, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces, reasons as reasonCodes,
   times, weightedMedian, weightedShare,
 } from './data.js';
 import { count, el, minutes, MODES } from './format.js';
@@ -559,7 +559,7 @@ async function init() {
   }
   await ready;
   setCells(map, cellCollection(data.h3));
-  setOverlays(map, data.overlays, data.destinations);
+  setOverlays(map, {}, data.destinations);
   setBasemap(map, state.basemap);
   wireControls();
   wireSearch();
@@ -581,6 +581,10 @@ async function init() {
     map.fitBounds([[174.6, -37.08], [174.95, -36.72]], { padding, duration: 0 });
   }
   $('loading').hidden = true;
+  // Network lines only show when a layer is switched on, so they load after the first view.
+  loadOverlays(DATA_BASE)
+    .then((overlays) => setOverlays(map, overlays, data.destinations))
+    .catch((error) => console.warn('Network layers could not be loaded.', error));
 }
 
 init();

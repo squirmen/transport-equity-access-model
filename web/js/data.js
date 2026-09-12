@@ -2,17 +2,23 @@
 
 import { diagnoseCell } from './diagnose.js';
 
-const FILES = ['cells', 'summary', 'places', 'destinations', 'overlays'];
+// The network overlays are not needed for the first view, so they load separately.
+const FILES = ['cells', 'summary', 'places', 'destinations'];
 const numeric = (values) => Float32Array.from(values || [], (v) => (v == null ? NaN : v));
 
+async function fetchJson(base, name) {
+  const response = await fetch(`${base}${name}.json`);
+  if (!response.ok) throw new Error(`Could not load ${name}.json (${response.status})`);
+  return response.json();
+}
+
 export async function load(base) {
-  const fetchJson = async (name) => {
-    const response = await fetch(`${base}${name}.json`);
-    if (!response.ok) throw new Error(`Could not load ${name}.json (${response.status})`);
-    return response.json();
-  };
-  const [cells, summary, places, destinations, overlays] = await Promise.all(FILES.map(fetchJson));
-  return prepare({ cells, summary, places, destinations, overlays });
+  const [cells, summary, places, destinations] = await Promise.all(FILES.map((name) => fetchJson(base, name)));
+  return prepare({ cells, summary, places, destinations });
+}
+
+export function loadOverlays(base) {
+  return fetchJson(base, 'overlays');
 }
 
 function mapValues(object, fn) {
@@ -27,7 +33,6 @@ function prepare(raw) {
     summary: raw.summary,
     places: raw.places,
     destinations: raw.destinations,
-    overlays: raw.overlays,
     n,
     h3: c.h3,
     place: c.place,

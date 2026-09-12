@@ -46,7 +46,7 @@ const REASON_SENTENCE = {
   0: 'the nearest one is close in a straight line, but the walk there is indirect',
   1: 'a confident rider could get there in time on busy roads, but not on low-stress routes',
   2: 'public transport is too slow, usually because services are infrequent or indirect',
-  3: 'the nearest one is simply too far away',
+  3: 'the nearest one is too far away',
 };
 
 function radios(label, options, current, onPick, { compact = false } = {}) {

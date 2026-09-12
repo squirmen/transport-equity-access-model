@@ -91,10 +91,12 @@ paths, protected lanes and quiet residential streets, which most people are
 willing to ride (Dill & McNeil, 2016). Level 3 adds streets a confident rider
 would use.
 
-**Public transport.** Walking the whole way is allowed when it is faster, so a
-public transport time is never worse than the walking time. The median over the
-window reflects the timetable a person would meet if they left at a random
-minute, which is how frequency enters the measure.
+**Public transport.** A public transport time is for a trip that uses at least
+one bus, train or ferry. Walking the whole way is counted separately, under
+walking, so for a nearby service the walk can be quicker than the public
+transport time. The median over the window reflects the timetable a person
+would meet if they left at a random minute, which is how frequency enters the
+measure.
 
 For each hexagon and service, TEAM keeps the minutes to the nearest destination
 by each mode, which destination that was, how many destinations are within 10,
