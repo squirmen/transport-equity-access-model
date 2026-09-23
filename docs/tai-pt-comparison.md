@@ -2,10 +2,14 @@
 
 Transport for NSW is consulting on a prototype Transport Access Indicator for
 public transport (TAI-PT), intended to replace Public Transport Accessibility
-Levels (PTAL) in NSW. This note sets out how TEAM's measures are built and how
-they differ from both. Descriptions of TAI-PT come from the documents Transport
-for NSW released for consultation in August and September 2026, listed at the
-end.
+Levels (PTAL) in NSW. This note sets out how TEAM's measures are built, how
+they differ from both, and what each approach is good for. Descriptions of
+TAI-PT come from the documents Transport for NSW released for consultation in
+August and September 2026, listed at the end.
+
+TEAM is an open pipeline built for Auckland. Nothing in it is specific to
+Auckland: the inputs are a GTFS feed, OpenStreetMap, a census and a list of
+destinations.
 
 ## In one table
 
@@ -22,6 +26,37 @@ end.
 | People | not included | can be overlaid by the user | built in: people below each standard by deprivation, car ownership and age |
 | Why access is poor | not reported | not reported | a screening reason for each place that misses a standard |
 | Travel times | – | hourly matrices from the GTFS timetable | R5 with the GTFS timetable |
+| Code and data | published method | prototype released for consultation | open source; the hexagon dataset is published with the tool |
+
+## What the difference looks like
+
+These are Auckland figures from the first full build, at TEAM's default
+standards. They are here to show what the units do, not to say anything about
+Sydney.
+
+**A standard names the people, a ranking names the places.** 87% of
+Aucklanders can reach a GP within 20 minutes without a car. The other 203,000
+are a count, not a decile, so they can be put next to a service change, a
+target or a budget. Two-thirds of them live outside the main urban area; inside
+it, 95% meet the standard.
+
+**Deciles can invert a story that matters.** People in the most deprived fifth
+of Auckland neighbourhoods are more likely to meet the GP standard (94%) than
+people in the least deprived fifth (78%). That is mostly location: 28% of the
+least deprived fifth live outside the main urban area, against 4% of the most
+deprived. Inside the urban area the figures are 96% and 91%, the other way
+around. Relative access alone would not separate those two effects.
+
+**The size of the car gap is the finding.** For a typical resident, about 5% of
+the region's jobs are within 45 minutes by public transport, against 96% by car
+in free-flowing traffic. A decile map of public transport access cannot show a
+gap of that size, because everything in it is scored against the rest of the
+public transport network.
+
+**The measure can be checked against behaviour.** Across 611 SA2s, job access
+by public transport rises with the share of workers who did not drive to work
+in the 2023 Census (Spearman's rho 0.61). An absolute measure can be validated
+this way; a decile is harder to test.
 
 ## Where the three differ
 
@@ -62,6 +97,51 @@ TAI-PT reports why access is poor.
 every departure minute in a two-hour window, so waiting for an infrequent
 service is part of each time.
 
+## What TAI-PT does better
+
+A gravity score with a fitted decay handles choice, which a nearest-service
+time does not: two supermarkets at 12 minutes are worth more than one, and a
+hospital is not the same size as a clinic. TAI-PT covers 15 kinds of
+destination against TEAM's six services and jobs, so it describes more of daily
+life in a single number. Its hourly profile shows how access decays across the
+day rather than in two windows. Its 130 m cells resolve walk catchments that
+350 m cells average over. And one consistent score across the state is the
+right shape for business cases and transport impact assessments, where every
+scheme has to be measured the same way.
+
+## What TEAM could add to TAI-PT
+
+Four changes, each small next to the work already done. None of them
+replaces the score.
+
+1. **Publish one absolute companion measure.** A time to the nearest of a few
+   named destinations, or the share of residents within a stated time, keeps
+   the deciles and adds a number that moves when the network improves
+   everywhere.
+2. **Count people, not cells.** The census overlay is already possible for a
+   user; doing it in the published product makes the result a statement of
+   need, and makes distributional questions answerable in one step.
+3. **Publish the reason, not only the score.** The inputs for a screening
+   reason are already in the model: walk time, service frequency, in-vehicle
+   time. It turns a map of where into a shortlist of what kind of fix.
+4. **Release the travel-time matrices.** With the hourly matrices, others can
+   apply their own standards and destinations without re-running the routing.
+
+## Questions for the TAI team
+
+- Which decisions is TAI-PT meant to feed: business cases, funding allocation,
+  service planning, or land-use assessment? The unit that suits one may not
+  suit another.
+- Is a threshold or standard intended alongside the deciles, and if so, who
+  sets it?
+- How will TAI-PT show an improvement that lifts a whole region at once?
+- Will the hourly matrices, the decay parameters and the destination weights be
+  published?
+- Is walking and cycling access in scope for later indicators, and is
+  household-level data (car ownership, age, income) intended to sit alongside?
+- What would be most useful from a comparison like this one: the method, the
+  code, or a run of TEAM on Sydney data?
+
 ## Where each fits
 
 PTAL and TAI-PT give a consistent, region-wide measure of public transport
@@ -84,4 +164,5 @@ questions for the prototype TAI-PT*. September 2026.
 
 Transport for London (2015). *Assessing transport connectivity in London*.
 
-TEAM's own method is in [`methodology.md`](methodology.md).
+TEAM's own method is in [`methodology.md`](methodology.md); every published
+field is in [`indicators.md`](indicators.md).
