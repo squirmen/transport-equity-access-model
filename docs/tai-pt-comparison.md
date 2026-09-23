@@ -149,3 +149,7 @@ Transport for London (2015). *Assessing transport connectivity in London*.
 
 TEAM's method is in [`methodology.md`](methodology.md); every published field is
 in [`indicators.md`](indicators.md).
+
+TEAM is built by the [Better Places Lab](https://betterplaces.blogs.auckland.ac.nz)
+at Waipapa Taumata Rau | University of Auckland. Questions, corrections and data
+offers: t.welch@auckland.ac.nz
