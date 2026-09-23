@@ -40,3 +40,6 @@ not redistributed, and carry their providers' attribution on the map.
 TEAM's own outputs (travel times, standards, summaries and the downloadable
 dataset) are derived from the inputs above and carry their terms. The
 OpenStreetMap-derived parts are subject to ODbL share-alike conditions.
+
+The MIT licence in [`LICENSE`](../LICENSE) covers the source code only. Input
+and output datasets remain under the terms set by their providers, listed above.
