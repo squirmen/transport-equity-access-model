@@ -2,8 +2,8 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces, reasons as reasonCodes,
-  times, weightedMedian, weightedShare,
+  byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
+  reasons as reasonCodes, times, weightedMedian, weightedShare,
 } from './data.js';
 import { count, el, minutes, MODES } from './format.js';
 import {
@@ -11,12 +11,12 @@ import {
   setCells, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
-  ACCESS, accessBreaks, classify, FADED, FAIR, FAIR_BREAKS, JOBS, JOBS_BREAKS, PEOPLE, quartileBreaks,
-  REASON_CLASS, REASON_GROUPS, REASON_PALETTE,
+  ACCESS, accessBreaks, classify, DECILE, FADED, FAIR, FAIR_BREAKS, JOBS, JOBS_BREAKS, PEOPLE, quartileBreaks,
+  REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
 } from './palette.js';
 import {
   renderAccess, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople, renderPeople,
-  renderServicePicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
+  renderScore, renderServicePicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -34,7 +34,13 @@ const GROUPS = ['everyone', 'no_car', 'children', 'older'];
 const GROUP_NOUN = { everyone: 'people', no_car: 'people without a car', children: 'children', older: 'people 65+' };
 const $ = (id) => document.getElementById(id);
 
+const MEASURES = ['standards', 'score'];
+
 const state = {
+  measure: 'standards',
+  scoreKey: 'all',
+  scoreMode: 'pt',
+  scoreDisplay: 'index',
   service: 'gp',
   view: 'access',
   mode: 'best',
@@ -71,6 +77,11 @@ function readHash() {
   if (BASEMAPS[params.get('b')]) state.basemap = params.get('b');
   const standard = Number(params.get('t'));
   if (standard >= 5 && standard <= 60 && state.service !== 'jobs') state.standard[state.service] = standard;
+  if (MEASURES.includes(params.get('x'))) state.measure = params.get('x');
+  const score = (params.get('a') || '').split('.');
+  if (score[0]) state.scoreKey = score[0];
+  if (score[1]) state.scoreMode = score[1];
+  if (score[2] === 'd') state.scoreDisplay = 'decile';
   const jobs = (params.get('j') || '').split('.');
   if (jobs[0]) state.jobsMode = jobs[0];
   if (jobs[1]) state.jobsLimit = jobs[1];
@@ -80,6 +91,10 @@ function readHash() {
 
 function hashNow() {
   const params = new URLSearchParams();
+  if (state.measure !== 'standards') {
+    params.set('x', state.measure);
+    params.set('a', [state.scoreKey, state.scoreMode, state.scoreDisplay === 'decile' ? 'd' : ''].join('.'));
+  }
   params.set('s', state.service);
   params.set('v', state.view);
   if (state.service === 'jobs') {
@@ -319,7 +334,62 @@ function jobsModel() {
   };
 }
 
+function scoreChoice() {
+  const meta = data.meta.access || {};
+  const available = (meta.modes || []).filter((m) => data.access[m] && Object.keys(data.access[m]).length);
+  const mode = available.includes(state.scoreMode) ? state.scoreMode : available[0];
+  const keys = mode ? Object.keys(data.access[mode]) : [];
+  const key = keys.includes(state.scoreKey) ? state.scoreKey : keys[keys.length - 1];
+  return { available, mode, keys, key, display: state.scoreDisplay === 'decile' ? 'decile' : 'index' };
+}
+
+function scoreModel() {
+  const choice = scoreChoice();
+  const meta = data.meta.access || {};
+  const values = data.access[choice.mode][choice.key];
+  const bands = decileBands(values, data.pop);
+  const decile = choice.display === 'decile';
+  const classes = decile
+    ? Int8Array.from(bands)
+    : Int8Array.from(values, (v) => (Number.isFinite(v) ? classify(v, SCORE_BREAKS) : -1));
+  const legend = decile
+    ? DECILE.map((colour, k) => ({ colour, label: k === 0 ? '1' : k === 9 ? '10' : String(k + 1) }))
+    : ['under 25', '25–50', '50–100', '100–200', '200–400', 'over 400'].map((label, k) => ({ colour: SCORE[k], label }));
+  const quintileLabels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
+  const keyLabels = meta.keys || {};
+  const cap = meta.max_minutes || 45;
+  return {
+    classes,
+    colours: decile ? DECILE : SCORE,
+    tooltip: (i) => [
+      Number.isFinite(values[i])
+        ? `${keyLabels[choice.key] || choice.key} by ${MODES[choice.mode].short}: score ${Math.round(values[i])}`
+        : 'No score here',
+      Number.isFinite(values[i]) ? `Decile ${bands[i] + 1} of 10; Auckland average is 100` : '',
+    ].filter(Boolean),
+    panel: {
+      key: choice.key,
+      mode: choice.mode,
+      display: choice.display,
+      keys: choice.keys.map((k) => [k, keyLabels[k] || k]),
+      modes: choice.available.map((m) => [m, MODES[m].label]),
+      median: weightedMedian(values, data.pop),
+      palma: palma(values, data.pop),
+      legend,
+      byQuintile: [1, 2, 3, 4, 5].map((q, k) => ({
+        label: quintileLabels[k],
+        value: weightedMedian(values, data.pop, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
+        emphasis: k === 4,
+      })),
+      note: `Every opportunity within ${cap} minutes counts, discounted by how long it takes to reach. `
+        + 'The impedance curves are those published by Transport for NSW for TAI-PT, fitted to the New South Wales '
+        + 'Household Travel Survey, so they are a starting point for Auckland rather than a local calibration.',
+    },
+  };
+}
+
 function compute() {
+  if (state.measure === 'score') return scoreModel();
   if (state.service === 'jobs') return jobsModel();
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
@@ -330,7 +400,7 @@ function compute() {
 
 function renderStandard() {
   const field = $('standard-field');
-  const jobs = state.service === 'jobs';
+  const jobs = state.service === 'jobs' || state.measure === 'score';
   field.hidden = jobs;
   if (jobs) return;
   const value = standardFor(state.service);
@@ -343,6 +413,16 @@ function renderStandard() {
 }
 
 function renderView(model) {
+  const score = state.measure === 'score';
+  for (const button of document.querySelectorAll('#measure-picker button')) {
+    button.setAttribute('aria-checked', String(button.dataset.measure === state.measure));
+  }
+  $('service-field').hidden = score;
+  $('tabs').hidden = score;
+  if (score) {
+    renderScore($('view'), model.panel, set);
+    return;
+  }
   renderServicePicker($('service-picker'), state.service, set);
   for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
   const root = $('view');
@@ -360,6 +440,13 @@ function renderView(model) {
 function renderMini() {
   // One line shown in the header when the panel is folded away (and on phones at first).
   const mini = $('mini');
+  if (state.measure === 'score') {
+    const choice = scoreChoice();
+    const median = weightedMedian(data.access[choice.mode][choice.key], data.pop);
+    const label = (data.meta.access.keys || {})[choice.key] || choice.key;
+    mini.textContent = `${label} by ${MODES[choice.mode].short} · typical score ${Math.round(median)} of 100`;
+    return;
+  }
   if (state.service === 'jobs') {
     const choice = jobsChoice();
     const median = weightedMedian(data.jobs[choice.mode][String(choice.limit)], data.pop);
@@ -382,7 +469,7 @@ function update() {
   renderView(current);
   renderMini();
   window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2) };
-  showDestinationsFor(map, state.service === 'jobs' ? null : state.service);
+  showDestinationsFor(map, state.service === 'jobs' || state.measure === 'score' ? null : state.service);
   if (state.selected != null) showPlace(state.selected);
 }
 
@@ -402,6 +489,9 @@ function closePlace() {
 // ---------------------------------------------------------------- wiring
 
 function wireControls() {
+  for (const button of document.querySelectorAll('#measure-picker button')) {
+    button.addEventListener('click', () => set({ measure: button.dataset.measure }));
+  }
   for (const tab of document.querySelectorAll('[role="tab"]')) {
     tab.addEventListener('click', () => set({ view: tab.dataset.view }));
     tab.addEventListener('keydown', (event) => {

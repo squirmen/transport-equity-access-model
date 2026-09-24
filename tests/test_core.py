@@ -115,12 +115,29 @@ def test_summarise_services_nearest_and_counts():
         }
     )
     services = pd.DataFrame({"id": ["0", "1", "2"], "service": ["gp", "gp", "pharmacy"]})
-    out = summarise_services(matrix, services).set_index(["origin", "service"])
+    out, pairs = summarise_services(matrix, services)
+    out = out.set_index(["origin", "service"])
     assert out.loc[("A", "gp"), "minutes"] == 12
     assert out.loc[("A", "gp"), "nearest_id"] == "0"
     assert out.loc[("A", "gp"), ["n10", "n15", "n20", "n30"]].tolist() == [0, 1, 1, 2]
     assert out.loc[("A", "pharmacy"), "n10"] == 1
     assert "B" not in out.index.get_level_values("origin")
+
+
+def test_summarise_services_keeps_pairs_for_the_gravity_scores():
+    matrix = pd.DataFrame(
+        {
+            "from_id": ["a", "a", "a"],
+            "to_id": ["0", "1", "2"],
+            "travel_time": [5.0, 25.0, np.nan],
+        }
+    )
+    services = pd.DataFrame({"id": ["0", "1", "2"], "service": ["gp", "gp", "pharmacy"]})
+    _, pairs = summarise_services(matrix, services, pair_minutes=20)
+    assert list(pairs.columns) == ["origin", "destination", "service", "minutes"]
+    # the 25-minute pair is past the cap, the unreachable one is not a pair
+    assert len(pairs) == 1
+    assert pairs.iloc[0]["destination"] == "0"
 
 
 def test_summarise_jobs_thresholds():
@@ -130,3 +147,61 @@ def test_summarise_jobs_thresholds():
     assert out.loc[0, "jobs_30"] == 100
     assert out.loc[0, "jobs_45"] == 150
     assert len(pairs) == 2
+
+
+def test_impedance_functions_known_values():
+    import numpy as np
+
+    from team import gravity
+
+    minutes = np.array([0.0, 10.0, 20.0])
+    exponential = gravity.impedance(minutes, {"function": "negative_exponential", "beta": 0.1})
+    assert exponential[0] == pytest.approx(1.0)
+    assert exponential[1] == pytest.approx(np.exp(-1.0))
+    gauss = gravity.impedance(minutes, {"function": "gaussian", "beta": 0.01})
+    assert gauss[2] == pytest.approx(np.exp(-4.0))
+    logistic = gravity.impedance(minutes, {"function": "log_logistic", "beta": 2.0, "median": 10.0})
+    assert logistic[1] == pytest.approx(0.5)
+    with pytest.raises(ValueError):
+        gravity.impedance(minutes, {"function": "sigmoid", "beta": 1.0})
+
+
+def test_score_counts_every_opportunity_with_decay():
+    import pandas as pd
+
+    from team import gravity
+
+    pairs = pd.DataFrame(
+        {
+            "origin": ["a", "a", "b"],
+            "destination": ["j1", "j2", "j1"],
+            "minutes": [0, 10, 10],
+        }
+    )
+    weights = pd.Series({"j1": 100.0, "j2": 50.0})
+    scores = gravity.score(pairs, weights, {"function": "negative_exponential", "beta": 0.1})
+    # a: 100 at no cost plus 50 discounted; b: only the first, discounted
+    assert scores["a"] == pytest.approx(100.0 + 50.0 * np.exp(-1.0))
+    assert scores["b"] == pytest.approx(100.0 * np.exp(-1.0))
+
+
+def test_index_and_deciles_are_population_weighted():
+    import numpy as np
+    import pandas as pd
+
+    from team import gravity
+
+    values = pd.Series({"a": 50.0, "b": 100.0, "c": 150.0})
+    population = pd.Series({"a": 100.0, "b": 100.0, "c": 100.0})
+    index = gravity.index_to_mean(values, population)
+    assert index["b"] == pytest.approx(100.0)
+    assert index["c"] == pytest.approx(150.0)
+
+    # One cell holds nine tenths of the people, so it spans nine deciles and
+    # the cut points follow residents rather than hexagons.
+    values = pd.Series({"low": 1.0, "big": 2.0, "high": 3.0})
+    population = pd.Series({"low": 50.0, "big": 900.0, "high": 50.0})
+    bands = gravity.deciles(values, population)
+    assert bands["low"] == 1
+    assert bands["big"] == 10
+    assert bands["high"] == 10

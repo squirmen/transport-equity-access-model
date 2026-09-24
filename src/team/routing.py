@@ -166,13 +166,15 @@ def _points(table: pd.DataFrame):
     )
 
 
-def summarise_services(matrix: pd.DataFrame, services: pd.DataFrame) -> pd.DataFrame:
-    """Nearest destination and counts within set times, per origin and service."""
+def summarise_services(matrix: pd.DataFrame, services: pd.DataFrame, pair_minutes: int | None = None):
+    """Nearest destination and counts per origin and service, plus every pair
+    inside `pair_minutes` for the gravity scores."""
     columns = ["origin", "service", "minutes", "nearest_id", *[f"n{t}" for t in SERVICE_COUNT_MINUTES]]
+    pair_columns = ["origin", "destination", "service", "minutes"]
     reached = matrix.dropna(subset=["travel_time"])
     reached = reached.merge(services[["id", "service"]], left_on="to_id", right_on="id", how="inner")
     if reached.empty:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=columns), pd.DataFrame(columns=pair_columns)
     reached = reached.sort_values(["from_id", "service", "travel_time"], kind="stable")
     out = reached.drop_duplicates(["from_id", "service"])[["from_id", "service", "travel_time", "to_id"]]
     out = out.rename(columns={"from_id": "origin", "travel_time": "minutes", "to_id": "nearest_id"})
@@ -182,18 +184,23 @@ def summarise_services(matrix: pd.DataFrame, services: pd.DataFrame) -> pd.DataF
         out = out.merge(counts, on=["origin", "service"], how="left")
         out[f"n{limit}"] = out[f"n{limit}"].fillna(0).astype("int32")
     out["minutes"] = out["minutes"].astype("float32")
-    return out[columns].reset_index(drop=True)
+    limit = int(pair_minutes) if pair_minutes else int(reached["travel_time"].max())
+    pairs = reached.loc[reached["travel_time"] <= limit, ["from_id", "to_id", "service", "travel_time"]]
+    pairs = pairs.rename(columns={"from_id": "origin", "to_id": "destination", "travel_time": "minutes"})
+    pairs["minutes"] = pairs["minutes"].astype("uint8")
+    return out[columns].reset_index(drop=True), pairs[pair_columns].reset_index(drop=True)
 
 
-def summarise_jobs(matrix: pd.DataFrame, jobs: pd.DataFrame, thresholds: list[int]):
-    """Jobs within each threshold per origin, plus the pairs inside the largest one."""
+def summarise_jobs(matrix: pd.DataFrame, jobs: pd.DataFrame, thresholds: list[int], pair_minutes: int | None = None):
+    """Jobs within each threshold per origin, plus the pairs inside `pair_minutes`."""
     reached = matrix.dropna(subset=["travel_time"]).copy()
     reached["jobs"] = reached["to_id"].map(jobs.set_index("id")["jobs"]).fillna(0.0)
     out = pd.DataFrame({"origin": pd.unique(matrix["from_id"])})
     for limit in thresholds:
         sums = reached[reached["travel_time"] <= limit].groupby("from_id")["jobs"].sum()
         out[f"jobs_{limit}"] = out["origin"].map(sums).fillna(0.0).astype("float32")
-    pairs = reached.loc[reached["travel_time"] <= max(thresholds), ["from_id", "to_id", "travel_time"]]
+    limit = int(pair_minutes) if pair_minutes else max(thresholds)
+    pairs = reached.loc[reached["travel_time"] <= limit, ["from_id", "to_id", "travel_time"]]
     pairs = pairs.rename(columns={"from_id": "origin", "to_id": "destination", "travel_time": "minutes"})
     pairs["minutes"] = pairs["minutes"].astype("uint8")
     return out, pairs.reset_index(drop=True)
@@ -280,13 +287,13 @@ def run(
             log.warning("%s batch %d: no origin could be placed on the network", tag, start)
             matrix = pd.DataFrame({"from_id": chunk["id"].to_numpy(), "to_id": None, "travel_time": np.nan})
         if dataset == "jobs":
-            summary, pairs = summarise_jobs(matrix, table, thresholds)
-            pairs_dir.mkdir(parents=True, exist_ok=True)
-            pairs_tmp = pairs_dir / f"{path.stem}.{os.getpid()}.tmp.parquet"
-            pairs.to_parquet(pairs_tmp, index=False)
-            pairs_tmp.replace(pairs_dir / path.name)
+            summary, pairs = summarise_jobs(matrix, table, thresholds, max_minutes)
         else:
-            summary = summarise_services(matrix, table)
+            summary, pairs = summarise_services(matrix, table, max_minutes)
+        pairs_dir.mkdir(parents=True, exist_ok=True)
+        pairs_tmp = pairs_dir / f"{path.stem}.{os.getpid()}.tmp.parquet"
+        pairs.to_parquet(pairs_tmp, index=False)
+        pairs_tmp.replace(pairs_dir / path.name)
         tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.parquet")
         summary.to_parquet(tmp, index=False)
         tmp.replace(path)

@@ -133,7 +133,29 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "nearest": nearest,
         "jobs": jobs,
         "fair": fair,
+        "access": access_payload(settings, table),
     }
+
+
+ACCESS_WEB_KEYS = ("jobs", "everyday", "education", "all")
+
+
+def access_payload(settings: Settings, table: pd.DataFrame) -> dict:
+    """Gravity indices for the web app: the headline keys only, as integers.
+
+    The per-purpose scores stay in the download; the app needs the index, and
+    works out deciles in the browser from whatever is on screen.
+    """
+    out: dict[str, dict] = {}
+    for mode_id in settings.gravity.get("modes", []):
+        block = {
+            key: _ints(table[f"accessidx_{key}_{mode_id}"])
+            for key in ACCESS_WEB_KEYS
+            if f"accessidx_{key}_{mode_id}" in table
+        }
+        if block:
+            out[mode_id] = block
+    return out
 
 
 def _area_records(frame: pd.DataFrame) -> list[dict]:
@@ -167,6 +189,18 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         },
         "jobs": {"thresholds": settings.jobs["thresholds"], "window": settings.jobs["window"], "total": round(jobs_total)},
         "groups": {k: v[0] for k, v in GROUPS.items()},
+        "access": {
+            "modes": list(settings.gravity.get("modes", [])),
+            "max_minutes": settings.gravity.get("max_minutes"),
+            "keys": {
+                "jobs": "Jobs",
+                "everyday": "Everyday services",
+                "education": "Schools",
+                "all": "All opportunities",
+            },
+            "functions": summary.get("gravity", {}).get("functions", {}),
+            "purposes": {k: v.get("label", k) for k, v in settings.gravity.get("purposes", {}).items()},
+        },
         "quintiles": QUINTILE_LABELS,
         "reasons": {str(code): {"key": key, "label": label, "fix": fix} for code, (key, label, fix) in REASONS.items()},
         "totals": {"cells": int(len(table)), "population": round(float(table["population"].sum()))},
@@ -194,6 +228,9 @@ FIELD_NOTES = {
     "jobs": "Jobs reachable within the stated minutes by the stated mode.",
     "jobshare": "Share of the region's jobs reachable.",
     "jobsfair": "Job access allowing for other workers who can reach the same jobs; 1 is the regional average.",
+    "access_": "Gravity score: opportunities of this type, each discounted by how long it takes to reach (see docs/methodology.md).",
+    "accessidx_": "The gravity score as an index where the population-weighted regional mean is 100.",
+    "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",
 }

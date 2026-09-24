@@ -157,7 +157,55 @@ access: the average of the best-served 10% of residents over the average of
 the least-served 40% (Palma, 2011; applied to accessibility by Pereira et al.,
 2019).
 
-## 6. Who misses out
+## 6. Gravity access scores
+
+The standards in section 4 ask whether the nearest service is close enough. A
+gravity score asks how much is within reach, counting every opportunity and
+discounting each one by how long it takes to get to. The two answer different
+questions and TEAM publishes both.
+
+For origin *i*, purpose *p* and mode *m*:
+
+*A_ipm = Σ_j W_j f_pm(t_ijm)*
+
+where *W_j* is the size of destination *j* and *f* is an impedance function.
+Sizes are jobs for employment, school rolls for schools, and 1 for
+supermarkets, GPs and pharmacies, which have no published size. Journeys longer
+than 45 minutes are not counted, which is the routed limit these scores are
+built from.
+
+**Impedance functions.** Three families are supported: negative exponential
+*exp(-b t)*, gaussian *exp(-b t²)* and log-logistic *1 / (1 + (t/m)^b)*. The
+defaults use the function and the beta that Transport for NSW published for
+TAI-PT, fitted to the New South Wales Household Travel Survey (Transport for
+NSW, 2026, Table 4.9), paired to TEAM's purposes: commuting for jobs, education
+for schools, shopping for supermarkets, and all other purposes for GPs and
+pharmacies. Walking uses their walking function and public transport uses their
+combined public transport and walking function.
+
+Those parameters describe Sydney travel, not Auckland travel. They are a
+starting point, chosen so the two measures can be compared directly, and they
+are settings in `configs/auckland.yml` rather than constants in the code. The
+log-logistic median is not transferable at all, so it is the median routed
+journey for that purpose and mode in this run. A New Zealand travel survey
+would be the better source, and replacing these functions is a configuration
+change, not a code change.
+
+**Reporting.** Each score is published three ways: the raw score, an index
+where the population-weighted regional mean is 100, and a population-weighted
+decile from 1 to 10. The deciles put a tenth of residents in each band, so a
+decile names people rather than a tenth of the map. Group and overall figures
+average the indices of their members, because the raw scores count different
+things and cannot be added together.
+
+**What a decile cannot say.** A decile is a ranking within one region at one
+time. It cannot say whether access anywhere is adequate, it does not move when
+access improves everywhere at once, and it cannot be compared between regions
+or between runs. The score and the index can do all three. TEAM publishes
+deciles because they are the unit TAI-PT uses and the comparison is useful, not
+because a ranking answers the question.
+
+## 7. Who misses out
 
 For each service and standard, TEAM counts the people living in hexagons that
 miss it, overall and for three groups: people in households without a car,
@@ -170,7 +218,7 @@ giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
 Figures are summarised for each SA2 and each of Auckland's 21 local boards.
 
-## 7. Why a place misses a standard
+## 8. Why a place misses a standard
 
 For every hexagon that misses a standard, TEAM records the first of these
 rules that applies. Each rule points to a different kind of fix.
@@ -187,7 +235,7 @@ The parameters (1.3, 12 km/h, four departures an hour) are in the
 configuration. These are screening rules: they say which kind of fix to look at
 first. A local study is still needed to design one.
 
-## 8. Checks
+## 9. Checks
 
 - Unit tests with known answers cover the standards, the reason rules, the
   competition adjustment and the equity statistics
@@ -202,7 +250,7 @@ first. A local study is still needed to design one.
 - Every routing run writes a manifest with its inputs, settings, date and row
   counts, including any empty tables left out of the timetable feed.
 
-## 9. What TEAM does not do
+## 10. What TEAM does not do
 
 - It uses the nearest service. School zones, GP enrolment, opening hours and
   store size are not modelled, so the nearest service may not be one a person

@@ -20,10 +20,25 @@ function section(title, ...children) {
   return box;
 }
 
-function serviceRow(data, i, service, standard) {
-  const mode = bestMode(data, service, i);
-  const best = mode ? data.t[service][mode][i] : NaN;
-  const meets = Number.isFinite(best) && best <= standard;
+/** What the card should say about one service in one hexagon.
+ *
+ *  The card follows the travel mode shown on the map, so a place coloured as
+ *  over the standard by public transport does not report "Meets" from a faster
+ *  bike time. "Best without a car" is the fastest of the modes that count;
+ *  car and any-street cycling are shown for reference and never count.
+ */
+export function serviceVerdict(data, i, service, standard, viewMode) {
+  const fastest = bestMode(data, service, i);
+  const best = fastest ? data.t[service][fastest][i] : NaN;
+  const mode = viewMode && viewMode !== 'best' ? viewMode : fastest;
+  const shown = mode ? data.t[service][mode]?.[i] : NaN;
+  const counts = mode ? data.meta.standard_modes.includes(mode) : false;
+  const meets = counts && Number.isFinite(shown) && shown <= standard;
+  return { fastest, best, mode, shown, counts, meets };
+}
+
+function serviceRow(data, i, service, standard, viewMode) {
+  const { fastest, best, mode, shown, counts, meets } = serviceVerdict(data, i, service, standard, viewMode);
   const code = diagnoseCell(
     {
       km: data.km[service]?.[i],
@@ -37,14 +52,24 @@ function serviceRow(data, i, service, standard) {
     },
     standard,
   );
-  const details = el('details', `service-row ${meets ? 'is-met' : 'is-missed'}`);
+  const state = !counts ? 'is-reference' : meets ? 'is-met' : 'is-missed';
+  const details = el('details', `service-row ${state}`);
   const summary = el('summary');
-  const badge = el('span', 'badge', meets ? 'Meets' : 'Misses');
+  const badge = el('span', 'badge', !counts ? 'Reference' : meets ? 'Meets' : 'Misses');
   const what = el('span', 'service-name', SERVICE_SHORT[service]);
-  const time = el('span', 'service-time', mode ? `${minutes(best)} · ${MODES[mode].short}` : 'over 60 min');
+  const time = el('span', 'service-time', mode ? `${minutes(shown)} · ${MODES[mode].short}` : 'over 60 min');
   summary.append(badge, what, time);
   details.append(summary);
-  if (!meets && code in REASON_CLASS) {
+  if (mode && mode !== fastest && Number.isFinite(best)) {
+    const verdict = best <= standard ? `within the ${standard}-minute standard` : `still over ${standard} minutes`;
+    details.append(
+      el('p', 'service-reason', `Fastest without a car: ${MODES[fastest].short}, ${minutes(best)}, ${verdict}.`),
+    );
+  }
+  if (!counts) {
+    details.append(el('p', 'service-reason', `${MODES[mode].label} never counts towards a standard.`));
+  }
+  if (counts && !meets && code in REASON_CLASS) {
     const group = REASON_GROUPS[REASON_CLASS[code]];
     details.append(el('p', 'service-reason', `${group.label}. ${group.fix}.`));
   }
@@ -55,8 +80,8 @@ function serviceRow(data, i, service, standard) {
   }
   details.append(grid);
   const nearest = data.nearest[service]?.[i];
-  if (nearest != null && data.destinations[nearest]?.name) {
-    details.append(el('p', 'service-nearest', `Nearest by ${MODES[mode].short}: ${data.destinations[nearest].name}`));
+  if (nearest != null && fastest && data.destinations[nearest]?.name) {
+    details.append(el('p', 'service-nearest', `Nearest by ${MODES[fastest].short}: ${data.destinations[nearest].name}`));
   }
   details.append(el('p', 'service-standard', `Standard: within ${standard} min. Straight-line distance ${metres((data.km[service]?.[i] ?? NaN) * 1000)}.`));
   return details;
@@ -71,8 +96,9 @@ export function renderPlace(root, data, i, state) {
   if (place && place.board) bits.push(place.board);
   root.sub.textContent = bits.join(' · ');
 
+  const viewMode = state.measure === 'score' ? 'best' : state.mode;
   const services = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s]).map((s) =>
-    serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes),
+    serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes, viewMode),
   );
 
   const jobs = [];
@@ -102,8 +128,11 @@ export function renderPlace(root, data, i, state) {
   ];
   if (Number.isFinite(data.drive[i])) people.push(row('Drove to work (this SA2, 2023)', `${data.drive[i]}%`));
 
+  const heading = viewMode === 'best'
+    ? 'Everyday services, fastest without a car'
+    : `Everyday services by ${MODES[viewMode].short}`;
   root.body.replaceChildren(
-    section('Everyday services without a car', ...services),
+    section(heading, ...services),
     section('Jobs within reach', ...jobs),
     section('Around here', ...around),
     section('Who lives here', ...people, el('p', 'note', 'Census shares describe the surrounding block, not this hexagon alone.')),

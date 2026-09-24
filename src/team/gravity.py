@@ -1,0 +1,190 @@
+"""Gravity access scores: every opportunity counted, discounted by how long it
+takes to reach.
+
+The standards measures answer whether the nearest service is within a stated
+time. A gravity score answers a different question: how much is within reach
+from here, counting a second supermarket for less than the first and a job an
+hour away for less than one ten minutes away.
+
+Three impedance families are supported, the three tested by Transport for NSW
+for TAI-PT (Transport for NSW, 2026, Technical Development Report, chapter 4):
+
+    negative exponential   f(t) = exp(-b t)
+    gaussian               f(t) = exp(-b t^2)
+    log-logistic           f(t) = 1 / (1 + (t / m)^b)
+
+The defaults in `configs/*.yml` take the form and the beta published in that
+report's Table 4.9, fitted to the New South Wales Household Travel Survey. The
+log-logistic median `m` is not transferable, so it is the routed median for
+that purpose and mode in this run, and is written into the run manifest. Local
+travel survey data would be better; the functions are settings, not constants.
+
+Columns added to the cell table:
+
+    access_<purpose>_<mode>     score: sum of opportunity weights times f(t)
+    accessidx_<purpose>_<mode>  the same, as an index where the population-
+                                weighted regional mean is 100
+    accessdec_<purpose>_<mode>  population-weighted decile of the score,
+                                1 lowest to 10 highest
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+FUNCTIONS = ("negative_exponential", "gaussian", "log_logistic")
+
+
+def impedance(minutes: np.ndarray, spec: dict) -> np.ndarray:
+    """Weight for each travel time under one impedance function."""
+    kind = str(spec.get("function", "negative_exponential"))
+    beta = float(spec["beta"])
+    time = np.asarray(minutes, dtype="float64")
+    if kind == "negative_exponential":
+        return np.exp(-beta * time)
+    if kind == "gaussian":
+        return np.exp(-beta * np.square(time))
+    if kind == "log_logistic":
+        median = float(spec.get("median", 0.0))
+        if median <= 0:
+            raise ValueError("log_logistic needs a positive median")
+        return 1.0 / (1.0 + np.power(time / median, beta))
+    raise ValueError(f"unknown impedance function: {kind}; use one of {', '.join(FUNCTIONS)}")
+
+
+def routed_median(pairs: pd.DataFrame) -> float:
+    """Median routed journey time in a pair set, used for log-logistic fits."""
+    if pairs.empty:
+        return 0.0
+    return float(np.median(pairs["minutes"].to_numpy(dtype="float64")))
+
+
+def score(pairs: pd.DataFrame, weights: pd.Series, spec: dict) -> pd.Series:
+    """Sum of opportunity weight times impedance, per origin.
+
+    `pairs` holds origin, destination and minutes; `weights` is the size of
+    each destination, indexed by destination id.
+    """
+    if pairs.empty:
+        return pd.Series(dtype="float64")
+    size = pairs["destination"].map(weights).fillna(0.0).to_numpy(dtype="float64")
+    value = size * impedance(pairs["minutes"].to_numpy(), spec)
+    return pd.Series(value, index=pairs["origin"].to_numpy()).groupby(level=0).sum()
+
+
+def index_to_mean(values: pd.Series, population: pd.Series) -> pd.Series:
+    """The score as an index where the population-weighted regional mean is 100."""
+    people = population.reindex(values.index).fillna(0.0)
+    total = float(people.sum())
+    if total <= 0:
+        return pd.Series(np.nan, index=values.index, dtype="float32")
+    mean = float((values.fillna(0.0) * people).sum() / total)
+    if mean <= 0:
+        return pd.Series(np.nan, index=values.index, dtype="float32")
+    return (values / mean * 100.0).astype("float32")
+
+
+def deciles(values: pd.Series, population: pd.Series) -> pd.Series:
+    """Population-weighted deciles, 1 lowest access to 10 highest.
+
+    Cut points fall where each tenth of residents sits, so a decile names the
+    people at that level of access rather than a tenth of the map.
+    """
+    people = population.reindex(values.index).fillna(0.0)
+    frame = pd.DataFrame({"value": values, "people": people}).dropna(subset=["value"])
+    frame = frame[frame["people"] > 0].sort_values("value", kind="stable")
+    if frame.empty:
+        return pd.Series(np.nan, index=values.index, dtype="float32")
+    share = frame["people"].cumsum() / frame["people"].sum()
+    band = np.clip(np.ceil(share * 10.0), 1, 10)
+    return pd.Series(band, index=frame.index).reindex(values.index).astype("float32")
+
+
+def _weights(settings) -> dict[str, pd.Series]:
+    """Opportunity size for each destination, by purpose."""
+    folder = settings.output_dir / "destinations"
+    out: dict[str, pd.Series] = {}
+    jobs = pd.read_parquet(folder / "jobs.parquet")
+    out["jobs"] = jobs.set_index("id")["jobs"].astype("float64")
+    services = pd.read_parquet(folder / "services.parquet")
+    for service, rows in services.groupby("service"):
+        out[str(service)] = rows.set_index("id")["weight"].astype("float64")
+    return out
+
+
+def _pair_tags(settings, purpose: str, mode_id: str) -> list[str]:
+    """The routing runs holding the pairs for one purpose and mode."""
+    from .routing import run_tag
+
+    transit = settings.modes[mode_id]["kind"] == "transit"
+    if purpose == "jobs":
+        window = settings.jobs["window"] if transit else None
+        return [run_tag("jobs", mode_id, window, transit)]
+    window = settings.services[purpose]["window"] if transit else None
+    return [run_tag("services", mode_id, window, transit)]
+
+
+def _pairs(settings, purpose: str, mode_id: str, cap: int) -> pd.DataFrame | None:
+    from .measures import load_pairs
+
+    frames = []
+    for tag in _pair_tags(settings, purpose, mode_id):
+        pairs = load_pairs(settings, tag)
+        if pairs is None:
+            continue
+        if "service" in pairs.columns:
+            pairs = pairs[pairs["service"] == purpose]
+        frames.append(pairs[["origin", "destination", "minutes"]])
+    if not frames:
+        return None
+    pairs = pd.concat(frames, ignore_index=True)
+    return pairs[pairs["minutes"] <= cap]
+
+
+def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFrame, dict]:
+    """Gravity scores for every configured purpose and mode.
+
+    Returns the columns to join onto the cell table, and a record of the
+    functions used, for the run manifest and the method page.
+    """
+    spec = settings.gravity
+    if not spec:
+        return pd.DataFrame(index=index), {}
+    cap = int(spec.get("max_minutes", 45))
+    weights = _weights(settings)
+    columns: dict[str, pd.Series] = {}
+    used: dict[str, dict] = {}
+    groups: dict[str, list[str]] = {}
+    for purpose, purpose_spec in spec["purposes"].items():
+        groups.setdefault(str(purpose_spec.get("group", "all")), []).append(purpose)
+        for mode_id in spec["modes"]:
+            settings_for_mode = dict(purpose_spec.get(mode_id, {}))
+            if not settings_for_mode:
+                continue
+            pairs = _pairs(settings, purpose, mode_id, cap)
+            if pairs is None or pairs.empty:
+                continue
+            if settings_for_mode.get("function") == "log_logistic" and not settings_for_mode.get("median"):
+                settings_for_mode["median"] = routed_median(pairs)
+            values = score(pairs, weights.get(purpose, pd.Series(dtype="float64")), settings_for_mode)
+            values = values.reindex(index).fillna(0.0)
+            columns[f"access_{purpose}_{mode_id}"] = values.astype("float32")
+            columns[f"accessidx_{purpose}_{mode_id}"] = index_to_mean(values, population)
+            columns[f"accessdec_{purpose}_{mode_id}"] = deciles(values, population)
+            used[f"{purpose}_{mode_id}"] = {**settings_for_mode, "max_minutes": cap, "pairs": int(len(pairs))}
+    table = pd.DataFrame(columns, index=index)
+    # Group and overall figures average the indices, which share a scale;
+    # the raw scores count different things and cannot be added together.
+    for mode_id in spec["modes"]:
+        for group, members in groups.items():
+            parts = [f"accessidx_{p}_{mode_id}" for p in members if f"accessidx_{p}_{mode_id}" in table]
+            if parts:
+                table[f"accessidx_{group}_{mode_id}"] = table[parts].mean(axis=1).astype("float32")
+                table[f"accessdec_{group}_{mode_id}"] = deciles(table[f"accessidx_{group}_{mode_id}"], population)
+        parts = [c for c in table.columns if c.startswith("accessidx_") and c.endswith(f"_{mode_id}")
+                 and c.split("_")[1] in spec["purposes"]]
+        if parts:
+            table[f"accessidx_all_{mode_id}"] = table[parts].mean(axis=1).astype("float32")
+            table[f"accessdec_all_{mode_id}"] = deciles(table[f"accessidx_all_{mode_id}"], population)
+    return table, used

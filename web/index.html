@@ -34,6 +34,14 @@
 
     <div id="panel-body" class="panel-body">
       <div class="field">
+        <span class="field-label" id="measure-label">Measure</span>
+        <div class="chips chips-compact" id="measure-picker" role="radiogroup" aria-labelledby="measure-label">
+          <button class="chip" type="button" role="radio" data-measure="standards" aria-checked="true">Minutes and standards</button>
+          <button class="chip" type="button" role="radio" data-measure="score" aria-checked="false">Access score</button>
+        </div>
+      </div>
+
+      <div class="field" id="service-field">
         <span class="field-label" id="service-label">Getting to</span>
         <div class="chips" id="service-picker" role="radiogroup" aria-labelledby="service-label"></div>
       </div>
@@ -47,7 +55,7 @@
         <input type="range" id="standard" min="5" max="60" step="5" value="20">
       </div>
 
-      <div class="tabs" role="tablist" aria-label="View">
+      <div class="tabs" role="tablist" aria-label="View" id="tabs">
         <button role="tab" type="button" id="tab-access" data-view="access" aria-selected="true" aria-controls="view">Access</button>
         <button role="tab" type="button" id="tab-people" data-view="people" aria-selected="false" aria-controls="view">Who misses out</button>
         <button role="tab" type="button" id="tab-fixes" data-view="fixes" aria-selected="false" aria-controls="view">What would help</button>

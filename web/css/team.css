@@ -187,6 +187,7 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .badge { padding: 2px 6px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; }
 .is-met .badge { background: #dbe8f8; color: #184f95; }
 .is-missed .badge { background: #fbe3d6; color: #833607; }
+.is-reference .badge { background: var(--track); color: var(--ink-soft); }
 .service-name { font-weight: 600; }
 .service-time { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .service-reason, .service-nearest, .service-standard { margin: 4px 4px 0 70px; color: var(--ink-soft); font-size: 12px; }

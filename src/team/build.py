@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from . import context, diagnosis, equity, export, measures, people, routing
+from . import context, diagnosis, equity, export, gravity, measures, people, routing
 from .config import Settings
 
 log = logging.getLogger("team.build")
@@ -42,13 +42,17 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
     demand = table["population"] * table["working_age_share"].fillna(1.0)
     table = table.join(measures.job_table(settings, index, demand))
 
+    log.info("gravity")
+    scores, functions = gravity.build(settings, index, table["population"])
+    table = table.join(scores)
+
     log.info("diagnosis")
     table = diagnosis.diagnose(table, settings)
-    return table, destinations
+    return table, destinations, functions
 
 
 def run(settings: Settings) -> None:
-    table, destinations = cell_table(settings)
+    table, destinations, functions = cell_table(settings)
     table.to_parquet(settings.out("team_cells.parquet"))
 
     log.info("summaries")
@@ -56,6 +60,7 @@ def run(settings: Settings) -> None:
         "services": equity.service_summary(table, settings),
         "jobs": equity.jobs_summary(table, settings),
         "checks": {"commute": equity.commute_check(table)},
+        "gravity": {"functions": functions, **equity.gravity_summary(table, settings)},
     }
     areas = {}
     for key in ("sa2", "local_board"):

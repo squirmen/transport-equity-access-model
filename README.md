@@ -25,6 +25,11 @@ at Waipapa Taumata Rau | University of Auckland.
 - **What would help.** The main reason each place misses a standard: an
   indirect walk, no low-stress bike route, infrequent or slow public transport,
   or nothing within reach. Each points to a different kind of fix.
+- **How much is within reach.** A gravity score that counts every opportunity
+  and discounts each one by how long it takes to get to, on the impedance
+  functions Transport for NSW published for TAI-PT. Shown as a score, as an
+  index against the regional average, or as deciles, and switched on with the
+  Measure toggle.
 
 ## First results
 
@@ -43,6 +48,11 @@ school-term Tuesday, 2023 Census):
   public transport, against 96% by car in free-flowing traffic.
 - Across 611 SA2s, job access by public transport rises with the share of
   workers who did not drive to work in the 2023 Census (Spearman's rho 0.61).
+  The gravity score for jobs gives 0.60 on the same test, so the two measures
+  track behaviour about equally well.
+- On the gravity score, where 100 is the regional average, the typical resident
+  scores 72 for all opportunities by public transport and 52 for jobs. The
+  best-served tenth of residents score 15 times the least-served 40%.
 
 These figures depend on the standards, which are settings. The app recalculates
 them for any other standard.

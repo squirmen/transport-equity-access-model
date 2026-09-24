@@ -251,3 +251,37 @@ export function renderJobsFixes(root) {
     el('p', 'note', 'Use Access to see where job access is lowest, and Who misses out to see how it differs by deprivation and group. The reason maps cover the six everyday services.'),
   );
 }
+
+
+const SCORE_NOUN = {
+  jobs: 'jobs',
+  everyday: 'everyday services',
+  education: 'schools',
+  all: 'opportunities',
+};
+
+export function renderScore(root, model, set) {
+  const { key, mode, display, median, palma, keys, modes, byQuintile, note } = model;
+  const noun = SCORE_NOUN[key] || 'opportunities';
+  const modeLabel = MODES[mode] ? MODES[mode].short : mode;
+  const figure = Number.isFinite(median) ? String(Math.round(median)) : '–';
+  const text = `is the typical Auckland score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
+  const sub = Number.isFinite(palma)
+    ? `The best-served tenth of residents score ${palma.toFixed(1)} times the least-served 40%.`
+    : null;
+  const chart = el('div', 'chart');
+  bars(chart, byQuintile, {
+    format: (v) => (Number.isFinite(v) ? String(Math.round(v)) : '–'),
+    caption: 'Typical score by neighbourhood deprivation',
+    label: 'Score by NZDep quintile',
+  });
+  root.replaceChildren(
+    hero(figure, text, sub),
+    radios('Score for', keys, key, (value) => set({ scoreKey: value }), { compact: true }),
+    radios('By', modes, mode, (value) => set({ scoreMode: value }), { compact: true }),
+    radios('Show', [['index', 'Score'], ['decile', 'Decile']], display, (value) => set({ scoreDisplay: value }), { compact: true }),
+    legend(display === 'decile' ? 'Decile: 1 is the tenth of residents with the least access' : 'Score, where 100 is the Auckland average', model.legend),
+    chart,
+    el('p', 'note', note),
+  );
+}

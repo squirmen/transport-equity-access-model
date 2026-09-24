@@ -79,6 +79,53 @@ services:
     standard_minutes: 30
     school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
 
+# Gravity access scores, the companion to the standards measures. Functional
+# forms and beta values are those published by Transport for NSW for TAI-PT
+# (Technical Development Report, August 2026, Table 4.9), fitted to the New
+# South Wales Household Travel Survey. They are a starting point for Auckland,
+# not a local calibration: a New Zealand travel survey would be better, and
+# these are settings, not constants. The log-logistic median is the routed
+# median for that purpose and mode in this run.
+gravity:
+  modes: [walk, pt]            # the two modes TAI-PT parameterises
+  max_minutes: 45              # journeys longer than this are not counted
+  purposes:
+    jobs:
+      label: Jobs
+      group: employment
+      walk: {function: log_logistic, beta: 1.68}
+      pt: {function: gaussian, beta: 0.00034}
+    supermarket:
+      label: Supermarkets
+      group: everyday
+      walk: {function: negative_exponential, beta: 0.1185}
+      pt: {function: negative_exponential, beta: 0.0945}
+    gp:
+      label: GPs
+      group: everyday
+      walk: {function: negative_exponential, beta: 0.1045}
+      pt: {function: negative_exponential, beta: 0.0555}
+    pharmacy:
+      label: Pharmacies
+      group: everyday
+      walk: {function: negative_exponential, beta: 0.1045}
+      pt: {function: negative_exponential, beta: 0.0555}
+    primary_school:
+      label: Primary schools
+      group: education
+      walk: {function: gaussian, beta: 0.00815}
+      pt: {function: log_logistic, beta: 1.93}
+    intermediate_school:
+      label: Intermediate schools
+      group: education
+      walk: {function: gaussian, beta: 0.00815}
+      pt: {function: log_logistic, beta: 1.93}
+    secondary_school:
+      label: Secondary schools
+      group: education
+      walk: {function: log_logistic, beta: 2.81}
+      pt: {function: gaussian, beta: 0.00067}
+
 jobs:
   window: am_peak
   resolution: 8

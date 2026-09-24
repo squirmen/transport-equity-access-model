@@ -65,3 +65,15 @@ export function quartileBreaks(values) {
   }
   return edges;
 }
+
+// Gravity access score: one hue, light to dark, with the class edges set
+// against the regional average (100) rather than the data range.
+export const SCORE = ['#e6eef8', '#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0d2f5e'];
+export const SCORE_BREAKS = [25, 50, 100, 200, 400];
+
+// Deciles of the same score. Ten steps of the same hue, so a decile map reads
+// as a ranking rather than as a measure.
+export const DECILE = [
+  '#f0f5fb', '#dbe8f8', '#c3daf4', '#a8c9ef', '#8ab6e9',
+  '#6da7ec', '#4a8ddf', '#2a78d6', '#1b5eae', '#0d366b',
+];

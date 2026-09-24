@@ -163,7 +163,9 @@ def area_summary(table: pd.DataFrame, settings: Settings, key: str) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
-def commute_check(table: pd.DataFrame, mode: str = "pt", minutes: int = 45) -> dict | None:
+def commute_check(
+    table: pd.DataFrame, mode: str = "pt", minutes: int = 45, column: str | None = None
+) -> dict | None:
     """Rank correlation across SA2s between job access and not driving to work.
 
     A plausibility check, not a calibration: areas where more jobs are within
@@ -171,7 +173,7 @@ def commute_check(table: pd.DataFrame, mode: str = "pt", minutes: int = 45) -> d
     without driving in the 2023 Census. Each SA2's job access is the
     population-weighted mean over its hexagons.
     """
-    column = f"jobshare{minutes}_{mode}"
+    column = column or f"jobshare{minutes}_{mode}"
     needed = ["sa2", "population", column, "commute_car_share"]
     if not set(needed) <= set(table.columns):
         return None
@@ -191,3 +193,38 @@ def commute_check(table: pd.DataFrame, mode: str = "pt", minutes: int = 45) -> d
         "areas": int(len(areas)),
         "spearman": round(float(rho), 3),
     }
+
+
+def gravity_summary(table: pd.DataFrame, settings: Settings) -> dict:
+    """Regional figures for the gravity scores: the middle of the distribution,
+    how unequal it is, and how it varies with deprivation."""
+    weights = group_weights(table, "everyone")
+    quintile = nzdep_quintile(table["nzdep"])
+    modes = list(settings.gravity.get("modes", []))
+    measures = []
+    for column in sorted(c for c in table.columns if c.startswith("accessidx_")):
+        rest = column.removeprefix("accessidx_")
+        mode_id = next((m for m in modes if rest.endswith(f"_{m}")), None)
+        if mode_id is None:
+            continue
+        purpose = rest[: -(len(mode_id) + 1)]
+        values = table[column]
+        entry = {
+            "purpose": purpose,
+            "mode": mode_id,
+            "median_index": weighted_quantile(values, weights, 0.5),
+            "palma": palma_ratio(values, weights),
+            "by_quintile": [],
+        }
+        for q, label in QUINTILE_LABELS.items():
+            in_q = (quintile == q).fillna(False)
+            entry["by_quintile"].append(
+                {"quintile": q, "label": label, "median_index": weighted_quantile(values[in_q], weights[in_q], 0.5)}
+            )
+        measures.append(entry)
+    checks = {}
+    for mode_id in modes:
+        check = commute_check(table, mode=mode_id, column=f"accessidx_jobs_{mode_id}")
+        if check:
+            checks[mode_id] = check
+    return {"measures": measures, "checks": checks}

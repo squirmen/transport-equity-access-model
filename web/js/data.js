@@ -49,6 +49,7 @@ function prepare(raw) {
     nearest: c.nearest,
     jobs: mapValues(c.jobs, (byLimit) => mapValues(byLimit, numeric)),
     fair: mapValues(c.fair, (byLimit) => mapValues(byLimit, numeric)),
+    access: mapValues(c.access, (byKey) => mapValues(byKey, numeric)),
   };
   data.quintile = Int8Array.from(data.nzdep, (v) => (Number.isFinite(v) ? Math.floor((v + 1) / 2) : 0));
   data.weights = { everyone: data.pop };
@@ -183,4 +184,22 @@ export function weightedMedian(values, weights, mask) {
     if (running >= total / 2) return values[i];
   }
   return values[idx[idx.length - 1]];
+}
+
+
+/** Population-weighted deciles of a score: 1 is the tenth of residents with the
+ *  least access, 10 the tenth with the most. Worked out in the browser so a
+ *  decile always describes what is on screen. */
+export function decileBands(values, weights) {
+  const order = [];
+  for (let i = 0; i < values.length; i += 1) if (Number.isFinite(values[i]) && weights[i] > 0) order.push(i);
+  order.sort((a, b) => values[a] - values[b]);
+  const total = order.reduce((sum, i) => sum + weights[i], 0);
+  const bands = new Int8Array(values.length).fill(-1);
+  let running = 0;
+  for (const i of order) {
+    running += weights[i];
+    bands[i] = Math.min(9, Math.floor((running / total) * 10 - 1e-9));
+  }
+  return bands;
 }

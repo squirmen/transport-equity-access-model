@@ -46,6 +46,9 @@ these definitions.
 | `m_frequent_stop` | metres | straight-line distance to the nearest stop with four or more departures an hour, 07:00–09:00 |
 | `m_rail_ferry` | metres | straight-line distance to the nearest rail station or ferry terminal |
 | `m_low_stress_route` | metres | straight-line distance to the nearest low-stress cycle facility in the Auckland Transport network |
+| `access_<purpose>_<mode>` | score | Gravity score: every opportunity of that type within 45 minutes, discounted by travel time |
+| `accessidx_<purpose>_<mode>` | index | The same score where the population-weighted regional mean is 100 |
+| `accessdec_<purpose>_<mode>` | 1–10 | Population-weighted decile of the score, 1 lowest access to 10 highest |
 | `nzdep` | decile | NZDep2023 deprivation, 1 least to 10 most deprived |
 | `no_vehicle_share` | share | households with no motor vehicle |
 | `children_share` | share | residents under 15 |
@@ -59,6 +62,25 @@ these definitions.
 Shares are for the SA1 block (or SA2, for commuting) the hexagon falls in, not
 for the hexagon alone.
 
+## Gravity purposes and groups
+
+Scores are published for walking and public transport, the two modes TAI-PT
+parameterises. `<purpose>` is one of the six services, `jobs`, or a group:
+`employment`, `everyday` (supermarkets, GPs, pharmacies), `education` (the
+three school types) and `all`. Group figures average the member indices.
+
+| Purpose | Size weight | Walking function | Public transport function |
+| --- | --- | --- | --- |
+| `jobs` | jobs at the destination | log-logistic, b 1.68 | gaussian, b 0.00034 |
+| `supermarket` | 1 | negative exponential, b 0.1185 | negative exponential, b 0.0945 |
+| `gp`, `pharmacy` | 1 | negative exponential, b 0.1045 | negative exponential, b 0.0555 |
+| `primary_school`, `intermediate_school` | school roll | gaussian, b 0.00815 | log-logistic, b 1.93 |
+| `secondary_school` | school roll | log-logistic, b 2.81 | gaussian, b 0.00067 |
+
+The functions come from Transport for NSW's TAI-PT report and are settings in
+`configs/auckland.yml`; [`methodology.md`](methodology.md#6-gravity-access-scores)
+explains what that does and does not license.
+
 ## Reason codes (`why_<service>`)
 
 | Code | Reason | Points to |
@@ -71,7 +93,7 @@ for the hexagon alone.
 | 5 | nothing within reach | a service closer to home |
 | 9 | could not be routed | – |
 
-The rules behind each code are in [`methodology.md`](methodology.md#7-why-a-place-misses-a-standard).
+The rules behind each code are in [`methodology.md`](methodology.md#8-why-a-place-misses-a-standard).
 
 ## Regional and area summaries
 
