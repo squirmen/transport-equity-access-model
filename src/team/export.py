@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import gzip
 import json
 import shutil
 from pathlib import Path
@@ -53,8 +54,23 @@ def _clean(value):
 
 
 def _dump(path: Path, payload) -> None:
+    """Write the file, and a gzipped copy beside it.
+
+    The data files are large and compress about six to one. Compressing them
+    here rather than on every request takes seconds off the first load, and the
+    web server hands over the .gz when the browser says it accepts gzip.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_clean(payload), separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+    text = json.dumps(_clean(payload), separators=(",", ":"), ensure_ascii=False)
+    path.write_text(text, encoding="utf-8")
+    raw = text.encode("utf-8")
+    with gzip.GzipFile(path.with_suffix(path.suffix + ".gz"), "wb", compresslevel=6, mtime=0) as out:
+        out.write(raw)
+    try:
+        import brotli  # optional; the .gz alone is enough to serve every browser
+    except ImportError:
+        return
+    path.with_suffix(path.suffix + ".br").write_bytes(brotli.compress(raw, quality=5))
 
 
 def place_list(table: pd.DataFrame) -> tuple[list[dict], dict[str, int]]:

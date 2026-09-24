@@ -346,6 +346,9 @@ function scoreChoice() {
 function scoreModel() {
   const choice = scoreChoice();
   const meta = data.meta.access || {};
+  // An older cells.json has no scores in it. Fall back rather than fail: a
+  // stale file in a browser cache should cost a feature, not the whole page.
+  if (!choice.mode || !choice.key || !data.access[choice.mode]?.[choice.key]) return null;
   const values = data.access[choice.mode][choice.key];
   const bands = decileBands(values, data.pop);
   const decile = choice.display === 'decile';
@@ -389,8 +392,17 @@ function scoreModel() {
   };
 }
 
+function scoreAvailable() {
+  const choice = scoreChoice();
+  return Boolean(choice.mode && choice.key && data.access[choice.mode]?.[choice.key]);
+}
+
 function compute() {
-  if (state.measure === 'score') return scoreModel();
+  if (state.measure === 'score') {
+    const model = scoreModel();
+    if (model) return model;
+    state.measure = 'standards';
+  }
   if (state.service === 'jobs') return jobsModel();
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
@@ -417,6 +429,7 @@ function renderView(model) {
   const score = state.measure === 'score';
   for (const button of document.querySelectorAll('#measure-picker button')) {
     button.setAttribute('aria-checked', String(button.dataset.measure === state.measure));
+    if (button.dataset.measure === 'score') button.hidden = !scoreAvailable();
   }
   $('service-field').hidden = score;
   $('tabs').hidden = score;
@@ -441,7 +454,7 @@ function renderView(model) {
 function renderMini() {
   // One line shown in the header when the panel is folded away (and on phones at first).
   const mini = $('mini');
-  if (state.measure === 'score') {
+  if (state.measure === 'score' && scoreAvailable()) {
     const choice = scoreChoice();
     const median = weightedMedian(data.access[choice.mode][choice.key], data.pop);
     const label = (data.meta.access.keys || {})[choice.key] || choice.key;

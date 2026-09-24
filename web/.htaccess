@@ -9,6 +9,42 @@ DirectoryIndex index.html
   AddType application/geopackage+sqlite3 .gpkg
 </IfModule>
 
+# The build writes .br and .gz copies beside each data file. Hand those over
+# when the browser accepts them: the same bytes, without compressing nine
+# megabytes on every request. Brotli first, since it is about a fifth smaller.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTP:Accept-Encoding} br
+  RewriteCond %{DOCUMENT_ROOT}%{REQUEST_URI}.br -f
+  RewriteRule ^(.+)\.json$ $1.json.br [QSA,L]
+
+  RewriteCond %{HTTP:Accept-Encoding} gzip
+  RewriteCond %{DOCUMENT_ROOT}%{REQUEST_URI}.gz -f
+  RewriteRule ^(.+)\.json$ $1.json.gz [QSA,L]
+</IfModule>
+
+<FilesMatch "\.json\.br$">
+  ForceType application/json
+  # Already compressed. Without this, mod_deflate gzips it again while the
+  # header still says br, and no browser can read the result.
+  SetEnv no-gzip 1
+  <IfModule mod_headers.c>
+    Header set Content-Encoding br
+    Header append Vary Accept-Encoding
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.json\.gz$">
+  ForceType application/json
+  SetEnv no-gzip 1
+  <IfModule mod_headers.c>
+    Header set Content-Encoding gzip
+    Header append Vary Accept-Encoding
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml text/csv
 </IfModule>
@@ -19,12 +55,24 @@ DirectoryIndex index.html
   Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
+# The app is plain ES modules with stable file names, so a cached script can
+# outlive the page that loads it. A browser holding yesterday's app.js against
+# today's index.html loses its controls. Scripts, styles, the page and the data
+# are therefore revalidated on every load: unchanged files come back as a 304,
+# which costs a round trip and no bytes. Only images are cached outright.
 <IfModule mod_expires.c>
   ExpiresActive On
-  ExpiresByType text/html "access plus 10 minutes"
-  ExpiresByType application/json "access plus 1 day"
-  ExpiresByType text/css "access plus 1 day"
-  ExpiresByType application/javascript "access plus 1 day"
-  ExpiresByType text/javascript "access plus 1 day"
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType application/json "access plus 0 seconds"
+  ExpiresByType text/css "access plus 0 seconds"
+  ExpiresByType application/javascript "access plus 0 seconds"
+  ExpiresByType text/javascript "access plus 0 seconds"
   ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+</IfModule>
+
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|mjs|css|json)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
 </IfModule>
