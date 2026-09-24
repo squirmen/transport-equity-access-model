@@ -65,9 +65,13 @@ for the hexagon alone.
 ## Gravity purposes and groups
 
 Scores are published for walking and public transport, the two modes TAI-PT
-parameterises. `<purpose>` is one of the six services, `jobs`, or a group:
+parameterises, and for low-stress cycling in beta, on the Propensity to Cycle
+Tool's distance decay. `<purpose>` is one of the six services, `jobs`, or a group:
 `employment`, `everyday` (supermarkets, GPs, pharmacies), `education` (the
 three school types) and `all`. Group figures average the member indices.
+
+Every purpose uses the same cycling curve: the PCT Go Dutch decay, converted
+from minutes at 15 km/h and held flat below its two-kilometre peak.
 
 | Purpose | Size weight | Walking function | Public transport function |
 | --- | --- | --- | --- |

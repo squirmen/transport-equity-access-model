@@ -183,6 +183,25 @@ for schools, shopping for supermarkets, and all other purposes for GPs and
 pharmacies. Walking uses their walking function and public transport uses their
 combined public transport and walking function.
 
+**Cycling, in beta.** The TAI-PT report sets cycling aside, because in New
+South Wales it sits outside most people's choice set, so it publishes no
+cycling curve. TEAM needs one, since low-stress cycling counts towards its
+standards. Until a New Zealand travel survey provides a local curve, cycling
+uses the Propensity to Cycle Tool's Go Dutch distance decay (Lovelace et al.,
+2017, with the PCT 2020 coefficients), converted from minutes at the routed
+cycling speed of 15 km/h.
+
+The PCT logit describes how likely a commuter is to ride a trip of a given
+length, and it rises to a peak around two kilometres because people walk the
+shortest trips instead of riding them. That is a statement about which trips
+get cycled, not about what a nearby destination is worth, so the curve is held
+flat below its peak: everything inside the easiest riding distance counts in
+full, and beyond it the weight falls as the PCT says cycling does. The
+gradient terms are evaluated at the PCT's reference gradient, so the curve is
+flat-terrain; Auckland's hills are in the routed times, not in the decay. The
+same curve is used for every purpose, which a local survey would improve on.
+The cycling score is labelled beta in the interface for these reasons.
+
 Those parameters describe Sydney travel, not Auckland travel. They are a
 starting point, chosen so the two measures can be compared directly, and they
 are settings in `configs/auckland.yml` rather than constants in the code. The
@@ -274,6 +293,14 @@ Deprivation*. University of Otago, Wellington.
 Conway, M. W., Byrd, A., & van der Linden, M. (2017). Evidence-based transit and
 land use sketch planning using interactive accessibility methods on
 combinatorial scenario designs. *Transportation Research Record*, 2653, 45–53.
+
+Lovelace, R., Goodman, A., Aldred, R., Berkoff, N., Abbas, A., & Woodcock, J.
+(2017). The Propensity to Cycle Tool: an open source online system for
+sustainable transport planning. *Journal of Transport and Land Use*, 10(1),
+505–528.
+
+Transport for NSW (2026). *Transport Access Indicators: Technical Development
+Report for TAI-PT*. August 2026.
 
 Dill, J., & McNeil, N. (2016). Revisiting the four types of cyclists: findings
 from a national survey. *Transportation Research Record*, 2587, 90–99.

@@ -205,3 +205,27 @@ def test_index_and_deciles_are_population_weighted():
     assert bands["low"] == 1
     assert bands["big"] == 10
     assert bands["high"] == 10
+
+
+def test_pct_cycling_decay_never_penalises_a_close_destination():
+    import numpy as np
+
+    from team import gravity
+
+    spec = {
+        "function": "pct",
+        "b0": -1.468,
+        "b1": -0.71726,
+        "b2": 1.988,
+        "b3": 0.008775,
+        "speed_kmh": 15,
+    }
+    minutes = np.array([0.0, 5.0, 10.0, 20.0, 30.0, 45.0])
+    weights = gravity.impedance(minutes, spec)
+    # the raw PCT curve peaks around two kilometres; held flat below the peak,
+    # a destination at the door is worth as much as one a short ride away
+    assert weights[0] == pytest.approx(1.0)
+    assert weights[1] == pytest.approx(1.0, abs=1e-6)
+    # and falls away with distance after that
+    assert all(weights[i] > weights[i + 1] for i in range(2, len(weights) - 1))
+    assert weights[-1] < 0.4

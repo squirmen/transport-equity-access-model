@@ -372,7 +372,7 @@ function scoreModel() {
       mode: choice.mode,
       display: choice.display,
       keys: choice.keys.map((k) => [k, keyLabels[k] || k]),
-      modes: choice.available.map((m) => [m, MODES[m].label]),
+      modes: choice.available.map((m) => [m, (meta.beta_modes || []).includes(m) ? `${MODES[m].label} (beta)` : MODES[m].label]),
       median: weightedMedian(values, data.pop),
       palma: palma(values, data.pop),
       legend,
@@ -382,8 +382,9 @@ function scoreModel() {
         emphasis: k === 4,
       })),
       note: `Every opportunity within ${cap} minutes counts, discounted by how long it takes to reach. `
-        + 'The impedance curves are those published by Transport for NSW for TAI-PT, fitted to the New South Wales '
-        + 'Household Travel Survey, so they are a starting point for Auckland rather than a local calibration.',
+        + 'The curves for walking and public transport are those Transport for NSW published for TAI-PT, fitted to '
+        + 'the New South Wales Household Travel Survey. Cycling is beta: it uses the Propensity to Cycle Tool\'s '
+        + 'distance decay, because no local curve exists yet. Both are starting points, not Auckland calibrations.',
     },
   };
 }

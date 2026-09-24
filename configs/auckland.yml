@@ -87,44 +87,66 @@ services:
 # these are settings, not constants. The log-logistic median is the routed
 # median for that purpose and mode in this run.
 gravity:
-  modes: [walk, pt]            # the two modes TAI-PT parameterises
+  modes: [walk, pt, bike_low_stress]
+  beta_modes: [bike_low_stress]   # published as beta: no local decay curve yet
   max_minutes: 45              # journeys longer than this are not counted
+  # Cycling has no impedance function in the TAI-PT report, which sets cycling
+  # aside as a separate choice. Until a New Zealand travel survey gives a local
+  # curve, cycling uses the Propensity to Cycle Tool's Go Dutch distance decay
+  # (Lovelace et al., 2017; PCT 2020 coefficients), converted from minutes at
+  # the routed cycling speed and held flat below its peak so a destination next
+  # door is never worth less than one two kilometres away. The same curve is
+  # used for every purpose, which a local survey would improve on.
+  cycling: &cycling
+    function: pct
+    b0: -1.468
+    b1: -0.71726
+    b2: 1.988
+    b3: 0.008775
+    speed_kmh: 15
   purposes:
     jobs:
       label: Jobs
       group: employment
       walk: {function: log_logistic, beta: 1.68}
       pt: {function: gaussian, beta: 0.00034}
+      bike_low_stress: *cycling
     supermarket:
       label: Supermarkets
       group: everyday
       walk: {function: negative_exponential, beta: 0.1185}
       pt: {function: negative_exponential, beta: 0.0945}
+      bike_low_stress: *cycling
     gp:
       label: GPs
       group: everyday
       walk: {function: negative_exponential, beta: 0.1045}
       pt: {function: negative_exponential, beta: 0.0555}
+      bike_low_stress: *cycling
     pharmacy:
       label: Pharmacies
       group: everyday
       walk: {function: negative_exponential, beta: 0.1045}
       pt: {function: negative_exponential, beta: 0.0555}
+      bike_low_stress: *cycling
     primary_school:
       label: Primary schools
       group: education
       walk: {function: gaussian, beta: 0.00815}
       pt: {function: log_logistic, beta: 1.93}
+      bike_low_stress: *cycling
     intermediate_school:
       label: Intermediate schools
       group: education
       walk: {function: gaussian, beta: 0.00815}
       pt: {function: log_logistic, beta: 1.93}
+      bike_low_stress: *cycling
     secondary_school:
       label: Secondary schools
       group: education
       walk: {function: log_logistic, beta: 2.81}
       pt: {function: gaussian, beta: 0.00067}
+      bike_low_stress: *cycling
 
 jobs:
   window: am_peak

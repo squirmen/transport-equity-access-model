@@ -61,7 +61,9 @@ it takes to reach.
 The impedance functions are TAI-PT's own, from Table 4.9 of the technical
 report, fitted to the New South Wales Household Travel Survey and paired to
 TEAM's purposes. Walking uses their walking function, public transport uses
-their combined public transport and walking function. Those parameters describe
+their combined public transport and walking function. Cycling is published in
+beta on the Propensity to Cycle Tool's distance decay, since the TAI-PT report
+sets cycling aside and publishes no curve for it. Those parameters describe
 Sydney travel, not Auckland travel, and are a starting point chosen so the two
 measures line up rather than a local calibration. They are settings in the
 configuration file. Journeys over 45 minutes are not counted.
@@ -120,7 +122,7 @@ deprivation gap reverses once location is held constant.
 | Result | index, grouped into levels 0 to 6b | raw score, published in deciles of relative access | minutes, counts and people; whether a stated standard is met; and the gravity score as a raw score, an index against the regional mean, or deciles |
 | Destinations | none | 15 sub-categories in 8 broad groups, including employment, education, health, food shopping, and social and leisure | supermarkets, GPs, pharmacies, primary, intermediate and secondary schools, and jobs |
 | How extra opportunities count | – | each further opportunity of the same kind adds less (diminishing marginal utility) | nearest only under the standards; every opportunity, discounted by travel time, under the gravity score; job access also adjusted for workers competing for the same jobs |
-| Modes | public transport, walking to stops | public transport and walking | walking, low-stress cycling, public transport; cycling on any street and car for comparison |
+| Modes | public transport, walking to stops | public transport and walking | walking, low-stress cycling, public transport; cycling on any street and car for comparison. The gravity score covers walking, public transport, and cycling in beta |
 | Time | a fixed peak period | hourly scores for a typical Tuesday and Saturday; the prototype maps weekday 08:00–09:00 and 12:00–13:00 | median over a two-hour window (07:00–09:00 for schools and jobs, 10:00–12:00 for other services) |
 | Spatial unit | grid points | H3 resolution 10 (about 0.015 km², 130 m across) | H3 resolution 9 (about 0.1 km², 350 m across) |
 | People | not included | can be overlaid by the user | built in: people below each standard by deprivation, car ownership and age |

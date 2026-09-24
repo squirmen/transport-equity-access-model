@@ -191,6 +191,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "groups": {k: v[0] for k, v in GROUPS.items()},
         "access": {
             "modes": list(settings.gravity.get("modes", [])),
+            "beta_modes": list(settings.gravity.get("beta_modes", [])),
             "max_minutes": settings.gravity.get("max_minutes"),
             "keys": {
                 "jobs": "Jobs",

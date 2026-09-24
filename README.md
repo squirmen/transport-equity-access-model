@@ -27,8 +27,9 @@ at Waipapa Taumata Rau | University of Auckland.
   or nothing within reach. Each points to a different kind of fix.
 - **How much is within reach.** A gravity score that counts every opportunity
   and discounts each one by how long it takes to get to, on the impedance
-  functions Transport for NSW published for TAI-PT. Shown as a score, as an
-  index against the regional average, or as deciles, and switched on with the
+  functions Transport for NSW published for TAI-PT, with a beta curve for
+  cycling from the Propensity to Cycle Tool. Shown as a score, as an index
+  against the regional average, or as deciles, and switched on with the
   Measure toggle.
 
 ## First results

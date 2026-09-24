@@ -12,6 +12,8 @@ for TAI-PT (Transport for NSW, 2026, Technical Development Report, chapter 4):
     negative exponential   f(t) = exp(-b t)
     gaussian               f(t) = exp(-b t^2)
     log-logistic           f(t) = 1 / (1 + (t / m)^b)
+    pct                    the Propensity to Cycle Tool's distance decay,
+                           for cycling, where no local curve exists
 
 The defaults in `configs/*.yml` take the form and the beta published in that
 report's Table 4.9, fitted to the New South Wales Household Travel Survey. The
@@ -33,13 +35,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-FUNCTIONS = ("negative_exponential", "gaussian", "log_logistic")
+FUNCTIONS = ("negative_exponential", "gaussian", "log_logistic", "pct")
 
 
 def impedance(minutes: np.ndarray, spec: dict) -> np.ndarray:
     """Weight for each travel time under one impedance function."""
     kind = str(spec.get("function", "negative_exponential"))
-    beta = float(spec["beta"])
+    beta = float(spec.get("beta", 0.0))
     time = np.asarray(minutes, dtype="float64")
     if kind == "negative_exponential":
         return np.exp(-beta * time)
@@ -50,7 +52,41 @@ def impedance(minutes: np.ndarray, spec: dict) -> np.ndarray:
         if median <= 0:
             raise ValueError("log_logistic needs a positive median")
         return 1.0 / (1.0 + np.power(time / median, beta))
+    if kind == "pct":
+        return _pct_decay(time, spec)
     raise ValueError(f"unknown impedance function: {kind}; use one of {', '.join(FUNCTIONS)}")
+
+
+def _pct_propensity(distance_km: np.ndarray, spec: dict) -> np.ndarray:
+    """Propensity to cycle a trip of this length, from the PCT logit."""
+    b0, b1, b2, b3 = (float(spec[f"b{i}"]) for i in range(4))
+    root = np.sqrt(distance_km)
+    return 1.0 / (1.0 + np.exp(-(b0 + b1 * distance_km + b2 * root + b3 * np.square(distance_km))))
+
+
+def _pct_decay(minutes: np.ndarray, spec: dict) -> np.ndarray:
+    """Cycling weight from the Propensity to Cycle Tool's distance decay.
+
+    The PCT logit describes how likely a commuter is to cycle a trip of a given
+    length. It rises to a peak around two kilometres, because people walk the
+    shortest trips rather than ride them. That is about which trips get cycled,
+    not about how much a nearby destination is worth, so the curve is held flat
+    below its peak: everything inside the easiest riding distance counts in
+    full, and beyond it the weight falls the way the PCT says cycling does.
+
+    Gradient terms are evaluated at the PCT's reference gradient, so this is a
+    flat-terrain curve. Auckland is not flat, and the routed times already
+    carry the hills; the decay does not.
+    """
+    speed = float(spec.get("speed_kmh", 15.0))
+    if speed <= 0:
+        raise ValueError("pct decay needs a positive speed_kmh")
+    distance = np.asarray(minutes, dtype="float64") * speed / 60.0
+    grid = np.linspace(0.0, 30.0, 3001)
+    curve = _pct_propensity(grid, spec)
+    peak = float(grid[int(np.argmax(curve))])
+    values = _pct_propensity(np.maximum(distance, peak), spec)
+    return values / float(curve.max())
 
 
 def routed_median(pairs: pd.DataFrame) -> float:
