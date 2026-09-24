@@ -55,7 +55,7 @@ function serviceRow(data, i, service, standard, viewMode) {
   const state = !counts ? 'is-reference' : meets ? 'is-met' : 'is-missed';
   const details = el('details', `service-row ${state}`);
   const summary = el('summary');
-  const badge = el('span', 'badge', !counts ? 'Reference' : meets ? 'Meets' : 'Misses');
+  const badge = el('span', 'badge', !counts ? "Doesn't count" : meets ? 'Meets' : 'Misses');
   const what = el('span', 'service-name', SERVICE_SHORT[service]);
   const time = el('span', 'service-time', mode ? `${minutes(shown)} · ${MODES[mode].short}` : 'over 60 min');
   summary.append(badge, what, time);
@@ -67,7 +67,7 @@ function serviceRow(data, i, service, standard, viewMode) {
     );
   }
   if (!counts) {
-    details.append(el('p', 'service-reason', `${MODES[mode].label} never counts towards a standard.`));
+    details.append(el('p', 'service-reason', `Shown for comparison. A standard is met on foot, on a low-stress bike route or by public transport, so ${MODES[mode].short} never counts towards one.`));
   }
   if (counts && !meets && code in REASON_CLASS) {
     const group = REASON_GROUPS[REASON_CLASS[code]];
