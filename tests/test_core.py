@@ -335,3 +335,41 @@ def test_budget_steps_price_a_return_trip():
     assert [s["zones"] for s in steps] == [1, 2, 3, 4]
     assert steps[0]["cost"] == 6.0
     assert fares.budget_steps(FARE_TABLE, return_trip=False)[0]["cost"] == 3.0
+
+
+# ------------------------------------------------------- decay curve horizons
+
+def test_cutoff_follows_the_published_rule():
+    """The NZ method counts nothing past the point where 95% of trips are done."""
+    import math
+
+    from team.gravity import cutoff_minutes
+
+    # ln(20) / beta, so walking to a supermarket at 0.100 stops at 30 minutes.
+    assert round(cutoff_minutes({"cutoff": "rr512", "beta": 0.100}, 60), 1) == 30.0
+    assert round(cutoff_minutes({"cutoff": "rr512", "beta": 0.065}, 60), 1) == 46.1
+    assert math.isclose(cutoff_minutes({"cutoff": "rr512", "beta": 0.092}, 60), math.log(20) / 0.092, rel_tol=1e-9)
+
+
+def test_cutoff_never_exceeds_what_was_routed():
+    from team.gravity import cutoff_minutes
+
+    # Bus horizons run past 80 minutes, but only 60 minutes were routed.
+    assert cutoff_minutes({"cutoff": "rr512", "beta": 0.036}, 60) == 60.0
+    assert cutoff_minutes({"cutoff": 90}, 45) == 45.0
+
+
+def test_cutoff_defaults_to_the_run_limit():
+    from team.gravity import cutoff_minutes
+
+    assert cutoff_minutes({}, 45) == 45.0
+    assert cutoff_minutes({"function": "pct"}, 45) == 45.0
+
+
+def test_unknown_cutoff_rule_is_refused():
+    import pytest
+
+    from team.gravity import cutoff_minutes
+
+    with pytest.raises(ValueError):
+        cutoff_minutes({"cutoff": "whatever"}, 45)

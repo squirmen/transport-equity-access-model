@@ -93,14 +93,25 @@ services:
 gravity:
   modes: [walk, pt, bike_low_stress]
   beta_modes: [bike_low_stress]   # published as beta: no local decay curve yet
-  max_minutes: 45              # journeys longer than this are not counted
-  # Cycling has no impedance function in the TAI-PT report, which sets cycling
-  # aside as a separate choice. Until a New Zealand travel survey gives a local
-  # curve, cycling uses the Propensity to Cycle Tool's Go Dutch distance decay
-  # (Lovelace et al., 2017; PCT 2020 coefficients), converted from minutes at
-  # the routed cycling speed and held flat below its peak so a destination next
-  # door is never worth less than one two kilometres away. The same curve is
-  # used for every purpose, which a local survey would improve on.
+  max_minutes: 60              # the furthest any journey was routed; each curve cuts in sooner
+  # Walking and public transport use the travel time distribution parameters
+  # published by the NZ Transport Agency for the New Zealand accessibility
+  # analysis methodology (Abley and Halden 2013, research report 512, tables
+  # 13.2 and 13.4, Main Urban Area), fitted to the New Zealand Household
+  # Travel Survey 2003 to 2010. Lambda there is already a per-minute
+  # parameter on routed travel time, so it is used as published.
+  #
+  # That method fits its curves to the first 95% of surveyed travel times and
+  # counts nothing beyond, so `cutoff: rr512` gives each curve its own horizon
+  # of ln(20)/beta minutes rather than one number for every purpose. Public
+  # transport horizons come out past an hour and are clipped to the 60 minutes
+  # actually routed, so those scores are cut shorter than the method intends.
+  #
+  # Where report 512 marks a cell as reference only, having too small a sample
+  # to rely on, the mode's all-activities value is used instead and said so
+  # below. Cycling keeps the Propensity to Cycle Tool curve: report 512's
+  # cycling cells for school trips are all reference only, and a thin local
+  # curve is not an improvement on a sound borrowed one.
   cycling: &cycling
     function: pct
     b0: -1.468
@@ -112,44 +123,51 @@ gravity:
     jobs:
       label: Jobs
       group: employment
-      walk: {function: log_logistic, beta: 1.68}
-      pt: {function: gaussian, beta: 0.00034}
+      walk: {function: negative_exponential, beta: 0.065, cutoff: rr512}   # employment, R2 0.93
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # employment, R2 0.70
       bike_low_stress: *cycling
     supermarket:
       label: Supermarkets
       group: everyday
-      walk: {function: negative_exponential, beta: 0.1185}
-      pt: {function: negative_exponential, beta: 0.0945}
+      walk: {function: negative_exponential, beta: 0.100, cutoff: rr512}   # shopping, R2 0.96
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # shopping, R2 0.79
       bike_low_stress: *cycling
     gp:
       label: GPs
       group: everyday
-      walk: {function: negative_exponential, beta: 0.1045}
-      pt: {function: negative_exponential, beta: 0.0555}
+      # "Other" in report 512 groups medical and dental with personal
+      # business, social welfare and social visits.
+      walk: {function: negative_exponential, beta: 0.092, cutoff: rr512}   # other, R2 0.98
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # other, R2 0.78
       bike_low_stress: *cycling
     pharmacy:
       label: Pharmacies
       group: everyday
-      walk: {function: negative_exponential, beta: 0.1045}
-      pt: {function: negative_exponential, beta: 0.0555}
+      walk: {function: negative_exponential, beta: 0.092, cutoff: rr512}   # other, R2 0.98
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # other, R2 0.78
       bike_low_stress: *cycling
     primary_school:
       label: Primary schools
       group: education
-      walk: {function: gaussian, beta: 0.00815}
-      pt: {function: log_logistic, beta: 1.93}
+      walk: {function: negative_exponential, beta: 0.101, cutoff: rr512}   # primary school, R2 0.89
+      # The bus cell for primary school is marked reference only, so the bus
+      # all-activities value is used instead.
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # all activities, R2 0.76
       bike_low_stress: *cycling
     intermediate_school:
       label: Intermediate schools
       group: education
-      walk: {function: gaussian, beta: 0.00815}
-      pt: {function: log_logistic, beta: 1.93}
+      walk: {function: negative_exponential, beta: 0.077, cutoff: rr512}   # intermediate school, R2 0.93
+      # The bus cell for intermediate school is marked reference only.
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # all activities, R2 0.76
       bike_low_stress: *cycling
     secondary_school:
       label: Secondary schools
       group: education
-      walk: {function: log_logistic, beta: 2.81}
-      pt: {function: gaussian, beta: 0.00067}
+      walk: {function: negative_exponential, beta: 0.057, cutoff: rr512}   # high school, R2 0.84
+      # The weakest fit in the whole Main Urban Area set, but the sample is
+      # large enough to use.
+      pt: {function: negative_exponential, beta: 0.034, cutoff: rr512}     # high school, R2 0.51
       bike_low_stress: *cycling
 
 jobs:

@@ -6,8 +6,7 @@ time. A gravity score answers a different question: how much is within reach
 from here, counting a second supermarket for less than the first and a job an
 hour away for less than one ten minutes away.
 
-Three impedance families are supported, the three tested by Transport for NSW
-for TAI-PT (Transport for NSW, 2026, Technical Development Report, chapter 4):
+Four impedance families are supported:
 
     negative exponential   f(t) = exp(-b t)
     gaussian               f(t) = exp(-b t^2)
@@ -15,11 +14,17 @@ for TAI-PT (Transport for NSW, 2026, Technical Development Report, chapter 4):
     pct                    the Propensity to Cycle Tool's distance decay,
                            for cycling, where no local curve exists
 
-The defaults in `configs/*.yml` take the form and the beta published in that
-report's Table 4.9, fitted to the New South Wales Household Travel Survey. The
-log-logistic median `m` is not transferable, so it is the routed median for
-that purpose and mode in this run, and is written into the run manifest. Local
-travel survey data would be better; the functions are settings, not constants.
+The defaults in `configs/*.yml` take the travel time distribution parameters
+the NZ Transport Agency published for the New Zealand accessibility analysis
+methodology (Abley and Halden, 2013, research report 512, tables 13.2 and
+13.4), fitted to the New Zealand Household Travel Survey. Those are already
+per-minute parameters on routed travel time, so they are used as published.
+
+That method counts nothing past the point where 95% of trips of a kind are
+done, so each curve carries its own horizon rather than sharing one number;
+see `cutoff_minutes`. The log-logistic median `m` is not transferable, so it
+is the routed median for that purpose and mode in this run. The functions are
+settings, not constants.
 
 Columns added to the cell table:
 
@@ -36,6 +41,33 @@ import numpy as np
 import pandas as pd
 
 FUNCTIONS = ("negative_exponential", "gaussian", "log_logistic", "pct")
+
+# The share of trips left beyond the cut-off in the NZ accessibility method:
+# solving 0.05 = exp(-beta t) gives the time by which 95% of trips are done.
+CUTOFF_SHARE = 0.05
+
+
+def cutoff_minutes(spec: dict, fallback: float) -> float:
+    """How far out to count, in minutes.
+
+    NZTA research report 512 fits its curves to the first 95% of surveyed
+    travel times and sets accessibility to zero beyond that point, so a curve
+    taken from it should carry its own horizon rather than a single number
+    applied to every purpose. `cutoff: rr512` works that horizon out from the
+    fitted parameter; a number sets it directly. Either way the run cannot
+    count further than the journeys it actually routed.
+    """
+    rule = spec.get("cutoff")
+    if rule is None:
+        return float(fallback)
+    if isinstance(rule, (int, float)):
+        return min(float(rule), float(fallback))
+    if str(rule) == "rr512":
+        beta = float(spec.get("beta", 0.0))
+        if beta <= 0:
+            return float(fallback)
+        return min(float(np.log(1.0 / CUTOFF_SHARE) / beta), float(fallback))
+    raise ValueError(f"unknown cutoff rule: {rule}")
 
 
 def impedance(minutes: np.ndarray, spec: dict) -> np.ndarray:
@@ -161,7 +193,7 @@ def _pair_tags(settings, purpose: str, mode_id: str) -> list[str]:
     return [run_tag("services", mode_id, window, transit)]
 
 
-def _pairs(settings, purpose: str, mode_id: str, cap: int) -> pd.DataFrame | None:
+def _pairs(settings, purpose: str, mode_id: str, cap: float) -> pd.DataFrame | None:
     from .measures import load_pairs
 
     frames = []
@@ -198,7 +230,8 @@ def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFram
             settings_for_mode = dict(purpose_spec.get(mode_id, {}))
             if not settings_for_mode:
                 continue
-            pairs = _pairs(settings, purpose, mode_id, cap)
+            horizon = cutoff_minutes(settings_for_mode, cap)
+            pairs = _pairs(settings, purpose, mode_id, horizon)
             if pairs is None or pairs.empty:
                 continue
             if settings_for_mode.get("function") == "log_logistic" and not settings_for_mode.get("median"):
@@ -208,7 +241,11 @@ def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFram
             columns[f"access_{purpose}_{mode_id}"] = values.astype("float32")
             columns[f"accessidx_{purpose}_{mode_id}"] = index_to_mean(values, population)
             columns[f"accessdec_{purpose}_{mode_id}"] = deciles(values, population)
-            used[f"{purpose}_{mode_id}"] = {**settings_for_mode, "max_minutes": cap, "pairs": int(len(pairs))}
+            used[f"{purpose}_{mode_id}"] = {
+                **settings_for_mode,
+                "max_minutes": round(float(horizon), 1),
+                "pairs": int(len(pairs)),
+            }
     table = pd.DataFrame(columns, index=index)
     # Group and overall figures average the indices, which share a scale;
     # the raw scores count different things and cannot be added together.

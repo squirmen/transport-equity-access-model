@@ -170,23 +170,48 @@ For origin *i*, purpose *p* and mode *m*:
 
 where *W_j* is the size of destination *j* and *f* is an impedance function.
 Sizes are jobs for employment, school rolls for schools, and 1 for
-supermarkets, GPs and pharmacies, which have no published size. Journeys longer
-than 45 minutes are not counted, which is the routed limit these scores are
-built from.
+supermarkets, GPs and pharmacies, which have no published size.
 
-**Impedance functions.** Three families are supported: negative exponential
-*exp(-b t)*, gaussian *exp(-b t²)* and log-logistic *1 / (1 + (t/m)^b)*. The
-defaults use the function and the beta that Transport for NSW published for
-TAI-PT, fitted to the New South Wales Household Travel Survey (Transport for
-NSW, 2026, Table 4.9), paired to TEAM's purposes: commuting for jobs, education
-for schools, shopping for supermarkets, and all other purposes for GPs and
-pharmacies. Walking uses their walking function and public transport uses their
-combined public transport and walking function.
+**Impedance functions.** Four families are supported: negative exponential
+*exp(-b t)*, gaussian *exp(-b t²)*, log-logistic *1 / (1 + (t/m)^b)* and the
+Propensity to Cycle Tool's curve. Walking and public transport use the travel
+time distribution parameters the NZ Transport Agency published for the New
+Zealand accessibility analysis methodology (Abley and Halden, 2013, tables
+13.2 and 13.4, Main Urban Area), fitted to the New Zealand Household Travel
+Survey for 2003 to 2010. That report fits a negative exponential to the
+cumulative distribution of surveyed travel times, and its lambda is already a
+per-minute parameter on travel time, so it is used as published.
 
-**Cycling, in beta.** The TAI-PT report sets cycling aside, because in New
-South Wales it sits outside most people's choice set, so it publishes no
-cycling curve. TEAM needs one, since low-stress cycling counts towards its
-standards. Until a New Zealand travel survey provides a local curve, cycling
+Its purposes are paired to TEAM's as: employment for jobs, shopping for
+supermarkets, "other" for GPs and pharmacies, and the matching school category
+for each school type. "Other" in that report groups medical and dental with
+personal business, social welfare and social visits.
+
+**How far each curve counts.** That method fits its curves to the first 95% of
+surveyed travel times and counts nothing beyond, so each purpose and mode
+carries its own horizon of *ln(20) / b* minutes rather than sharing one limit.
+Walking to a supermarket stops at 30 minutes and walking to a job at 46, which
+is what the survey says those trips look like. Public transport horizons run
+past 80 minutes, longer than the 60 minutes TEAM routes, so those are clipped
+at 60 and the public transport scores are cut shorter than the method intends.
+
+**What the curves were fitted to.** Report 512 fits its curves to reported
+door-to-door journey times, which include the walk at each end, waiting and
+transfers. TEAM's routed times are door to door in the same sense: a public
+transport time carries the walk to the stop, the wait, the ride, any transfer
+and the walk at the other end. The two are the same quantity, which is what
+makes the parameters transferable. They would not be if TEAM reported time on
+board only.
+
+**Where a cell is too thin to use.** The report marks cells with small samples
+as reference only. Where the bus curve for a school type is marked that way,
+TEAM uses the bus all-activities value instead rather than a number the source
+says not to rely on. Each substitution is named in `configs/auckland.yml`.
+
+**Cycling, in beta.** Report 512 does publish cycling curves, but every cycling
+cell for a school trip is marked reference only, and the sample behind them is
+thin. A thin local curve is not an improvement on a sound borrowed one, so
+cycling
 uses the Propensity to Cycle Tool's Go Dutch distance decay (Lovelace et al.,
 2017, with the PCT 2020 coefficients), converted from minutes at the routed
 cycling speed of 15 km/h.
@@ -298,6 +323,10 @@ Lovelace, R., Goodman, A., Aldred, R., Berkoff, N., Abbas, A., & Woodcock, J.
 (2017). The Propensity to Cycle Tool: an open source online system for
 sustainable transport planning. *Journal of Transport and Land Use*, 10(1),
 505–528.
+
+Abley, S. and Halden, D. (2013). *The New Zealand accessibility analysis
+methodology*. NZ Transport Agency research report 512. Wellington: NZ
+Transport Agency. ISBN 978-0-478-40717-4.
 
 Transport for NSW (2026). *Transport Access Indicators: Technical Development
 Report for TAI-PT*. August 2026.

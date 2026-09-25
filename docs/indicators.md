@@ -64,7 +64,7 @@ for the hexagon alone.
 
 ## Gravity purposes and groups
 
-Scores are published for walking and public transport, the two modes TAI-PT
+Scores are published for walking and public transport, the two modes report 512
 parameterises, and for low-stress cycling in beta, on the Propensity to Cycle
 Tool's distance decay. `<purpose>` is one of the six services, `jobs`, or a group:
 `employment`, `everyday` (supermarkets, GPs, pharmacies), `education` (the
@@ -81,7 +81,7 @@ from minutes at 15 km/h and held flat below its two-kilometre peak.
 | `primary_school`, `intermediate_school` | school roll | gaussian, b 0.00815 | log-logistic, b 1.93 |
 | `secondary_school` | school roll | log-logistic, b 2.81 | gaussian, b 0.00067 |
 
-The functions come from Transport for NSW's TAI-PT report and are settings in
+The functions come from NZ Transport Agency research report 512 and are settings in
 `configs/auckland.yml`; [`methodology.md`](methodology.md#6-gravity-access-scores)
 explains what that does and does not license.
 

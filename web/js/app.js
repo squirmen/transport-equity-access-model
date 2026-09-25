@@ -467,7 +467,6 @@ function scoreModel() {
     : ['under 25', '25–50', '50–100', '100–200', '200–400', 'over 400'].map((label, k) => ({ colour: SCORE[k], label }));
   const quintileLabels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   const keyLabels = meta.keys || {};
-  const cap = meta.max_minutes || 45;
   return {
     classes,
     colours: decile ? DECILE : SCORE,
@@ -491,10 +490,12 @@ function scoreModel() {
         value: weightedMedian(values, data.pop, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
         emphasis: k === 4,
       })),
-      note: `Every opportunity within ${cap} minutes counts, discounted by how long it takes to reach. `
-        + 'The curves for walking and public transport are those Transport for NSW published for TAI-PT, fitted to '
-        + 'the New South Wales Household Travel Survey. Cycling is beta: it uses the Propensity to Cycle Tool\'s '
-        + 'distance decay, because no local curve exists yet. Both are starting points, not Auckland calibrations.',
+      note: 'Every opportunity counts, discounted by how long it takes to reach. The curves for walking '
+        + 'and public transport are the travel time parameters the NZ Transport Agency published for the New '
+        + 'Zealand accessibility analysis methodology, fitted to the New Zealand Household Travel Survey. Each '
+        + 'purpose stops counting where 95% of trips of that kind are done, which is what that method does. '
+        + 'Cycling is beta: it uses the Propensity to Cycle Tool\'s distance decay, because the local cycling '
+        + 'samples are too small to fit a curve to.',
     },
   };
 }
