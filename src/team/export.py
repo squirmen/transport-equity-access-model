@@ -167,16 +167,16 @@ def cost_payload(settings: Settings, table: pd.DataFrame) -> dict:
     """
     out: dict[str, dict] = {}
     for purpose in settings.fares.get("purposes", []):
-        block = {}
+        block: dict[str, list] = {}
         for limit in range(1, 5):
-            column = f"costaccess_{purpose}_z{limit}"
-            if column not in table:
-                continue
             if purpose == "jobs":
-                share = f"costshare_{purpose}_z{limit}"
-                block[f"z{limit}"] = _floats(table[share], 2, scale=100) if share in table else None
+                column = f"costshare_{purpose}_z{limit}"
+                if column in table:
+                    block[f"z{limit}"] = _floats(table[column], 2, scale=100)
             else:
-                block[f"z{limit}"] = _ints(table[column])
+                column = f"costmin_{purpose}_z{limit}"
+                if column in table:
+                    block[f"z{limit}"] = _ints(table[column])
         if block:
             out[purpose] = block
     return out
@@ -309,6 +309,7 @@ FIELD_NOTES = {
     "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
     "costzone": "Auckland Transport fare zone the cell sits in.",
     "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport.",
+    "costmin_": "Minutes to the nearest one within this many fare zones by public transport.",
     "costshare_": "The same, as a share of all of them in the region.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",

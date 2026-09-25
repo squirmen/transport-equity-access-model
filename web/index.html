@@ -55,6 +55,26 @@
         <input type="range" id="standard" min="5" max="60" step="5" value="20">
       </div>
 
+      <div class="field" id="budget-field">
+        <div class="field-head">
+          <label class="field-label" for="budget">Fare budget</label>
+          <span class="field-value" id="budget-value"></span>
+          <button class="text-button" id="budget-reset" type="button" hidden>Any fare</button>
+        </div>
+        <input type="range" id="budget" min="0" max="20" step="0.5" value="20"
+               aria-describedby="budget-note">
+        <div class="ticks" id="budget-ticks" aria-hidden="true"></div>
+        <p class="note" id="budget-note"></p>
+      </div>
+
+      <details class="traveller" id="traveller">
+        <summary>
+          <span class="field-label">Traveller</span>
+          <span class="traveller-summary" id="traveller-summary"></span>
+        </summary>
+        <div class="traveller-body" id="traveller-body"></div>
+      </details>
+
       <div class="tabs" role="tablist" aria-label="View" id="tabs">
         <button role="tab" type="button" id="tab-access" data-view="access" aria-selected="true" aria-controls="view">Access</button>
         <button role="tab" type="button" id="tab-people" data-view="people" aria-selected="false" aria-controls="view">Who misses out</button>

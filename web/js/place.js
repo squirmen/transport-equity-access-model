@@ -27,25 +27,33 @@ function section(title, ...children) {
  *  bike time. "Best without a car" is the fastest of the modes that count;
  *  car and any-street cycling are shown for reference and never count.
  */
-export function serviceVerdict(data, i, service, standard, viewMode) {
-  const fastest = bestMode(data, service, i);
-  const best = fastest ? data.t[service][fastest][i] : NaN;
-  const mode = viewMode && viewMode !== 'best' ? viewMode : fastest;
-  const shown = mode ? data.t[service][mode]?.[i] : NaN;
-  const counts = mode ? data.meta.standard_modes.includes(mode) : false;
-  const meets = counts && Number.isFinite(shown) && shown <= standard;
-  return { fastest, best, mode, shown, counts, meets };
+export function timeFor(data, service, mode, i, zones = null) {
+  if (mode !== 'pt' || zones == null) return data.t[service]?.[mode]?.[i];
+  if (zones <= 0) return NaN;
+  return data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i];
 }
 
-function serviceRow(data, i, service, standard, viewMode) {
-  const { fastest, best, mode, shown, counts, meets } = serviceVerdict(data, i, service, standard, viewMode);
+export function serviceVerdict(data, i, service, standard, viewMode, zones = null) {
+  const fastest = bestMode(data, service, i, zones);
+  const best = fastest ? timeFor(data, service, fastest, i, zones) : NaN;
+  const mode = viewMode && viewMode !== 'best' ? viewMode : fastest;
+  const shown = mode ? timeFor(data, service, mode, i, zones) : NaN;
+  const counts = mode ? data.meta.standard_modes.includes(mode) : false;
+  const meets = counts && Number.isFinite(shown) && shown <= standard;
+  const pricedOut = mode === 'pt' && zones != null
+    && Number.isFinite(data.t[service]?.pt?.[i]) && !Number.isFinite(shown);
+  return { fastest, best, mode, shown, counts, meets, pricedOut };
+}
+
+function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-disable-line max-statements
+  const { fastest, best, mode, shown, counts, meets, pricedOut } = serviceVerdict(data, i, service, standard, viewMode, zones);
   const code = diagnoseCell(
     {
       km: data.km[service]?.[i],
       walk: data.t[service].walk?.[i],
       bikeLow: data.t[service].bike_low_stress?.[i],
       bike: data.t[service].bike?.[i],
-      pt: data.t[service].pt?.[i],
+      pt: timeFor(data, service, 'pt', i, zones),
       car: data.t[service].car?.[i],
       best,
       freq: data.freq[data.meta.services[service].window]?.[i],
@@ -57,7 +65,9 @@ function serviceRow(data, i, service, standard, viewMode) {
   const summary = el('summary');
   const badge = el('span', 'badge', !counts ? "Doesn't count" : meets ? 'Meets' : 'Misses');
   const what = el('span', 'service-name', SERVICE_SHORT[service]);
-  const time = el('span', 'service-time', mode ? `${minutes(shown)} · ${MODES[mode].short}` : 'over 60 min');
+  const time = el('span', 'service-time', pricedOut
+    ? 'costs too much'
+    : mode ? `${minutes(shown)} · ${MODES[mode].short}` : 'over 60 min');
   summary.append(badge, what, time);
   details.append(summary);
   if (mode && mode !== fastest && Number.isFinite(best)) {
@@ -65,6 +75,10 @@ function serviceRow(data, i, service, standard, viewMode) {
     details.append(
       el('p', 'service-reason', `Fastest without a car: ${MODES[fastest].short}, ${minutes(best)}, ${verdict}.`),
     );
+  }
+  if (pricedOut) {
+    const full = data.t[service].pt[i];
+    details.append(el('p', 'service-reason', `Reachable by public transport in ${minutes(full)}, but not on this fare budget.`));
   }
   if (!counts) {
     details.append(el('p', 'service-reason', `Shown for comparison. A standard is met on foot, on a low-stress bike route or by public transport, so ${MODES[mode].short} never counts towards one.`));
@@ -75,7 +89,7 @@ function serviceRow(data, i, service, standard, viewMode) {
   }
   const grid = el('div', 'mode-grid');
   for (const m of DETAIL_MODES) {
-    const t = data.t[service][m]?.[i];
+    const t = timeFor(data, service, m, i, zones);
     grid.append(el('span', 'mode-name', MODES[m].label), el('span', 'mode-time', minutes(t)));
   }
   details.append(grid);
@@ -97,8 +111,9 @@ export function renderPlace(root, data, i, state) {
   root.sub.textContent = bits.join(' · ');
 
   const viewMode = state.measure === 'score' ? 'best' : state.mode;
+  const zones = state.measure === 'score' ? null : state.zonesNow ?? null;
   const services = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s]).map((s) =>
-    serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes, viewMode),
+    serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes, viewMode, zones),
   );
 
   const jobs = [];
@@ -127,10 +142,12 @@ export function renderPlace(root, data, i, state) {
     row('Aged 65 and over', Number.isFinite(data.shares.older[i]) ? `${data.shares.older[i]}%` : '–'),
   ];
   if (Number.isFinite(data.drive[i])) people.push(row('Drove to work (this SA2, 2023)', `${data.drive[i]}%`));
+  if (data.zone && data.zone[i]) around.unshift(row('Fare zone', data.zone[i]));
 
-  const heading = viewMode === 'best'
+  let heading = viewMode === 'best'
     ? 'Everyday services, fastest without a car'
     : `Everyday services by ${MODES[viewMode].short}`;
+  if (zones != null) heading += zones <= 0 ? ', no fare affordable' : `, within ${zones} fare ${zones === 1 ? 'zone' : 'zones'}`;
   root.body.replaceChildren(
     section(heading, ...services),
     section('Jobs within reach', ...jobs),

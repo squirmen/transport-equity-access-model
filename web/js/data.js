@@ -50,6 +50,8 @@ function prepare(raw) {
     jobs: mapValues(c.jobs, (byLimit) => mapValues(byLimit, numeric)),
     fair: mapValues(c.fair, (byLimit) => mapValues(byLimit, numeric)),
     access: mapValues(c.access, (byKey) => mapValues(byKey, numeric)),
+    cost: mapValues(c.cost, (byZone) => mapValues(byZone, numeric)),
+    zone: c.zone || null,
   };
   data.quintile = Int8Array.from(data.nzdep, (v) => (Number.isFinite(v) ? Math.floor((v + 1) / 2) : 0));
   data.weights = { everyone: data.pop };
@@ -59,13 +61,23 @@ function prepare(raw) {
   return data;
 }
 
-/** Minutes to the nearest `service` by `mode`; `best` is the fastest counting mode. */
-export function times(data, service, mode) {
+/** Minutes to the nearest `service` by `mode`; `best` is the fastest counting mode.
+ *
+ *  With `zones` set, a public transport trip only counts when it stays inside
+ *  that many fare zones, which is what the traveller can afford. Walking and
+ *  cycling cost nothing, so a budget never changes them.
+ */
+export function times(data, service, mode, zones = null) {
   const byMode = data.t[service] || {};
-  if (mode !== 'best') return byMode[mode] || new Float32Array(data.n).fill(NaN);
+  const forMode = (m) => {
+    if (m !== 'pt' || zones == null) return byMode[m];
+    if (zones <= 0) return null;
+    return (data.cost[service] || {})[`z${Math.min(zones, 4)}`] || null;
+  };
+  if (mode !== 'best') return forMode(mode) || new Float32Array(data.n).fill(NaN);
   const out = new Float32Array(data.n).fill(NaN);
   for (const m of data.meta.standard_modes) {
-    const t = byMode[m];
+    const t = forMode(m);
     if (!t) continue;
     for (let i = 0; i < data.n; i += 1) {
       const v = t[i];
@@ -75,11 +87,16 @@ export function times(data, service, mode) {
   return out;
 }
 
-export function bestMode(data, service, i) {
+export function bestMode(data, service, i, zones = null) {
   let chosen = null;
   let fastest = Infinity;
   for (const m of data.meta.standard_modes) {
-    const v = data.t[service]?.[m]?.[i];
+    let v;
+    if (m === 'pt' && zones != null) {
+      v = zones <= 0 ? NaN : data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i];
+    } else {
+      v = data.t[service]?.[m]?.[i];
+    }
     if (Number.isFinite(v) && v < fastest) {
       fastest = v;
       chosen = m;
@@ -88,24 +105,30 @@ export function bestMode(data, service, i) {
   return chosen;
 }
 
-export function cellInputs(data, service, i, best) {
+export function cellInputs(data, service, i, best, zones = null) {
   const t = data.t[service] || {};
   const window = data.meta.services[service]?.window;
+  // Under a budget the diagnosis has to see the trip the traveller can
+  // actually pay for, or a place priced off the bus would be reported as a
+  // place the bus is too slow to reach.
+  const pt = zones == null
+    ? t.pt?.[i]
+    : (zones <= 0 ? undefined : data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i]);
   return {
     km: data.km[service]?.[i],
     walk: t.walk?.[i],
     bikeLow: t.bike_low_stress?.[i],
     bike: t.bike?.[i],
-    pt: t.pt?.[i],
+    pt,
     car: t.car?.[i],
     best,
     freq: data.freq[window]?.[i],
   };
 }
 
-export function reasons(data, service, limit, best) {
+export function reasons(data, service, limit, best, zones = null) {
   const out = new Int8Array(data.n);
-  for (let i = 0; i < data.n; i += 1) out[i] = diagnoseCell(cellInputs(data, service, i, best[i]), limit);
+  for (let i = 0; i < data.n; i += 1) out[i] = diagnoseCell(cellInputs(data, service, i, best[i], zones), limit);
   return out;
 }
 

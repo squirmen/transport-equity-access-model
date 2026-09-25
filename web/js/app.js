@@ -5,6 +5,7 @@ import {
   byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
   reasons as reasonCodes, times, weightedMedian, weightedShare,
 } from './data.js';
+import { affordableZones, budgetSentence, fareSteps, money, serviceHour, travellerSummary, ZONE_CAP } from './fares.js';
 import { count, el, minutes, MODES } from './format.js';
 import {
   BASEMAPS, cellCollection, createMap, fitPlace, onCells, OVERLAYS, paintCells, select, setBasemap,
@@ -16,7 +17,7 @@ import {
 } from './palette.js';
 import {
   renderAccess, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople, renderPeople,
-  renderScore, renderServicePicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
+  renderScore, renderServicePicker, renderTraveller, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -49,6 +50,11 @@ const state = {
   jobsMode: 'pt',
   jobsLimit: '45',
   jobsFair: false,
+  budget: null,
+  profile: 'adult',
+  payment: 'hop',
+  returnTrip: true,
+  zonesNow: null,
   basemap: 'light',
   overlays: {},
   reason: null,
@@ -82,6 +88,14 @@ function readHash() {
   if (score[0]) state.scoreKey = score[0];
   if (score[1]) state.scoreMode = score[1];
   if (score[2] === 'd') state.scoreDisplay = 'decile';
+  const cost = (params.get('c') || '').split('.');
+  if (cost[0] !== undefined && cost[0] !== '') {
+    const amount = Number(cost[0]);
+    if (Number.isFinite(amount) && amount >= 0) state.budget = amount;
+  }
+  if (cost[1]) state.profile = cost[1];
+  if (cost[2]) state.payment = cost[2] === 'cash' ? 'cash' : 'hop';
+  if (cost[3]) state.returnTrip = cost[3] !== '1';
   const jobs = (params.get('j') || '').split('.');
   if (jobs[0]) state.jobsMode = jobs[0];
   if (jobs[1]) state.jobsLimit = jobs[1];
@@ -103,6 +117,9 @@ function hashNow() {
     params.set('m', state.mode);
     params.set('t', String(standardFor(state.service)));
   }
+  if (state.budget != null) {
+    params.set('c', [state.budget, state.profile, state.payment, state.returnTrip ? 'r' : '1'].join('.'));
+  }
   if (state.group !== 'everyone') params.set('g', state.group);
   if (state.basemap !== 'light') params.set('b', state.basemap);
   if (map) {
@@ -119,6 +136,7 @@ function writeHash() {
 }
 
 function set(patch) {
+  if ('profile' in patch || 'payment' in patch || 'returnTrip' in patch || 'budget' in patch) cache.best.clear();
   if ('zoomTo' in patch) {
     const place = data.places[patch.zoomTo];
     if (place) fitPlace(map, place.bbox);
@@ -137,9 +155,19 @@ function schedule() {
 
 // ---------------------------------------------------------------- derived figures
 
-function bestTimes(service) {
-  if (!cache.best.has(service)) cache.best.set(service, times(data, service, 'best'));
-  return cache.best.get(service);
+/** Fare zones this traveller can afford for a trip to `service`.
+ *  Null when no budget is set, which leaves every measure as it was. */
+function zonesFor(service) {
+  if (state.budget == null || state.measure === 'score') return null;
+  const meta = data.meta.fares;
+  if (!meta || !meta.fares || !data.cost[service]) return null;
+  return affordableZones(meta, { ...state, hour: serviceHour(data.meta, service) });
+}
+
+function bestTimes(service, zones) {
+  const key = `${service}|${zones == null ? 'any' : zones}`;
+  if (!cache.best.has(key)) cache.best.set(key, times(data, service, 'best', zones));
+  return cache.best.get(key);
 }
 
 function routedMask(service) {
@@ -158,7 +186,8 @@ function placeName(i) {
 function accessModel() {
   const service = state.service;
   const standard = standardFor(service);
-  const shown = times(data, service, state.mode);
+  const zones = state.zonesNow;
+  const shown = times(data, service, state.mode, zones);
   const routed = routedMask(service);
   const edges = accessBreaks(standard);
   const classes = new Int8Array(data.n);
@@ -184,6 +213,8 @@ function accessModel() {
       noun: SERVICE_NOUN[service],
       standard,
       mode: state.mode,
+      zones,
+      fare: fareClause(),
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
       legend,
@@ -194,7 +225,7 @@ function accessModel() {
 function peopleModel() {
   const service = state.service;
   const standard = standardFor(service);
-  const flags = meetsFlags(bestTimes(service), standard);
+  const flags = meetsFlags(bestTimes(service, state.zonesNow), standard);
   const weights = data.weights[state.group];
   const values = Float32Array.from(weights, (w, i) => (flags[i] ? 0 : w));
   const edges = quartileBreaks(values);
@@ -209,6 +240,7 @@ function peopleModel() {
       noun: SERVICE_NOUN[service],
       standard,
       group: state.group,
+      fare: fareClause(),
       below: peopleBelow(flags, weights),
       q1: quintiles[0].share,
       q5: quintiles[4].share,
@@ -232,9 +264,9 @@ function peopleModel() {
 function fixesModel() {
   const service = state.service;
   const standard = standardFor(service);
-  const best = bestTimes(service);
+  const best = bestTimes(service, state.zonesNow);
   const flags = meetsFlags(best, standard);
-  const codes = reasonCodes(data, service, standard, best);
+  const codes = reasonCodes(data, service, standard, best, state.zonesNow);
   const weights = data.weights[state.group];
   const classes = Int8Array.from(codes, (code) => {
     const cls = REASON_CLASS[code];
@@ -266,7 +298,7 @@ function fixesModel() {
       if (cls == null) return [codes[i] === 0 ? `Meets the ${standard}-min standard` : 'Not routed'];
       return [REASON_GROUPS[cls].label, REASON_GROUPS[cls].fix];
     },
-    panel: { noun: SERVICE_NOUN[service], standard, group: state.group, below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
+    panel: { noun: SERVICE_NOUN[service], standard, group: state.group, fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
   };
 }
 
@@ -300,13 +332,20 @@ function palma(values, weights) {
 
 function jobsModel() {
   const choice = jobsChoice();
-  const values = choice.fair ? data.fair[choice.mode][String(choice.limit)] : data.jobs[choice.mode][String(choice.limit)];
+  const zones = state.zonesNow;
+  // A budget only changes public transport, and the priced layer is built at
+  // the gravity cap rather than the job thresholds, so it replaces the values
+  // and says so rather than pretending the threshold still applies.
+  const priced = zones != null && choice.mode === 'pt' && data.cost.jobs
+    ? (zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, ZONE_CAP)}`])
+    : null;
+  const values = priced || (choice.fair ? data.fair[choice.mode][String(choice.limit)] : data.jobs[choice.mode][String(choice.limit)]);
   const edges = choice.fair ? FAIR_BREAKS : JOBS_BREAKS;
   const classes = Int8Array.from(values, (v) => (Number.isFinite(v) ? classify(v, edges) : -1));
   const legend = choice.fair
     ? ['under 0.5×', '0.5–0.8×', '0.8–1.25×', '1.25–2×', 'over 2×'].map((label, k) => ({ colour: FAIR[k], label }))
     : ['2% or less', '2–5%', '5–10%', '10–25%', 'over 25%'].map((label, k) => ({ colour: JOBS[k], label }));
-  const share = data.jobs[choice.mode][String(choice.limit)];
+  const share = priced || data.jobs[choice.mode][String(choice.limit)];
   const quintileLabels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   const byQ = [1, 2, 3, 4, 5].map((q, k) => ({
     label: quintileLabels[k],
@@ -324,6 +363,10 @@ function jobsModel() {
       : `${Number.isFinite(values[i]) ? values[i].toFixed(1) : '–'}% of Auckland's jobs within ${choice.limit} min`],
     panel: {
       ...choice,
+      priced: Boolean(priced),
+      zones,
+      fare: fareClause(),
+      limit: priced ? (data.meta.fares.max_minutes || choice.limit) : choice.limit,
       median: weightedMedian(values, data.pop),
       legend,
       byQuintile: byQ,
@@ -397,7 +440,14 @@ function scoreAvailable() {
   return Boolean(choice.mode && choice.key && data.access[choice.mode]?.[choice.key]);
 }
 
+/** The fare clause for a sentence, or an empty string when no budget is set. */
+function fareClause() {
+  if (state.budget == null || state.measure === 'score') return '';
+  return ` for ${money(state.budget)}${state.returnTrip ? ' return' : ' one way'}`;
+}
+
 function compute() {
+  state.zonesNow = zonesFor(state.service);
   if (state.measure === 'score') {
     const model = scoreModel();
     if (model) return model;
@@ -423,6 +473,64 @@ function renderStandard() {
   const reset = $('standard-reset');
   reset.hidden = value === fallback;
   reset.textContent = `Reset to ${fallback}`;
+}
+
+function fareAvailable() {
+  const meta = data.meta.fares;
+  return Boolean(meta && meta.fares && Object.keys(data.cost || {}).length);
+}
+
+function renderBudget() {
+  const field = $('budget-field');
+  const hide = state.measure === 'score' || !fareAvailable();
+  field.hidden = hide;
+  if (hide) return;
+  const meta = data.meta.fares;
+  const spec = meta.budget || {};
+  const max = Number(spec.max ?? 20);
+  const slider = $('budget');
+  slider.min = String(spec.min ?? 0);
+  slider.max = String(max);
+  slider.step = String(spec.step ?? 0.5);
+  slider.value = String(state.budget == null ? max : state.budget);
+  $('budget-value').textContent = state.budget == null
+    ? 'any fare'
+    : `${money(state.budget)} ${state.returnTrip ? 'return' : 'one way'}`;
+  const reset = $('budget-reset');
+  reset.hidden = state.budget == null;
+  $('budget-note').textContent = budgetSentence(meta, state, serviceHour(data.meta, state.service));
+
+  // Ticks sit where each extra zone starts costing, and move when the
+  // traveller changes, which is the clearest way to show that a concession
+  // changes what money buys.
+  const ticks = $('budget-ticks');
+  const steps = fareSteps(meta, state).filter((step) => step.cost <= max);
+  ticks.replaceChildren(
+    ...steps.map((step) => {
+      const tick = el('span', 'tick', String(step.zones));
+      tick.style.left = `${(step.cost / max) * 100}%`;
+      tick.title = `${step.zones} ${step.zones === 1 ? 'zone' : 'zones'}: ${money(step.cost)}`;
+      return tick;
+    }),
+  );
+}
+
+function renderTravellerLine() {
+  const box = $('traveller');
+  const hide = state.measure === 'score' || !fareAvailable();
+  box.hidden = hide;
+  if (hide) return;
+  const hour = serviceHour(data.meta, state.service);
+  $('traveller-summary').textContent = travellerSummary(data.meta.fares, state, hour);
+  const clock = Number.isFinite(hour) ? `${String(hour).padStart(2, '0')}:00` : 'the modelled window';
+  renderTraveller($('traveller-body'), {
+    profiles: data.meta.fares.profiles || [],
+    profile: state.profile,
+    payment: state.payment,
+    returnTrip: state.returnTrip,
+    timeNote: `Trips to ${SERVICE_SHORT[state.service].toLowerCase()} are timed from ${clock} on a weekday, `
+      + 'which is when the timetable was routed. That is why a SuperGold fare is free for some trips and not others.',
+  }, set);
 }
 
 function renderView(model) {
@@ -469,21 +577,32 @@ function renderMini() {
     return;
   }
   const standard = standardFor(state.service);
-  const share = weightedShare(meetsFlags(bestTimes(state.service), standard), data.pop);
-  mini.textContent = `${SERVICE_SHORT[state.service]} · ${Math.round(share * 100)}% within ${standard} min without a car`;
+  const share = weightedShare(meetsFlags(bestTimes(state.service, state.zonesNow), standard), data.pop);
+  mini.textContent = `${SERVICE_SHORT[state.service]} · ${Math.round(share * 100)}% within ${standard} min without a car${fareClause()}`;
 }
 
 function update() {
   const t0 = performance.now();
   current = compute();
   const t1 = performance.now();
-  paintCells(map, current.classes, current.colours);
+  // The panel is worth drawing even when the basemap has not arrived.
+  try {
+    paintCells(map, current.classes, current.colours);
+  } catch (error) {
+    console.warn('The map is not ready to paint yet.', error);
+  }
   const t2 = performance.now();
   renderStandard();
+  renderBudget();
+  renderTravellerLine();
   renderView(current);
   renderMini();
   window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2) };
-  showDestinationsFor(map, state.service === 'jobs' || state.measure === 'score' ? null : state.service);
+  try {
+    showDestinationsFor(map, state.service === 'jobs' || state.measure === 'score' ? null : state.service);
+  } catch (error) {
+    console.warn('Destination pins are not ready yet.', error);
+  }
   if (state.selected != null) showPlace(state.selected);
 }
 
@@ -518,6 +637,22 @@ function wireControls() {
   $('standard').addEventListener('input', (event) => {
     state.standard[state.service] = Number(event.target.value);
     $('standard-value').textContent = `within ${event.target.value} min`;
+    schedule();
+    writeHash();
+  });
+  $('budget').addEventListener('input', (event) => {
+    const value = Number(event.target.value);
+    const max = Number(event.target.max);
+    // The top of the slider means no limit, which is true as well as simple:
+    // it is already more than the dearest return fare.
+    state.budget = value >= max ? null : value;
+    cache.best.clear();
+    schedule();
+    writeHash();
+  });
+  $('budget-reset').addEventListener('click', () => {
+    state.budget = null;
+    cache.best.clear();
     schedule();
     writeHash();
   });
@@ -656,7 +791,16 @@ async function init() {
   window.team = { map, state };
   // Start once the style is ready. The 'load' event also waits for every basemap
   // tile, which would hold up the whole app on a slow connection.
-  const ready = new Promise((resolve) => map.once('style.load', resolve));
+  //
+  // The basemap comes from someone else's server, so it can be slow or fail
+  // outright. The figures are all local, so they should not wait on it: after
+  // a few seconds the panel is drawn anyway and the hexagons are added
+  // whenever the style turns up.
+  let styleReady = false;
+  const ready = new Promise((resolve) => {
+    map.once('style.load', () => { styleReady = true; resolve(); });
+    window.setTimeout(resolve, 6000);
+  });
   try {
     data = await load(DATA_BASE);
   } catch (error) {
@@ -664,9 +808,20 @@ async function init() {
     throw error;
   }
   await ready;
-  setCells(map, cellCollection(data.h3));
-  setOverlays(map, {}, data.destinations);
-  setBasemap(map, state.basemap);
+  const addLayers = () => {
+    setCells(map, cellCollection(data.h3));
+    setOverlays(map, {}, data.destinations);
+    setBasemap(map, state.basemap);
+  };
+  if (styleReady) {
+    addLayers();
+  } else {
+    console.warn('The basemap is slow to load. Showing the figures now and the map when it arrives.');
+    map.once('style.load', () => {
+      addLayers();
+      update();
+    });
+  }
   wireControls();
   wireSearch();
   const date = new Date(`${data.meta.routing_date}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });

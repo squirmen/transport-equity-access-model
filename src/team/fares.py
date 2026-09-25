@@ -219,6 +219,32 @@ def _destination_weights(settings, purpose: str) -> tuple[pd.Series, pd.DataFram
     return table.set_index("id")["weight"].astype("float64"), table
 
 
+def nearest_within(
+    pairs: pd.DataFrame,
+    zone_counts: np.ndarray,
+    minutes_cap: float,
+    index: pd.Index,
+) -> pd.DataFrame:
+    """Minutes to the nearest destination per origin, at each zone limit.
+
+    The standards measure asks whether the nearest one is close enough. Under a
+    budget it asks whether the nearest one a traveller can afford is close
+    enough, which is this. Times fall as the limit rises, because a bigger
+    budget can only bring nearer destinations into reach.
+    """
+    keep = (pairs["minutes"].to_numpy() <= minutes_cap) & np.isfinite(zone_counts)
+    rows = pairs.loc[keep]
+    counts = zone_counts[keep]
+    minutes = rows["minutes"].to_numpy(dtype="float64")
+    origins = rows["origin"].to_numpy()
+    out = {}
+    for limit in range(1, ZONE_CAP + 1):
+        inside = counts <= limit
+        best = pd.Series(minutes[inside], index=origins[inside]).groupby(level=0).min()
+        out[f"z{limit}"] = best.reindex(index).astype("float32")
+    return pd.DataFrame(out, index=index)
+
+
 def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
     """Cost-constrained access columns, and a record of how they were made.
 
@@ -264,9 +290,11 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
             continue
         counts = pair_zone_counts(pairs, origin_zone, destination_zone, distance)
         reached = reachable_within(pairs, weights, counts, cap, index)
+        soonest = nearest_within(pairs, counts, cap, index)
         total = float(weights.sum())
         for limit in reached.columns:
             columns[f"costaccess_{purpose}_{limit}"] = reached[limit]
+            columns[f"costmin_{purpose}_{limit}"] = soonest[limit]
             if total > 0:
                 columns[f"costshare_{purpose}_{limit}"] = (reached[limit] / total).astype("float32")
         used[purpose] = {

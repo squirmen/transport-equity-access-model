@@ -32,6 +32,55 @@ SERVICES = {
     "secondary_school": ("Secondary school", "am_peak", 30, 8),
 }
 MODES = ["walk", "bike_low_stress", "bike", "pt", "car"]
+
+# A stand-in for Auckland's fare zones: a chain out from the centre, plus one
+# to the side, so zone counts of one to four all occur. The fares are the real
+# published ones, because the browser's arithmetic is what is being tested.
+ZONES = ["City", "Isthmus", "Northern Manukau", "Southern Manukau", "Waitakere"]
+ZONE_ADJACENCY = {
+    "City": ["Isthmus"],
+    "Isthmus": ["City", "Northern Manukau", "Waitakere"],
+    "Northern Manukau": ["Isthmus", "Southern Manukau"],
+    "Southern Manukau": ["Northern Manukau"],
+    "Waitakere": ["Isthmus"],
+}
+FARE_TABLE = {
+    "adult": {"hop": {"1": 3.0, "2": 4.9, "3": 6.5, "4": 7.9}, "cash": {"1": 4.0, "2": 6.0, "3": 8.0, "4": 10.0}},
+    "child_5_15": {"hop": {"1": 1.55, "2": 2.9, "3": 3.9, "4": 4.75}, "cash": {"1": 2.0, "2": 3.5, "3": 4.5, "4": 5.5}},
+    "secondary_student": {"hop": {"1": 1.55, "2": 2.9, "3": 3.9, "4": 4.75}, "cash": {"1": 2.0, "2": 3.5, "3": 4.5, "4": 5.5}},
+    "tertiary_student": {"hop": {"1": 1.55, "2": 2.9, "3": 3.9, "4": 4.75}, "cash": {"1": 4.0, "2": 6.0, "3": 8.0, "4": 10.0}},
+    "accessible": {"hop": {"1": 1.55, "2": 2.9, "3": 3.9, "4": 4.75}, "cash": {"1": 2.0, "2": 3.5, "3": 4.5, "4": 5.5}},
+    "community_connect": {"hop": {"1": 1.5, "2": 2.45, "3": 3.25, "4": 3.95}, "cash": {"1": 4.0, "2": 6.0, "3": 8.0, "4": 10.0}},
+}
+PROFILES = [
+    {"key": "adult", "label": "Adult", "ages": "19 to 64"},
+    {"key": "child_5_15", "label": "Child", "ages": "5 to 15"},
+    {"key": "secondary_student", "label": "Secondary student", "ages": "13 to 18"},
+    {"key": "tertiary_student", "label": "Tertiary student", "ages": "18 and over"},
+    {"key": "community_connect", "label": "Community Services Card", "ages": "any"},
+    {"key": "accessible", "label": "Accessible concession", "ages": "any"},
+    {"key": "supergold", "label": "SuperGold", "ages": "65 and over"},
+]
+ACCESS_KEYS = {"jobs": "Jobs", "everyday": "Everyday services", "education": "Schools", "all": "All opportunities"}
+
+
+def zone_distance(adjacency, cap=4):
+    """Zones travelled through, counted as nodes on the shortest path."""
+    from collections import deque
+
+    out = {}
+    for start in adjacency:
+        seen = {start: 1}
+        queue = deque([start])
+        while queue:
+            here = queue.popleft()
+            for nxt in adjacency[here]:
+                if nxt not in seen:
+                    seen[nxt] = seen[here] + 1
+                    queue.append(nxt)
+        for zone, n in seen.items():
+            out[(start, zone)] = min(n, cap)
+    return out
 BBOX = (174.66, -36.97, 174.88, -36.80)
 CBD = (174.765, -36.848)
 
@@ -93,6 +142,10 @@ def main() -> None:
     nearest = {s: [] for s in SERVICES}
     jobs = {m: {"30": [], "45": []} for m in MODES}
     fair = {"pt": {"30": [], "45": []}, "bike_low_stress": {"30": [], "45": []}}
+    zone_of = []
+    cost = {s: {f"z{z}": [] for z in range(1, 5)} for s in list(SERVICES) + ["jobs"]}
+    access = {m: {k: [] for k in ACCESS_KEYS} for m in ["walk", "pt", "bike_low_stress"]}
+    distance_between = zone_distance(ZONE_ADJACENCY)
 
     for cell, centre in zip(cells, centres):
         east = (centre[0] - CBD[0]) / (BBOX[2] - BBOX[0])
@@ -134,6 +187,26 @@ def main() -> None:
             t[service]["car"].append(cap(car))
 
         to_cbd = km(centre, CBD)
+        # Zone by ring out from the centre, with the west put in its own zone.
+        if to_cbd < 2.5:
+            zone = "City"
+        elif centre[0] < CBD[0] - 0.06:
+            zone = "Waitakere"
+        elif to_cbd < 6:
+            zone = "Isthmus"
+        elif to_cbd < 10:
+            zone = "Northern Manukau"
+        else:
+            zone = "Southern Manukau"
+        zone_of.append(zone)
+        for service in SERVICES:
+            # The nearest destination sits in the zone of the cell it is near;
+            # a trip of n zones only counts once the budget covers n.
+            need = distance_between[(zone, "City")] if service in ("supermarket", "gp") else 1
+            need = max(1, min(4, need))
+            pt_time = t[service]["pt"][-1]
+            for z in range(1, 5):
+                cost[service][f"z{z}"].append(pt_time if z >= need else None)
         base = 42 * math.exp(-to_cbd / 5.5)
         for mode, factor in {"walk": 0.12, "bike_low_stress": 0.45, "bike": 0.8, "pt": 1.0, "car": 2.1}.items():
             share45 = max(0.1, min(95.0, base * factor * random.uniform(0.8, 1.2)))
@@ -143,6 +216,14 @@ def main() -> None:
             level = max(0.1, math.exp(-to_cbd / 7) * 2.4 * random.uniform(0.7, 1.3))
             fair[mode]["45"].append(round(level, 2))
             fair[mode]["30"].append(round(level * 0.9, 2))
+        need_jobs = max(1, min(4, distance_between[(zone, "City")]))
+        for z in range(1, 5):
+            reach = jobs["pt"]["45"][-1] * (0.35 if z < need_jobs else 1.0)
+            cost["jobs"][f"z{z}"].append(round(reach, 2))
+        for mode, factor in {"walk": 0.3, "pt": 1.0, "bike_low_stress": 0.6}.items():
+            index = max(2.0, 100 * factor * math.exp(-to_cbd / 6) * random.uniform(0.8, 1.2) * 2.2)
+            for key in ACCESS_KEYS:
+                access[mode][key].append(round(index * random.uniform(0.85, 1.15)))
 
     for place in places:
         place["population"] = round(place["population"])
@@ -157,6 +238,29 @@ def main() -> None:
         "standard_modes": ["walk", "bike_low_stress", "pt"],
         "services": {s: {"label": v[0], "standard_minutes": v[2], "window": v[1]} for s, v in SERVICES.items()},
         "jobs": {"thresholds": [30, 45], "window": "am_peak", "total": 850000},
+        "access": {
+            "modes": ["walk", "pt", "bike_low_stress"],
+            "beta_modes": ["bike_low_stress"],
+            "max_minutes": 45,
+            "keys": ACCESS_KEYS,
+            "functions": {},
+            "purposes": {s: v[0] for s, v in SERVICES.items()},
+        },
+        "fares": {
+            "mode": "pt",
+            "max_minutes": 45,
+            "purposes": list(SERVICES) + ["jobs"],
+            "budget": {"min": 0, "max": 20, "step": 0.5, "default": None, "return_trip": True},
+            "profiles": PROFILES,
+            "zone_cap": 4,
+            "zones": ZONES,
+            "adjacency": ZONE_ADJACENCY,
+            "fares": FARE_TABLE,
+            "free": {"supergold": {"free_from": "09:00"}, "child_0_4": "Under 5 travel free."},
+            "caps": {"hop_7_day": 50.0, "contactless_daily": 20.0},
+            "source_url": "https://at.govt.nz/bus-train-ferry/fares-and-discounts/bus-and-train-fares",
+            "read_on": "2026-09-25",
+        },
         "totals": {"cells": len(cells), "population": round(sum(fields["pop"]))},
         "destinations": {s: len(v) for s, v in dest_points.items()},
     }
@@ -175,7 +279,8 @@ def main() -> None:
     }
 
     out.mkdir(parents=True, exist_ok=True)
-    payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "jobs": jobs, "fair": fair}
+    payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "jobs": jobs,
+               "fair": fair, "access": access, "cost": cost, "zone": zone_of}
     files = {
         "cells.json": payload,
         "summary.json": {"meta": meta, "services": [], "jobs": [], "areas": {}},

@@ -107,7 +107,7 @@ export function renderServicePicker(root, current, set) {
 }
 
 function accessSentence(model) {
-  const { noun, standard, mode } = model;
+  const { noun, standard, mode, fare = '' } = model;
   switch (mode) {
     case 'walk':
       return `of Aucklanders can walk to ${noun} within ${standard} minutes.`;
@@ -116,19 +116,33 @@ function accessSentence(model) {
     case 'bike':
       return `of Aucklanders could cycle to ${noun} within ${standard} minutes on any street.`;
     case 'pt':
-      return `of Aucklanders can reach ${noun} within ${standard} minutes by public transport.`;
+      return `of Aucklanders can reach ${noun} within ${standard} minutes by public transport${fare}.`;
     case 'car':
       return `of Aucklanders can drive to ${noun} within ${standard} minutes.`;
     default:
-      return `of Aucklanders can reach ${noun} within ${standard} minutes without a car.`;
+      return `of Aucklanders can reach ${noun} within ${standard} minutes without a car${fare}.`;
   }
+}
+
+/** A line under the hero saying what the fare budget is doing, when one is set. */
+function fareLine(model) {
+  if (!model.fare) return null;
+  if (model.zones === 0) {
+    return el('p', 'note is-fare', 'On this budget no fare is affordable, so only walking and cycling count.');
+  }
+  if (model.zones == null) return null;
+  return el('p', 'note is-fare',
+    `Public transport counts only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`);
 }
 
 export function renderAccess(root, model, set) {
   root.replaceChildren(
-    hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
-    radios('Travel by', Object.keys(MODES).map((m) => [m, MODES[m].label]), model.mode, (mode) => set({ mode }), { compact: true }),
-    legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
+    ...[
+      hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
+      fareLine(model),
+      radios('Travel by', Object.keys(MODES).map((m) => [m, MODES[m].label]), model.mode, (mode) => set({ mode }), { compact: true }),
+      legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
+    ].filter(Boolean),
   );
 }
 
@@ -150,7 +164,7 @@ export function renderPeople(root, model, set) {
     : null;
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
   root.replaceChildren(
-    hero(count(model.below), `${GROUP_PHRASE[model.group]} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}.`, sub),
+    hero(count(model.below), `${GROUP_PHRASE[model.group]} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`, sub),
     radios('Count', GROUP_CHIPS, model.group, (group) => set({ group }), { compact: true }),
     legend(`${GROUP_PHRASE[model.group][0].toUpperCase()}${GROUP_PHRASE[model.group].slice(1)} beyond the standard, per hexagon`, model.legend),
     chartQ,
@@ -195,7 +209,7 @@ export function renderFixes(root, model, set) {
     ranked.append(item);
   }
   root.replaceChildren(
-    hero(count(model.below), `${GROUP_PHRASE[model.group]} miss the ${model.standard}-minute standard for ${model.noun}.`, sub),
+    hero(count(model.below), `${GROUP_PHRASE[model.group]} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
     radios('Count', GROUP_CHIPS, model.group, (group) => set({ group }), { compact: true }),
     el('span', 'field-label', 'Main reason, and what would help'),
     list,
@@ -209,9 +223,11 @@ export function renderJobsAccess(root, model, set) {
   const modeOptions = [['pt', 'Public transport'], ['bike_low_stress', 'Low-stress cycling'], ['bike', 'Any bike route'], ['walk', 'Walking'], ['car', 'Car']]
     .filter(([m]) => model.modes.includes(m));
   const figure = model.fair ? `${model.median.toFixed(2)}×` : percent(model.median / 100, model.median < 10 ? 1 : 0);
-  const text = model.fair
-    ? `the regional average: job access for a typical resident by ${MODES[model.mode].short}, within ${model.limit} minutes, allowing for other workers who can reach the same jobs.`
-    : `of Auckland's jobs are within ${model.limit} minutes by ${MODES[model.mode].short} for a typical resident.`;
+  const text = model.priced
+    ? `of Auckland's jobs are within ${model.limit} minutes by public transport for a typical resident${model.fare}.`
+    : model.fair
+      ? `the regional average: job access for a typical resident by ${MODES[model.mode].short}, within ${model.limit} minutes, allowing for other workers who can reach the same jobs.`
+      : `of Auckland's jobs are within ${model.limit} minutes by ${MODES[model.mode].short} for a typical resident.`;
   const toggle = el('label', 'check');
   const box = document.createElement('input');
   box.type = 'checkbox';
@@ -220,10 +236,17 @@ export function renderJobsAccess(root, model, set) {
   box.addEventListener('change', () => set({ jobsFair: box.checked }));
   toggle.append(box, document.createTextNode(' Allow for other workers competing for the same jobs'));
   root.replaceChildren(
-    hero(figure, text),
-    radios('Travel by', modeOptions, model.mode, (jobsMode) => set({ jobsMode }), { compact: true }),
-    radios('Within', model.limits.map((l) => [String(l), `${l} min`]), String(model.limit), (jobsLimit) => set({ jobsLimit }), { compact: true }),
-    toggle,
+    ...[
+      hero(figure, text),
+      model.priced
+        ? el('p', 'note is-fare', model.zones === 0
+          ? 'On this budget no fare is affordable, so no job is reachable by public transport.'
+          : `Counted over ${model.limit} minutes, the cap the priced layer is built at, and only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`)
+        : null,
+      radios('Travel by', modeOptions, model.mode, (jobsMode) => set({ jobsMode }), { compact: true }),
+    ].filter(Boolean),
+    ...(model.priced ? [] : [radios('Within', model.limits.map((l) => [String(l), `${l} min`]), String(model.limit), (jobsLimit) => set({ jobsLimit }), { compact: true })]),
+    ...(model.priced ? [] : [toggle]),
     legend(model.fair ? 'Job access against the regional average' : "Share of Auckland's jobs within reach", model.legend, {
       note: model.fair
         ? 'Divides the jobs at each place by the working-age people who can reach them, then adds up what each home can reach. 1.0 is the Auckland average.'
@@ -284,4 +307,26 @@ export function renderScore(root, model, set) {
     chart,
     el('p', 'note', note),
   );
+}
+
+
+// ------------------------------------------------------------------ traveller
+
+/** The controls behind the traveller line: who is travelling, how they pay,
+ *  and whether the budget has to cover the trip home. Age is a scenario here,
+ *  not a filter: it decides what a journey costs, not who gets counted. */
+export function renderTraveller(root, model, set) {
+  const profiles = (model.profiles || []).map((p) => [p.key, p.label]);
+  const fields = [
+    radios('Travelling as', profiles, model.profile, (profile) => set({ profile }), { compact: true }),
+    radios('Paying with', [['hop', 'AT HOP or contactless'], ['cash', 'Cash']], model.payment, (payment) => set({ payment }), { compact: true }),
+    radios('Budget covers', [['return', 'There and back'], ['one', 'One way']], model.returnTrip ? 'return' : 'one',
+      (value) => set({ returnTrip: value === 'return' }), { compact: true }),
+  ];
+  const ages = (model.profiles || []).find((p) => p.key === model.profile);
+  if (ages && ages.ages && ages.ages !== 'any') {
+    fields.push(el('p', 'note', `Fares for ${ages.label.toLowerCase()} apply to ages ${ages.ages}.`));
+  }
+  fields.push(el('p', 'note', model.timeNote));
+  root.replaceChildren(...fields);
 }

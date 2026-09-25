@@ -269,3 +269,70 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+
+/* Fare budget and traveller ------------------------------------------------ */
+
+.ticks {
+  position: relative;
+  height: 14px;
+  margin: -2px 0 2px;
+}
+
+.ticks .tick {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.ticks .tick::before {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 4px;
+  margin: 0 auto 1px;
+  background: var(--line);
+}
+
+.note.is-fare {
+  margin-top: -4px;
+  color: var(--ink-soft);
+}
+
+.traveller {
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--line);
+}
+
+.traveller > summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  cursor: pointer;
+  list-style: none;
+}
+
+.traveller > summary::-webkit-details-marker { display: none; }
+
+.traveller > summary::after {
+  content: "change";
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.traveller[open] > summary::after { content: "done"; }
+
+.traveller-summary {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.traveller-body {
+  padding-top: 8px;
+}
+
+.traveller-body .field { margin-bottom: 8px; }
