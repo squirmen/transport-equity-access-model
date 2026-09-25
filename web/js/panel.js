@@ -33,14 +33,14 @@ const GROUP_PHRASE = {
   no_car: 'people in households without a car',
   children: 'children under 15',
   older: 'people aged 65 and over',
+  low_income: 'people in households under $70,000',
+  maori: 'Maori',
+  pacific: 'Pacific peoples',
+  asian: 'Asian Aucklanders',
+  disabled: 'disabled people',
 };
 
-const GROUP_CHIPS = [
-  ['everyone', 'Everyone'],
-  ['no_car', 'No car'],
-  ['children', 'Children'],
-  ['older', '65 and over'],
-];
+const phrase = (group) => GROUP_PHRASE[group] || 'people';
 
 const REASON_SENTENCE = {
   0: 'the nearest one is close in a straight line, but the walk there is indirect',
@@ -164,9 +164,9 @@ export function renderPeople(root, model, set) {
     : null;
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
   root.replaceChildren(
-    hero(count(model.below), `${GROUP_PHRASE[model.group]} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`, sub),
-    radios('Count', GROUP_CHIPS, model.group, (group) => set({ group }), { compact: true }),
-    legend(`${GROUP_PHRASE[model.group][0].toUpperCase()}${GROUP_PHRASE[model.group].slice(1)} beyond the standard, per hexagon`, model.legend),
+    hero(count(model.below), `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`, sub),
+    radios('Count', model.groups, model.group, (group) => set({ group }), { compact: true }),
+    legend(`${phrase(model.group)[0].toUpperCase()}${phrase(model.group).slice(1)} beyond the standard, per hexagon`, model.legend),
     chartQ,
     chartG,
   );
@@ -198,7 +198,7 @@ export function renderFixes(root, model, set) {
     const button = el('button', 'rank-row');
     button.type = 'button';
     const name = el('span', 'rank-name', place.name);
-    const meta = el('span', 'rank-meta', `${count(place.below)} ${model.group === 'everyone' ? 'people' : GROUP_PHRASE[model.group]}`);
+    const meta = el('span', 'rank-meta', `${count(place.below)} ${phrase(model.group)}`);
     const chip = el('span', 'rank-reason');
     const dot = el('span', 'reason-dot');
     dot.style.background = place.colour;
@@ -209,8 +209,8 @@ export function renderFixes(root, model, set) {
     ranked.append(item);
   }
   root.replaceChildren(
-    hero(count(model.below), `${GROUP_PHRASE[model.group]} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
-    radios('Count', GROUP_CHIPS, model.group, (group) => set({ group }), { compact: true }),
+    hero(count(model.below), `${phrase(model.group)} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
+    radios('Count', model.groups, model.group, (group) => set({ group }), { compact: true }),
     el('span', 'field-label', 'Main reason, and what would help'),
     list,
     el('p', 'note', 'Screening rules, not a verdict: they show which kind of fix to look at first. Pick a reason to show only those places.'),

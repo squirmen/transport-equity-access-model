@@ -18,9 +18,30 @@ from .config import Settings
 
 log = logging.getLogger("team.people")
 
-CHILDREN = ["VAR_1_49", "VAR_1_50", "VAR_1_51"]  # under 15
-OLDER = ["VAR_1_62", "VAR_1_63", "VAR_1_64", "VAR_1_65", "VAR_1_66", "VAR_1_67"]  # 65 and over
-AGE_TOTAL = "VAR_1_68"
+# Stats NZ rounds every cell to base 3 on its own, including totals, so adding
+# five-year bands up does not reproduce the published bracket: summing the six
+# bands for 65 and over matches the published cell in about two SA1s in five,
+# and can be out by as much as eighteen people. Where Stats NZ publishes the
+# bracket as its own cell, take that cell.
+CHILDREN = "VAR_1_80"       # under 15
+OLDER = "VAR_1_83"          # 65 and over
+AGE_TOTAL = "VAR_1_3"       # usual resident population, never suppressed
+UNDER_5 = "VAR_1_49"
+AGE_15_19 = "VAR_1_52"      # every public transport fare bracket edge falls inside this band
+AGE_20_24 = "VAR_1_53"
+
+# Ethnicity is a multiple response: a person counted as Maori may also be
+# counted as European, so these shares do not add to one and the groups
+# overlap. The denominator is the published total stated, not a sum of parts.
+ETHNICITY = {
+    "european_share": "VAR_1_158",
+    "maori_share": "VAR_1_159",
+    "pacific_share": "VAR_1_160",
+    "asian_share": "VAR_1_161",
+}
+ETHNICITY_TOTAL = "VAR_1_168"
+DISABLED = "VAR_1_435"
+DISABLED_TOTAL = "VAR_1_438"
 LOW_INCOME = ["VAR_4_214", "VAR_4_215", "VAR_4_216", "VAR_4_217"]  # household income $70,000 or less
 INCOME_TOTAL = "VAR_4_224"
 MEDIAN_INCOME = "VAR_4_225"
@@ -52,15 +73,40 @@ def _share(part: pd.Series, total: pd.Series) -> pd.Series:
 
 
 def age_shares(settings: Settings) -> pd.DataFrame:
-    table = _records(settings.data("census_age"))
+    """Age and group shares of the people living in each census block.
+
+    Reads the equity table when it is configured, and falls back to the older
+    age-only table so a data root without it still builds.
+    """
+    key = "census_equity" if "census_equity" in settings.raw["data"] else "census_age"
+    table = _records(settings.data(key))
+    if CHILDREN not in table.columns:
+        # The older extract has the five-year bands only.
+        total = _count(table["VAR_1_68"])
+        children = sum(_count(table[c]).fillna(0) for c in ("VAR_1_49", "VAR_1_50", "VAR_1_51"))
+        older = sum(_count(table[c]).fillna(0) for c in [f"VAR_1_{n}" for n in range(62, 68)])
+        return pd.DataFrame({"sa1": table["sa1"], "children_share": _share(children, total), "older_share": _share(older, total)})
+
     total = _count(table[AGE_TOTAL])
-    return pd.DataFrame(
-        {
-            "sa1": table["sa1"],
-            "children_share": _share(sum(_count(table[c]).fillna(0) for c in CHILDREN), total),
-            "older_share": _share(sum(_count(table[c]).fillna(0) for c in OLDER), total),
-        }
-    )
+    out = {
+        "sa1": table["sa1"],
+        "children_share": _share(_count(table[CHILDREN]), total),
+        "older_share": _share(_count(table[OLDER]), total),
+        "under5_share": _share(_count(table[UNDER_5]), total),
+        # 5 to 15 spans a published bracket and part of the 15 to 19 band. A
+        # fare bracket cannot be cut exactly from five-year bands, so the
+        # band is split evenly by single year of age and the result is
+        # labelled apportioned wherever it is reported.
+        "youth_share": _share(_count(table[CHILDREN]) - _count(table[UNDER_5]) + 0.2 * _count(table[AGE_15_19]), total),
+        "student_age_share": _share(0.8 * _count(table[AGE_15_19]) + _count(table[AGE_20_24]), total),
+    }
+    stated = _count(table[ETHNICITY_TOTAL])
+    for name, column in ETHNICITY.items():
+        if column in table.columns:
+            out[name] = _share(_count(table[column]), stated)
+    if DISABLED in table.columns:
+        out["disabled_share"] = _share(_count(table[DISABLED]), _count(table[DISABLED_TOTAL]))
+    return pd.DataFrame(out)
 
 
 def household_shares(settings: Settings) -> pd.DataFrame:

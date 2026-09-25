@@ -13,11 +13,19 @@ import pandas as pd
 from .config import Settings
 from .diagnosis import REASONS
 
+# Each group is a share of the census block around a cell, so a group count
+# estimates people in an area rather than counting individuals. Ethnicity is a
+# multiple response, so those groups overlap and do not add to the population.
 GROUPS = {
     "everyone": ("Everyone", None),
     "no_car": ("People in households without a car", "no_vehicle_share"),
     "children": ("Children under 15", "children_share"),
     "older": ("People aged 65 and over", "older_share"),
+    "low_income": ("People in households under $70,000", "low_income_share"),
+    "maori": ("Maori", "maori_share"),
+    "pacific": ("Pacific peoples", "pacific_share"),
+    "asian": ("Asian", "asian_share"),
+    "disabled": ("Disabled people", "disabled_share"),
 }
 
 QUINTILE_LABELS = {
@@ -32,9 +40,14 @@ QUINTILE_LABELS = {
 def group_weights(table: pd.DataFrame, group: str) -> pd.Series:
     population = table["population"].fillna(0.0)
     column = GROUPS[group][1]
-    if column is None:
-        return population
+    if column is None or column not in table.columns:
+        return population if column is None else pd.Series(0.0, index=table.index)
     return population * table[column].clip(0.0, 1.0).fillna(0.0)
+
+
+def available_groups(table: pd.DataFrame) -> list[str]:
+    """Groups the current data can describe."""
+    return [g for g, (_, column) in GROUPS.items() if column is None or column in table.columns]
 
 
 def nzdep_quintile(nzdep: pd.Series) -> pd.Series:

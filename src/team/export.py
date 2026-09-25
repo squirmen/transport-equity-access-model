@@ -24,6 +24,7 @@ import pandas as pd
 from . import __version__
 from .config import Settings
 from .diagnosis import REASONS
+from . import equity
 from .equity import GROUPS, QUINTILE_LABELS
 
 WEB_MODES = ["walk", "bike_low_stress", "bike", "pt", "car"]
@@ -139,6 +140,17 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "nocar": _ints(table["no_vehicle_share"], 100),
         "kids": _ints(table["children_share"], 100),
         "older": _ints(table["older_share"], 100),
+        "groups": {
+            key: _ints(table[column], 100)
+            for key, column in (
+                ("low_income", "low_income_share"),
+                ("maori", "maori_share"),
+                ("pacific", "pacific_share"),
+                ("asian", "asian_share"),
+                ("disabled", "disabled_share"),
+            )
+            if column in table
+        },
         "drive": _ints(table["commute_car_share"], 100) if "commute_car_share" in table else None,
         "freq": {w: _floats(table[f"pt_per_hour_{w}"], 1) for w in settings.routing["windows"]},
         "m_stop": _ints(table["m_frequent_stop"]),
@@ -262,7 +274,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
             for k, v in settings.services.items()
         },
         "jobs": {"thresholds": settings.jobs["thresholds"], "window": settings.jobs["window"], "total": round(jobs_total)},
-        "groups": {k: v[0] for k, v in GROUPS.items()},
+        "groups": {k: GROUPS[k][0] for k in equity.available_groups(table)},
+        "group_note": "Shares describe the census block around a cell. Ethnicity is a multiple "
+                      "response, so those groups overlap and do not add to the population.",
         "access": {
             "modes": list(settings.gravity.get("modes", [])),
             "beta_modes": list(settings.gravity.get("beta_modes", [])),

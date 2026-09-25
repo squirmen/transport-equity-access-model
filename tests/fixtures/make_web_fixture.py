@@ -136,6 +136,7 @@ def main() -> None:
         })
 
     fields = {name: [] for name in ["pop", "place", "nzdep", "nocar", "kids", "older", "drive", "m_stop", "m_rail", "m_bike"]}
+    groups = {name: [] for name in ["low_income", "maori", "pacific"]}
     freq = {"am_peak": [], "interpeak": []}
     t = {s: {m: [] for m in MODES} for s in SERVICES}
     km_out = {s: [] for s in SERVICES}
@@ -166,6 +167,9 @@ def main() -> None:
         fields["m_stop"].append(round(abs(random.gauss(400 + 1500 * max(east, 0), 300))))
         fields["m_rail"].append(round(abs(random.gauss(1800, 900))))
         fields["m_bike"].append(round(abs(random.gauss(300 + 2000 * max(east, 0), 400))))
+        groups["low_income"].append(max(4, min(70, round(8 + nzdep * 4 + random.gauss(0, 4)))))
+        groups["maori"].append(max(2, min(45, round(4 + nzdep * 1.4 + random.gauss(0, 3)))))
+        groups["pacific"].append(max(1, min(60, round(1 + nzdep * 2.0 + random.gauss(0, 3)))))
         freq["am_peak"].append(frequency)
         freq["interpeak"].append(round(frequency * 0.7, 1))
         places[fields["place"][-1]]["population"] += pop
@@ -261,6 +265,15 @@ def main() -> None:
             "source_url": "https://at.govt.nz/bus-train-ferry/fares-and-discounts/bus-and-train-fares",
             "read_on": "2026-09-25",
         },
+        "groups": {
+            "everyone": "Everyone",
+            "no_car": "People in households without a car",
+            "children": "Children under 15",
+            "older": "People aged 65 and over",
+            "low_income": "People in households under $70,000",
+            "maori": "Maori",
+            "pacific": "Pacific peoples",
+        },
         "totals": {"cells": len(cells), "population": round(sum(fields["pop"]))},
         "destinations": {s: len(v) for s, v in dest_points.items()},
     }
@@ -280,7 +293,7 @@ def main() -> None:
 
     out.mkdir(parents=True, exist_ok=True)
     payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "jobs": jobs,
-               "fair": fair, "access": access, "cost": cost, "zone": zone_of}
+               "fair": fair, "access": access, "cost": cost, "zone": zone_of, "groups": groups}
     files = {
         "cells.json": payload,
         "summary.json": {"meta": meta, "services": [], "jobs": [], "areas": {}},

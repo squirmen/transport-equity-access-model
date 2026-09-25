@@ -31,8 +31,21 @@ function dataBase() {
 
 const DATA_BASE = dataBase();
 const VIEWS = ['access', 'people', 'fixes'];
-const GROUPS = ['everyone', 'no_car', 'children', 'older'];
-const GROUP_NOUN = { everyone: 'people', no_car: 'people without a car', children: 'children', older: 'people 65+' };
+// Which groups exist depends on the census tables the build had, so they come
+// from the data rather than being listed here.
+const GROUP_NOUN = {
+  everyone: 'people',
+  no_car: 'people without a car',
+  children: 'children',
+  older: 'people 65+',
+  low_income: 'people on lower household incomes',
+  maori: 'Maori',
+  pacific: 'Pacific peoples',
+  asian: 'Asian Aucklanders',
+  disabled: 'disabled people',
+};
+const groupKeys = () => Object.keys(data.meta.groups || { everyone: 'Everyone' });
+const groupChips = () => groupKeys().map((g) => [g, (data.meta.groups || {})[g] || g]);
 const $ = (id) => document.getElementById(id);
 
 const MEASURES = ['standards', 'score'];
@@ -79,7 +92,8 @@ function readHash() {
   if (SERVICE_ORDER.includes(service)) state.service = service;
   if (VIEWS.includes(params.get('v'))) state.view = params.get('v');
   if (MODES[params.get('m')]) state.mode = params.get('m');
-  if (GROUPS.includes(params.get('g'))) state.group = params.get('g');
+  const group = params.get('g');
+  if (group) state.group = group;
   if (BASEMAPS[params.get('b')]) state.basemap = params.get('b');
   const standard = Number(params.get('t'));
   if (standard >= 5 && standard <= 60 && state.service !== 'jobs') state.standard[state.service] = standard;
@@ -245,12 +259,8 @@ function peopleModel() {
       q1: quintiles[0].share,
       q5: quintiles[4].share,
       byQuintile: quintiles.map((q, k) => ({ label: labels[k], value: q.share, emphasis: k === 4 })),
-      byGroup: [
-        ['everyone', 'Everyone'],
-        ['no_car', 'No-car households'],
-        ['children', 'Children under 15'],
-        ['older', 'Aged 65 and over'],
-      ].map(([g, label]) => ({ label, value: weightedShare(flags, data.weights[g]), emphasis: g === state.group })),
+      groups: groupChips(),
+      byGroup: groupChips().map(([g, label]) => ({ label, value: weightedShare(flags, data.weights[g]), emphasis: g === state.group })),
       legend: [
         { colour: PEOPLE[0], label: `${edges[0]} or fewer` },
         { colour: PEOPLE[1], label: `${edges[0]}–${edges[1]}` },
@@ -298,7 +308,7 @@ function fixesModel() {
       if (cls == null) return [codes[i] === 0 ? `Meets the ${standard}-min standard` : 'Not routed'];
       return [REASON_GROUPS[cls].label, REASON_GROUPS[cls].fix];
     },
-    panel: { noun: SERVICE_NOUN[service], standard, group: state.group, fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
+    panel: { noun: SERVICE_NOUN[service], standard, group: state.group, groups: groupChips(), fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
   };
 }
 
@@ -352,8 +362,7 @@ function jobsModel() {
     value: weightedMedian(share, data.pop, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
     emphasis: k === 4,
   }));
-  const byGroup = [['everyone', 'Everyone'], ['no_car', 'No-car households'], ['children', 'Children under 15'], ['older', 'Aged 65 and over']]
-    .map(([g, label]) => ({ label, value: weightedMedian(share, data.weights[g]) }));
+  const byGroup = groupChips().map(([g, label]) => ({ label, value: weightedMedian(share, data.weights[g]) }));
   const max = Math.max(...byQ.map((r) => r.value || 0), ...byGroup.map((r) => r.value || 0)) * 1.1 || 1;
   return {
     classes,

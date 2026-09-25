@@ -39,7 +39,12 @@ function prepare(raw) {
     pop: numeric(c.pop),
     nzdep: numeric(c.nzdep),
     drive: numeric(c.drive),
-    shares: { no_car: numeric(c.nocar), children: numeric(c.kids), older: numeric(c.older) },
+    shares: {
+      no_car: numeric(c.nocar),
+      children: numeric(c.kids),
+      older: numeric(c.older),
+      ...Object.fromEntries(Object.entries(c.groups || {}).map(([k, v]) => [k, numeric(v)])),
+    },
     freq: mapValues(c.freq, numeric),
     mStop: numeric(c.m_stop),
     mRail: numeric(c.m_rail),
