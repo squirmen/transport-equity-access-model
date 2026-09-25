@@ -19,6 +19,9 @@ data:
   commute_share: processed/auckland/census/sa2_commute_car_share.csv
   cycling_network: raw/auckland/cycling/at_cycling_network.geojson
   local_boards: raw/auckland/geography/auckland_council_local_boards.geojson
+  fare_table: raw/auckland/fares/at_fares_2026-09-25.json
+  fare_zones: raw/auckland/fares/at_fare_zones.geojson
+  fare_zone_meta: raw/auckland/fares/at_fare_zones.metadata.json
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
@@ -153,3 +156,33 @@ jobs:
   resolution: 8
   thresholds: [30, 45]
   modes: [walk, bike_low_stress, bike, pt, car]
+
+# What a journey costs, and what a traveller can reach for it. Auckland
+# Transport charges by the number of fare zones a journey passes through,
+# capped at four, so a dollar budget becomes a number of zones and the whole
+# calculation can be redone in the browser as a budget slider moves.
+#
+# Fares were read from Auckland Transport's fares page on 25 September 2026.
+# The zones are recovered from AT's published map by
+# scripts/build_at_fare_zones.py, because AT publishes no zone geometry.
+fares:
+  mode: pt                  # the only mode with a fare to model
+  max_minutes: 45           # same cap as the gravity scores
+  purposes: [jobs, supermarket, gp, pharmacy, primary_school, intermediate_school, secondary_school]
+  # Budget slider on the site: dollars for a return trip.
+  budget:
+    min: 0
+    max: 20
+    step: 0.5
+    default: null           # no fare constraint until the user sets one
+    return_trip: true
+  # Traveller profiles offered on the site. The age range is what a person
+  # would pick; the fare key names the row of AT's table that applies.
+  profiles:
+    - {key: adult, label: Adult, ages: "19 to 64"}
+    - {key: child_5_15, label: Child, ages: "5 to 15"}
+    - {key: secondary_student, label: Secondary student, ages: "13 to 18"}
+    - {key: tertiary_student, label: Tertiary student, ages: "18 and over"}
+    - {key: community_connect, label: Community Services Card, ages: any}
+    - {key: accessible, label: Accessible concession, ages: any}
+    - {key: supergold, label: SuperGold, ages: "65 and over"}

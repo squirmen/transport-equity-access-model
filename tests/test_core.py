@@ -229,3 +229,109 @@ def test_pct_cycling_decay_never_penalises_a_close_destination():
     # and falls away with distance after that
     assert all(weights[i] > weights[i + 1] for i in range(2, len(weights) - 1))
     assert weights[-1] < 0.4
+
+
+# --------------------------------------------------------------------- fares
+
+FARE_TABLE = {
+    "fares": {
+        "adult": {"hop": {"1": 3.0, "2": 4.9, "3": 6.5, "4": 7.9}, "cash": {"1": 4.0, "2": 6.0, "3": 8.0, "4": 10.0}},
+        "community_connect": {"hop": {"1": 1.5, "2": 2.45, "3": 3.25, "4": 3.95}},
+    },
+    "free": {"supergold": {"free_from": "09:00"}},
+}
+
+ADJACENCY = {
+    "City": ["Isthmus", "Lower North Shore"],
+    "Isthmus": ["City", "Waitakere", "Northern Manukau"],
+    "Waitakere": ["Isthmus"],
+    "Lower North Shore": ["City"],
+    "Northern Manukau": ["Isthmus", "Southern Manukau"],
+    "Southern Manukau": ["Northern Manukau"],
+}
+
+
+def test_zone_distance_counts_zones_not_boundaries():
+    from team import fares
+
+    d = fares.zone_distance(ADJACENCY)
+    # AT's own example: Henderson to Britomart passes through three zones.
+    assert d[("Waitakere", "City")] == 3
+    # And a trip that stays put is a one-zone fare.
+    assert d[("Isthmus", "Isthmus")] == 1
+    # The Harbour Bridge lands in the City zone, so the shore is not next to the isthmus.
+    assert d[("Lower North Shore", "Isthmus")] == 3
+
+
+def test_zone_distance_applies_the_cap():
+    from team import fares
+
+    d = fares.zone_distance(ADJACENCY)
+    assert d[("Southern Manukau", "City")] == 4
+    assert d[("Southern Manukau", "Lower North Shore")] == 4
+
+
+def test_fare_caps_at_four_zones():
+    from team import fares
+
+    assert fares.fare(FARE_TABLE, 1) == 3.0
+    assert fares.fare(FARE_TABLE, 4) == 7.9
+    assert fares.fare(FARE_TABLE, 9) == 7.9
+    assert fares.fare(FARE_TABLE, 2, payment="cash") == 6.0
+
+
+def test_fare_falls_back_to_the_adult_cash_price():
+    from team import fares
+
+    # Community Connect exists only on an AT HOP card.
+    assert fares.fare(FARE_TABLE, 1, "community_connect") == 1.5
+    assert fares.fare(FARE_TABLE, 1, "community_connect", "cash") == 1.5
+
+
+def test_affordable_zones_counts_a_return_trip_as_two_fares():
+    from team import fares
+
+    # A single one-zone fare is $3, so $5 buys a one-way trip and no return.
+    assert fares.affordable_zones(FARE_TABLE, 5.0, return_trip=False) == 2
+    assert fares.affordable_zones(FARE_TABLE, 5.0) == 0
+    assert fares.affordable_zones(FARE_TABLE, 6.0) == 1
+    assert fares.affordable_zones(FARE_TABLE, 20.0) == 4
+
+
+def test_supergold_travels_free_only_after_nine():
+    from team import fares
+
+    assert fares.affordable_zones(FARE_TABLE, 0.0, "supergold", hour=8) == 0
+    assert fares.affordable_zones(FARE_TABLE, 0.0, "supergold", hour=10) == 4
+    assert fares.affordable_zones(FARE_TABLE, 0.0, "supergold", hour=8, weekday=False) == 4
+
+
+def test_reachable_within_rises_with_the_budget():
+    import numpy as np
+    import pandas as pd
+
+    from team import fares
+
+    pairs = pd.DataFrame(
+        {
+            "origin": ["a", "a", "a", "b"],
+            "destination": ["d1", "d2", "d3", "d1"],
+            "minutes": [10, 20, 30, 90],
+        }
+    )
+    weights = pd.Series({"d1": 1.0, "d2": 1.0, "d3": 1.0})
+    counts = np.array([1.0, 2.0, 4.0, 1.0])
+    index = pd.Index(["a", "b"], name="h3")
+    got = fares.reachable_within(pairs, weights, counts, 45, index)
+    assert list(got.loc["a"]) == [1.0, 2.0, 2.0, 3.0]
+    # b's only pair is beyond the time cap, so no budget reaches it.
+    assert list(got.loc["b"]) == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_budget_steps_price_a_return_trip():
+    from team import fares
+
+    steps = fares.budget_steps(FARE_TABLE)
+    assert [s["zones"] for s in steps] == [1, 2, 3, 4]
+    assert steps[0]["cost"] == 6.0
+    assert fares.budget_steps(FARE_TABLE, return_trip=False)[0]["cost"] == 3.0

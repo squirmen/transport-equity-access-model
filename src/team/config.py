@@ -49,6 +49,10 @@ class Settings:
         return self.raw.get("gravity", {})
 
     @property
+    def fares(self) -> dict[str, Any]:
+        return self.raw.get("fares", {})
+
+    @property
     def standard_modes(self) -> list[str]:
         return list(self.raw.get("standard_modes", []))
 

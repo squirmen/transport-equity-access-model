@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from . import context, diagnosis, equity, export, gravity, measures, people, routing
+from . import context, diagnosis, equity, export, fares, gravity, measures, people, routing
 from .config import Settings
 
 log = logging.getLogger("team.build")
@@ -20,7 +20,7 @@ def _nztm(lon, lat) -> np.ndarray:
     return np.column_stack([points.x.to_numpy(), points.y.to_numpy()])
 
 
-def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
+def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict]:
     origins = routing.load_origins(settings)
     index = pd.Index(origins["id"], name="h3")
 
@@ -46,13 +46,17 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
     scores, functions = gravity.build(settings, index, table["population"])
     table = table.join(scores)
 
+    log.info("fares")
+    cost, fare_record = fares.build(settings, index, origins)
+    table = table.join(cost)
+
     log.info("diagnosis")
     table = diagnosis.diagnose(table, settings)
-    return table, destinations, functions
+    return table, destinations, functions, fare_record
 
 
 def run(settings: Settings) -> None:
-    table, destinations, functions = cell_table(settings)
+    table, destinations, functions, fare_record = cell_table(settings)
     table.to_parquet(settings.out("team_cells.parquet"))
 
     log.info("summaries")
@@ -61,6 +65,7 @@ def run(settings: Settings) -> None:
         "jobs": equity.jobs_summary(table, settings),
         "checks": {"commute": equity.commute_check(table)},
         "gravity": {"functions": functions, **equity.gravity_summary(table, settings)},
+        "fares": {**fare_record, **equity.fare_summary(table, settings)} if fare_record else {},
     }
     areas = {}
     for key in ("sa2", "local_board"):

@@ -228,3 +228,49 @@ def gravity_summary(table: pd.DataFrame, settings: Settings) -> dict:
         if check:
             checks[mode_id] = check
     return {"measures": measures, "checks": checks}
+
+
+def fare_summary(table: pd.DataFrame, settings: Settings) -> dict:
+    """What each zone budget buys, regionally and by deprivation.
+
+    A zone limit is what a dollar budget buys once the traveller and the fare
+    table are known, so these are the figures behind a sentence like "a third
+    of people without a car can reach a supermarket for the price of a one
+    zone fare".
+    """
+    weights = group_weights(table, "everyone")
+    quintile = nzdep_quintile(table["nzdep"])
+    spec = settings.fares
+    if not spec:
+        return {}
+    out = []
+    for purpose in spec.get("purposes", []):
+        columns = sorted(c for c in table.columns if c.startswith(f"costaccess_{purpose}_z"))
+        if not columns:
+            continue
+        entry = {"purpose": purpose, "by_zone": []}
+        for column in columns:
+            limit = int(column.rsplit("_z", 1)[1])
+            reached = table[column].fillna(0.0)
+            any_one = reached > 0
+            share_column = f"costshare_{purpose}_z{limit}"
+            row = {
+                "zones": limit,
+                "share_reaching_any": weighted_share(any_one, weights),
+                "mean_share_of_all": float(np.average(table[share_column].fillna(0.0), weights=weights))
+                if share_column in table and weights.sum() > 0
+                else None,
+                "by_quintile": [],
+            }
+            for q, label in QUINTILE_LABELS.items():
+                in_q = (quintile == q).fillna(False)
+                row["by_quintile"].append(
+                    {"quintile": q, "label": label, "share_reaching_any": weighted_share(any_one[in_q], weights[in_q])}
+                )
+            entry["by_zone"].append(row)
+        out.append(entry)
+    zones = table["costzone"] if "costzone" in table else pd.Series(dtype="object")
+    people_by_zone = (
+        {str(z): float(weights[zones == z].sum()) for z in sorted(zones.dropna().unique())} if len(zones) else {}
+    )
+    return {"measures": out, "people_by_zone": people_by_zone}

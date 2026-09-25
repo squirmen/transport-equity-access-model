@@ -150,10 +150,36 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "jobs": jobs,
         "fair": fair,
         "access": access_payload(settings, table),
+        "cost": cost_payload(settings, table),
+        "zone": [str(v) if isinstance(v, str) else None for v in table["costzone"]] if "costzone" in table else None,
     }
 
 
 ACCESS_WEB_KEYS = ("jobs", "everyday", "education", "all")
+
+
+def cost_payload(settings: Settings, table: pd.DataFrame) -> dict:
+    """What each zone budget reaches, per cell.
+
+    Services are counts, because the question is whether a shop is within
+    reach and how many there are. Jobs are a share of all the region's jobs,
+    which is how the rest of the site reports them.
+    """
+    out: dict[str, dict] = {}
+    for purpose in settings.fares.get("purposes", []):
+        block = {}
+        for limit in range(1, 5):
+            column = f"costaccess_{purpose}_z{limit}"
+            if column not in table:
+                continue
+            if purpose == "jobs":
+                share = f"costshare_{purpose}_z{limit}"
+                block[f"z{limit}"] = _floats(table[share], 2, scale=100) if share in table else None
+            else:
+                block[f"z{limit}"] = _ints(table[column])
+        if block:
+            out[purpose] = block
+    return out
 
 
 def access_payload(settings: Settings, table: pd.DataFrame) -> dict:
@@ -172,6 +198,38 @@ def access_payload(settings: Settings, table: pd.DataFrame) -> dict:
         if block:
             out[mode_id] = block
     return out
+
+
+def fare_meta(settings: Settings, summary: dict) -> dict:
+    """Everything the browser needs to turn a budget into a number of zones.
+
+    The fare table is small and the rule is simple, so the conversion happens
+    in the browser. That way a budget slider redraws the map without asking
+    the server for anything.
+    """
+    spec = settings.fares
+    if not spec:
+        return {}
+    record = summary.get("fares", {})
+    table_path = settings.data("fare_table") if "fare_table" in settings.raw["data"] else None
+    table = json.loads(table_path.read_text(encoding="utf-8")) if table_path and table_path.exists() else {}
+    return {
+        "mode": spec.get("mode", "pt"),
+        "max_minutes": spec.get("max_minutes"),
+        "purposes": list(spec.get("purposes", [])),
+        "budget": spec.get("budget", {}),
+        "profiles": spec.get("profiles", []),
+        "zone_cap": record.get("zone_cap", 4),
+        "zones": record.get("zones", []),
+        "adjacency": record.get("adjacency", {}),
+        "fares": table.get("fares", {}),
+        "free": table.get("free", {}),
+        "caps": (table.get("rules", {}) or {}).get("caps", {}),
+        "source_url": table.get("source_url"),
+        "read_on": table.get("read_on"),
+        "zone_source_url": record.get("zone_source"),
+        "cells_with_zone": record.get("cells_with_zone"),
+    }
 
 
 def _area_records(frame: pd.DataFrame) -> list[dict]:
@@ -218,6 +276,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
             "functions": summary.get("gravity", {}).get("functions", {}),
             "purposes": {k: v.get("label", k) for k, v in settings.gravity.get("purposes", {}).items()},
         },
+        "fares": fare_meta(settings, summary),
         "quintiles": QUINTILE_LABELS,
         "reasons": {str(code): {"key": key, "label": label, "fix": fix} for code, (key, label, fix) in REASONS.items()},
         "totals": {"cells": int(len(table)), "population": round(float(table["population"].sum()))},
@@ -248,6 +307,9 @@ FIELD_NOTES = {
     "access_": "Gravity score: opportunities of this type, each discounted by how long it takes to reach (see docs/methodology.md).",
     "accessidx_": "The gravity score as an index where the population-weighted regional mean is 100.",
     "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
+    "costzone": "Auckland Transport fare zone the cell sits in.",
+    "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport.",
+    "costshare_": "The same, as a share of all of them in the region.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",
 }
