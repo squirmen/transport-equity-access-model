@@ -9,7 +9,7 @@ import {
   affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, serviceHour,
   travellerSummary, ZONE_CAP,
 } from './fares.js';
-import { count, el, minutes, MODES } from './format.js';
+import { count, el, minutes, MODES, place } from './format.js';
 import {
   BASEMAPS, cellCollection, createMap, fitPlace, onCells, OVERLAYS, paintCells, select, setBasemap,
   setCells, setOverlay, setOverlays, showDestinationsFor,
@@ -44,7 +44,7 @@ const GROUP_NOUN = {
   low_income: 'people on lower household incomes',
   maori: 'Māori',
   pacific: 'Pacific peoples',
-  asian: 'Asian Aucklanders',
+  asian: 'Asian residents',
   disabled: 'disabled people',
 };
 const groupKeys = () => Object.keys(data.meta.groups || { everyone: 'Everyone' });
@@ -423,8 +423,8 @@ function jobsModel() {
     classes,
     colours: choice.fair ? FAIR : JOBS,
     tooltip: (i) => [choice.fair
-      ? `${Number.isFinite(values[i]) ? values[i].toFixed(2) : '–'}× the Auckland average`
-      : `${Number.isFinite(values[i]) ? values[i].toFixed(1) : '–'}% of Auckland's jobs within ${choice.limit} min`],
+      ? `${Number.isFinite(values[i]) ? values[i].toFixed(2) : '–'}× the ${place.name} average`
+      : `${Number.isFinite(values[i]) ? values[i].toFixed(1) : '–'}% of ${place.possessive} jobs within ${choice.limit} min`],
     panel: {
       ...choice,
       priced: Boolean(priced),
@@ -474,7 +474,7 @@ function scoreModel() {
       Number.isFinite(values[i])
         ? `${keyLabels[choice.key] || choice.key} by ${MODES[choice.mode].short}: score ${Math.round(values[i])}`
         : 'No score here',
-      Number.isFinite(values[i]) ? `Decile ${bands[i] + 1} of 10; Auckland average is 100` : '',
+      Number.isFinite(values[i]) ? `Decile ${bands[i] + 1} of 10; the ${place.name} average is 100` : '',
     ].filter(Boolean),
     panel: {
       key: choice.key,

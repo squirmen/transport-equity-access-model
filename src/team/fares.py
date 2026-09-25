@@ -38,6 +38,12 @@ import pandas as pd
 log = logging.getLogger("team.fares")
 
 ZONE_CAP = 4
+
+# How a region prices a journey. Auckland counts the zones a journey passes
+# through; Christchurch and most smaller networks charge one fare however far
+# you go. A flat fare is the same calculation with a single zone, which keeps
+# one code path rather than two.
+KINDS = ("zones", "flat")
 PROFILES = ("adult", "child_5_15", "secondary_student", "tertiary_student", "accessible", "community_connect")
 PAYMENTS = ("hop", "cash")
 
@@ -45,6 +51,11 @@ PAYMENTS = ("hop", "cash")
 def load_table(path: Path) -> dict:
     """The fare table as published, with its provenance."""
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def flat_distance(zones: list[str]) -> dict[tuple[str, str], int]:
+    """Every journey is one fare, whichever pair of areas it joins."""
+    return {(a, b): 1 for a in zones for b in zones}
 
 
 def zone_distance(adjacency: dict[str, list[str]], cap: int = ZONE_CAP) -> dict[tuple[str, str], int]:
@@ -69,14 +80,22 @@ def zone_distance(adjacency: dict[str, list[str]], cap: int = ZONE_CAP) -> dict[
     return out
 
 
+def zone_cap(table: dict) -> int:
+    """How many zone steps this fare table has. A flat fare has one."""
+    if str(table.get("kind", "zones")) == "flat":
+        return 1
+    return int(table.get("rules", {}).get("zone_cap", ZONE_CAP))
+
+
 def fare(table: dict, zones: int, profile: str = "adult", payment: str = "hop") -> float:
     """The fare in dollars for a journey of `zones` zones.
 
     Journeys longer than the cap pay the cap. A profile that has no cash fare
     of its own pays the adult cash fare, which is how AT prices a concession
-    that only exists on an AT HOP card.
+    that only exists on an AT HOP card. Under a flat fare there is one step,
+    so every journey costs the same.
     """
-    zones = max(1, min(int(zones), ZONE_CAP))
+    zones = max(1, min(int(zones), zone_cap(table)))
     prices = table["fares"].get(profile) or table["fares"]["adult"]
     scale = prices.get(payment) or prices["hop"]
     return float(scale[str(zones)])
@@ -115,11 +134,12 @@ def affordable_zones(
     one journey and not a trip out and back. Zero means they cannot afford to
     board at all, which leaves walking and cycling.
     """
+    cap = zone_cap(table)
     if free_travel(table, profile, hour, weekday):
-        return ZONE_CAP
+        return cap
     trips = 2 if return_trip else 1
     best = 0
-    for zones in range(1, ZONE_CAP + 1):
+    for zones in range(1, cap + 1):
         if fare(table, zones, profile, payment) * trips <= budget + 1e-9:
             best = zones
     return best
@@ -130,7 +150,7 @@ def budget_steps(table: dict, profile: str = "adult", payment: str = "hop", retu
     trips = 2 if return_trip else 1
     return [
         {"zones": z, "cost": round(fare(table, z, profile, payment) * trips, 2)}
-        for z in range(1, ZONE_CAP + 1)
+        for z in range(1, zone_cap(table) + 1)
     ]
 
 

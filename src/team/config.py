@@ -49,6 +49,18 @@ class Settings:
         return self.raw.get("gravity", {})
 
     @property
+    def naming(self) -> dict[str, str]:
+        """How the place is named in the interface and the downloads."""
+        given = dict(self.raw.get("naming", {}))
+        place = given.get("place") or str(self.raw.get("region", "")).split(" ")[0] or self.raw["name"].title()
+        given.setdefault("place", place)
+        given.setdefault("residents", f"people in {place}")
+        given.setdefault("possessive", f"{place}'s")
+        given.setdefault("slug", str(self.raw["name"]).lower().replace(" ", "_"))
+        given.setdefault("agency", "the local transport agency")
+        return given
+
+    @property
     def fares(self) -> dict[str, Any]:
         return self.raw.get("fares", {})
 

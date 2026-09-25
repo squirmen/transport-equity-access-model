@@ -2,7 +2,7 @@
 
 import { bestMode } from './data.js';
 import { diagnoseCell } from './diagnose.js';
-import { count, el, metres, minutes, MODES } from './format.js';
+import { count, el, metres, minutes, MODES, place as placeNames } from './format.js';
 import { SERVICE_ORDER, SERVICE_SHORT } from './panel.js';
 import { REASON_CLASS, REASON_GROUPS } from './palette.js';
 
@@ -125,7 +125,7 @@ export function renderPlace(root, data, i, state) {
     }
   }
   const fair = data.fair.pt?.['45']?.[i];
-  if (Number.isFinite(fair)) jobs.push(row('Allowing for competition', `${fair.toFixed(2)}× the Auckland average`));
+  if (Number.isFinite(fair)) jobs.push(row('Allowing for competition', `${fair.toFixed(2)}× the ${placeNames.name} average`));
 
   const windows = Object.keys(data.freq);
   const around = [

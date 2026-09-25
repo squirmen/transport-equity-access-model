@@ -265,6 +265,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "version": __version__,
         "built": dt.date.today().isoformat(),
         "region": settings.raw.get("region"),
+        "naming": settings.naming,
         "routing_date": str(settings.routing["date"]),
         "windows": settings.routing["windows"],
         "modes": {k: v.get("label", k) for k, v in settings.modes.items()},
@@ -321,7 +322,7 @@ FIELD_NOTES = {
     "access_": "Gravity score: opportunities of this type, each discounted by how long it takes to reach (see docs/methodology.md).",
     "accessidx_": "The gravity score as an index where the population-weighted regional mean is 100.",
     "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
-    "costzone": "Auckland Transport fare zone the cell sits in.",
+    "costzone": "Public transport fare zone the cell sits in.",
     "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport.",
     "costmin_": "Minutes to the nearest one within this many fare zones by public transport.",
     "costshare_": "The same, as a share of all of them in the region.",
@@ -348,23 +349,24 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
     for column in flat.columns:
         if flat[column].dtype == "object":
             flat[column] = flat[column].astype("string")
-    flat.to_csv(folder / "team_auckland_h3.csv", index=False)
+    slug = settings.naming["slug"]
+    flat.to_csv(folder / f"team_{slug}_h3.csv", index=False)
     geometry = [Polygon([(lng, lat) for lat, lng in h3.cell_to_boundary(c)]) for c in flat["h3"]]
-    gpd.GeoDataFrame(flat, geometry=geometry, crs="EPSG:4326").to_file(folder / "team_auckland_h3.gpkg", driver="GPKG")
+    gpd.GeoDataFrame(flat, geometry=geometry, crs="EPSG:4326").to_file(folder / f"team_{slug}_h3.gpkg", driver="GPKG")
     pd.DataFrame({"field": flat.columns, "description": [_note(c) for c in flat.columns]}).to_csv(
         folder / "fields.csv", index=False
     )
     sums = []
-    for path in sorted(folder.glob("team_auckland_h3.*")) + [folder / "fields.csv"]:
+    for path in sorted(folder.glob(f"team_{slug}_h3.*")) + [folder / "fields.csv"]:
         sums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
     (folder / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
-    write_downloads_page(folder)
+    write_downloads_page(folder, settings)
     return folder
 
 
 DOWNLOAD_NOTES = {
-    "team_auckland_h3.gpkg": "Every field for every populated hexagon, with the hexagon shapes (GeoPackage, for GIS).",
-    "team_auckland_h3.csv": "The same fields without shapes.",
+    "{slug}_h3.gpkg": "Every field for every populated hexagon, with the hexagon shapes (GeoPackage, for GIS).",
+    "{slug}_h3.csv": "The same fields without shapes.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }
@@ -390,7 +392,7 @@ a { color: #1f6178; }
 <body>
 <p><a href="../">Back to TEAM</a></p>
 <h1>TEAM data</h1>
-<p>Travel times, standards, reasons, job access and census characteristics for every populated hexagon in Auckland. Version __VERSION__, built __BUILT__.</p>
+<p>Travel times, standards, reasons, job access and census characteristics for every populated hexagon in __PLACE__. Version __VERSION__, built __BUILT__.</p>
 <table>
 <thead><tr><th>File</th><th>Contents</th><th>Size</th></tr></thead>
 <tbody>
@@ -398,9 +400,9 @@ __ROWS__
 </tbody>
 </table>
 <h2>Terms</h2>
-<p>The data is derived from OpenStreetMap (Open Database Licence), Stats NZ and the Ministry of Education (CC BY 4.0), and Auckland Transport open data. Parts derived from OpenStreetMap are shared under the Open Database Licence.</p>
+<p>The data is derived from OpenStreetMap (Open Database Licence), Stats NZ and the Ministry of Education (CC BY 4.0), and __AGENCY__ open data. Parts derived from OpenStreetMap are shared under the Open Database Licence.</p>
 <h2>Citation</h2>
-<p>Welch, T. F. (2026). TEAM: Transport Equity and Access Model, Auckland. Version __VERSION__. Better Places Lab, University of Auckland.</p>
+<p>Welch, T. F. (2026). TEAM: Transport Equity and Access Model, __PLACE__. Version __VERSION__. Better Places Lab, University of Auckland.</p>
 </body>
 </html>
 """
@@ -411,9 +413,11 @@ def _size(path: Path) -> str:
     return f"{size / 1e6:.1f} MB" if size >= 1e6 else f"{max(1, round(size / 1e3))} KB"
 
 
-def write_downloads_page(folder: Path) -> None:
+def write_downloads_page(folder: Path, settings: Settings) -> None:
+    slug = settings.naming["slug"]
     rows = []
-    for name, note in DOWNLOAD_NOTES.items():
+    for template, note in DOWNLOAD_NOTES.items():
+        name = template.format(slug=f"team_{slug}") if "{slug}" in template else template
         path = folder / name
         if path.exists():
             rows.append(f'<tr><td><a href="{name}">{name}</a></td><td>{note}</td><td>{_size(path)}</td></tr>')
@@ -421,6 +425,8 @@ def write_downloads_page(folder: Path) -> None:
         DOWNLOADS_PAGE.replace("__ROWS__", "\n".join(rows))
         .replace("__VERSION__", __version__)
         .replace("__BUILT__", dt.date.today().isoformat())
+        .replace("__PLACE__", settings.naming["place"])
+        .replace("__AGENCY__", settings.naming.get("agency", "the local transport agency"))
     )
     (folder / "index.html").write_text(page, encoding="utf-8")
 

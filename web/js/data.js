@@ -1,6 +1,7 @@
 // Load the TEAM data files and derive per-cell values for the current view.
 
 import { diagnoseCell } from './diagnose.js';
+import { setPlace } from './format.js';
 
 // The network overlays are not needed for the first view, so they load separately.
 const FILES = ['cells', 'summary', 'places', 'destinations'];
@@ -26,6 +27,7 @@ function mapValues(object, fn) {
 }
 
 function prepare(raw) {
+  setPlace(raw.summary.meta.naming);
   const c = raw.cells;
   const n = c.h3.length;
   const data = {

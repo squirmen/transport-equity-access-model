@@ -44,6 +44,23 @@ export const MODE_NOTES = {
   car: 'Driving time with no traffic delay or parking. Shown for comparison only.',
 };
 
+// How this build names its place. Set once when the data loads, so the copy
+// does not have to know which city it is describing.
+export const place = {
+  name: 'this region',
+  residents: 'residents',
+  possessive: 'the region\'s',
+  agency: 'the local transport agency',
+};
+
+export function setPlace(naming) {
+  if (!naming) return;
+  if (naming.place) place.name = naming.place;
+  if (naming.residents) place.residents = naming.residents;
+  if (naming.possessive) place.possessive = naming.possessive;
+  if (naming.agency) place.agency = naming.agency;
+}
+
 export function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;

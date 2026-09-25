@@ -236,6 +236,13 @@ def main() -> None:
         "version": "0.1.0-fixture",
         "built": "2026-09-11",
         "region": "Synthetic test data",
+        "naming": {
+            "place": "Testville",
+            "residents": "Testvillians",
+            "possessive": "Testville's",
+            "slug": "testville",
+            "agency": "Test Transit",
+        },
         "routing_date": "2026-09-15",
         "windows": {"am_peak": {"start": "07:00", "minutes": 120}, "interpeak": {"start": "10:00", "minutes": 120}},
         "modes": {m: m for m in MODES},

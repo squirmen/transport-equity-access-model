@@ -3,7 +3,7 @@
 // computes figures.
 
 import { bars } from './charts.js';
-import { count, el, minutes, MODE_NOTES, MODES, percent } from './format.js';
+import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.js';
 
 export const SERVICE_ORDER = [
   'supermarket', 'gp', 'pharmacy', 'primary_school', 'intermediate_school', 'secondary_school', 'jobs',
@@ -36,7 +36,7 @@ const GROUP_PHRASE = {
   low_income: 'people in households under $70,000',
   maori: 'Māori',
   pacific: 'Pacific peoples',
-  asian: 'Asian Aucklanders',
+  asian: 'Asian residents',
   disabled: 'disabled people',
 };
 
@@ -125,17 +125,17 @@ function accessSentence(model) {
   const { noun, standard, mode, fare = '' } = model;
   switch (mode) {
     case 'walk':
-      return `of Aucklanders can walk to ${noun} within ${standard} minutes.`;
+      return `of ${place.residents} can walk to ${noun} within ${standard} minutes.`;
     case 'bike_low_stress':
-      return `of Aucklanders can cycle to ${noun} within ${standard} minutes on low-stress routes.`;
+      return `of ${place.residents} can cycle to ${noun} within ${standard} minutes on low-stress routes.`;
     case 'bike':
-      return `of Aucklanders could cycle to ${noun} within ${standard} minutes on any street.`;
+      return `of ${place.residents} could cycle to ${noun} within ${standard} minutes on any street.`;
     case 'pt':
-      return `of Aucklanders can reach ${noun} within ${standard} minutes by public transport${fare}.`;
+      return `of ${place.residents} can reach ${noun} within ${standard} minutes by public transport${fare}.`;
     case 'car':
-      return `of Aucklanders can drive to ${noun} within ${standard} minutes.`;
+      return `of ${place.residents} can drive to ${noun} within ${standard} minutes.`;
     default:
-      return `of Aucklanders can reach ${noun} within ${standard} minutes without a car${fare}.`;
+      return `of ${place.residents} can reach ${noun} within ${standard} minutes without a car${fare}.`;
   }
 }
 
@@ -177,7 +177,7 @@ export function renderFareSurface(root, model, set) {
   root.replaceChildren(
     hero(
       percent(model.freeShare),
-      `of Aucklanders can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
+      `of ${place.residents} can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
       model.paid > 0 ? `${count(model.paid)} more can, but only by paying.` : null,
     ),
     showSwitch('fare', set, true),
@@ -264,10 +264,10 @@ export function renderJobsAccess(root, model, set) {
     .filter(([m]) => model.modes.includes(m));
   const figure = model.fair ? `${model.median.toFixed(2)}×` : percent(model.median / 100, model.median < 10 ? 1 : 0);
   const text = model.priced
-    ? `of Auckland's jobs are within ${model.limit} minutes by public transport for a typical resident${model.fare}.`
+    ? `of ${place.possessive} jobs are within ${model.limit} minutes by public transport for a typical resident${model.fare}.`
     : model.fair
       ? `the regional average: job access for a typical resident by ${MODES[model.mode].short}, within ${model.limit} minutes, allowing for other workers who can reach the same jobs.`
-      : `of Auckland's jobs are within ${model.limit} minutes by ${MODES[model.mode].short} for a typical resident.`;
+      : `of ${place.possessive} jobs are within ${model.limit} minutes by ${MODES[model.mode].short} for a typical resident.`;
   const toggle = el('label', 'check');
   const box = document.createElement('input');
   box.type = 'checkbox';
@@ -287,9 +287,10 @@ export function renderJobsAccess(root, model, set) {
     ].filter(Boolean),
     ...(model.priced ? [] : [radios('Within', model.limits.map((l) => [String(l), `${l} min`]), String(model.limit), (jobsLimit) => set({ jobsLimit }), { compact: true })]),
     ...(model.priced ? [] : [toggle]),
-    legend(model.fair ? 'Job access against the regional average' : "Share of Auckland's jobs within reach", model.legend, {
+    legend(model.fair ? 'Job access against the regional average' : `Share of ${place.possessive} jobs within reach`, model.legend, {
       note: model.fair
-        ? 'Divides the jobs at each place by the working-age people who can reach them, then adds up what each home can reach. 1.0 is the Auckland average.'
+        ? 'Divides the jobs at each place by the working-age people who can reach them, then adds up what each home can reach. '
+          + `1.0 is the ${place.name} average.`
         : 'Jobs counted from Stats NZ business demography (2024), by where people work.',
     }),
   );
@@ -328,7 +329,7 @@ export function renderScore(root, model, set) {
   const noun = SCORE_NOUN[key] || 'opportunities';
   const modeLabel = MODES[mode] ? MODES[mode].short : mode;
   const figure = Number.isFinite(median) ? String(Math.round(median)) : '–';
-  const text = `is the typical Auckland score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
+  const text = `is the typical ${place.name} score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
   const sub = Number.isFinite(palma)
     ? `The best-served tenth of residents score ${palma.toFixed(1)} times the least-served 40%.`
     : null;
@@ -343,7 +344,7 @@ export function renderScore(root, model, set) {
     radios('Score for', keys, key, (value) => set({ scoreKey: value }), { compact: true }),
     radios('By', modes, mode, (value) => set({ scoreMode: value }), { compact: true }),
     radios('Show', [['index', 'Score'], ['decile', 'Decile']], display, (value) => set({ scoreDisplay: value }), { compact: true }),
-    legend(display === 'decile' ? 'Decile: 1 is the tenth of residents with the least access' : 'Score, where 100 is the Auckland average', model.legend),
+    legend(display === 'decile' ? 'Decile: 1 is the tenth of residents with the least access' : `Score, where 100 is the ${place.name} average`, model.legend),
     chart,
     el('p', 'note', note),
   );

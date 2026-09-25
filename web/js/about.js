@@ -1,6 +1,6 @@
 // The About dialog. Plain statements of what TEAM shows, how, and its limits.
 
-import { count, el } from './format.js';
+import { count, el, place } from './format.js';
 
 const LINKS = {
   method: 'https://github.com/squirmen/transport-equity-access-model/blob/main/docs/methodology.md',
@@ -49,7 +49,7 @@ export function renderAbout(root, meta) {
   root.replaceChildren(
     el('p', 'eyebrow', 'Better Places Lab'),
     Object.assign(el('h2', null, 'TEAM: Transport Equity and Access Model'), { id: 'about-title' }),
-    para('TEAM shows how long it takes to reach everyday services and jobs from each part of Auckland without a car, who lives where that is too long, and what kind of change would shorten it.'),
+    para(`TEAM shows how long it takes to reach everyday services and jobs from each part of ${place.name} without a car, who lives where that is too long, and what kind of change would shorten it.`),
     el('h3', null, 'Reading the map'),
     list([
       'Access: minutes to the nearest service. Blue is within the standard, orange is beyond it.',
@@ -61,7 +61,7 @@ export function renderAbout(root, meta) {
     table,
     el('h3', null, 'How it is built'),
     list([
-      `Travel times come from R5 routing on OpenStreetMap streets and paths and the Auckland Transport timetable for ${date}. Public transport times are the median across the time window and include walking to the stop and waiting.`,
+      `Travel times come from R5 routing on OpenStreetMap streets and paths and the ${place.agency} timetable for ${date}. Public transport times are the median across the time window and include walking to the stop and waiting.`,
       'Low-stress routes are paths, protected lanes and quiet streets: level 2 or below on R5’s traffic-stress scale.',
       `Each hexagon covers about 0.1 km². There are ${count(meta.totals.cells)} with residents, holding ${count(meta.totals.population)} people from the 2023 Census.`,
       `Jobs are Stats NZ business demography employee counts (2024), ${count(meta.jobs.total)} in total, placed by where people work.`,
@@ -77,7 +77,7 @@ export function renderAbout(root, meta) {
     ]),
     el('h3', null, 'Credit'),
     para('Built by the Better Places Lab, Te Pare School of Architecture, Planning and Design, Waipapa Taumata Rau | University of Auckland.'),
-    para(`Cite as: Welch, T. F. (2026). TEAM: Transport Equity and Access Model, Auckland. Version ${meta.version}. Better Places Lab, University of Auckland.`),
+    para(`Cite as: Welch, T. F. (2026). TEAM: Transport Equity and Access Model, ${place.name}. Version ${meta.version}. Better Places Lab, University of Auckland.`),
     Object.assign(el('p', 'about-contact'), { textContent: 'Questions or data to share: t.welch@auckland.ac.nz' }),
   );
 }

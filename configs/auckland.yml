@@ -7,6 +7,16 @@
 name: auckland
 region: Auckland Council area
 
+# How the place is named in the interface and the downloads. Everything the
+# site says about "Aucklanders" comes from here, so a second city is a config
+# change rather than a hunt through the copy.
+naming:
+  place: Auckland                 # the city, as a heading would say it
+  residents: Aucklanders          # what the people are called
+  possessive: Auckland's          # as in "of Auckland's jobs"
+  slug: auckland                  # used in download file names
+  agency: Auckland Transport      # whose timetable and fares these are
+
 data:
   osm: processed/auckland/osm/auckland_bbox.osm.pbf
   gtfs: raw/auckland/gtfs/at_gtfs_2026-09-01.zip
