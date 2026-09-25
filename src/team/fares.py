@@ -262,6 +262,7 @@ def reachable_within(
     zone_counts: np.ndarray,
     minutes_cap: float,
     index: pd.Index,
+    cap: int = ZONE_CAP,
 ) -> pd.DataFrame:
     """Opportunities reachable per origin, at each zone limit.
 
@@ -274,7 +275,7 @@ def reachable_within(
     counts = zone_counts[keep]
     size = rows["destination"].map(weights).fillna(0.0).to_numpy(dtype="float64")
     out = {}
-    for limit in range(1, ZONE_CAP + 1):
+    for limit in range(1, int(cap) + 1):
         inside = counts <= limit
         totals = pd.Series(size[inside], index=rows["origin"].to_numpy()[inside]).groupby(level=0).sum()
         out[f"z{limit}"] = totals.reindex(index).fillna(0.0).astype("float32")
@@ -297,6 +298,7 @@ def nearest_within(
     zone_counts: np.ndarray,
     minutes_cap: float,
     index: pd.Index,
+    cap: int = ZONE_CAP,
 ) -> pd.DataFrame:
     """Minutes to the nearest destination per origin, at each zone limit.
 
@@ -311,7 +313,7 @@ def nearest_within(
     minutes = rows["minutes"].to_numpy(dtype="float64")
     origins = rows["origin"].to_numpy()
     out = {}
-    for limit in range(1, ZONE_CAP + 1):
+    for limit in range(1, int(cap) + 1):
         inside = counts <= limit
         best = pd.Series(minutes[inside], index=origins[inside]).groupby(level=0).min()
         out[f"z{limit}"] = best.reindex(index).astype("float32")
@@ -336,7 +338,7 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
 
     table = load_table(settings.data("fare_table"))
     meta = json.loads(settings.data("fare_zone_meta").read_text(encoding="utf-8"))
-    distance = zone_distance(meta["adjacency"])
+    distance = zone_distance(meta["adjacency"], zone_cap(table))
     mode_id = str(spec.get("mode", "pt"))
     cap = float(spec.get("max_minutes", 45))
 
@@ -362,8 +364,9 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
             log.warning("no %s pairs for %s; skipping", mode_id, purpose)
             continue
         counts = pair_zone_counts(pairs, origin_zone, destination_zone, distance)
-        reached = reachable_within(pairs, weights, counts, cap, index)
-        soonest = nearest_within(pairs, counts, cap, index)
+        steps = zone_cap(table)
+        reached = reachable_within(pairs, weights, counts, cap, index, steps)
+        soonest = nearest_within(pairs, counts, cap, index, steps)
         total = float(weights.sum())
         for limit in reached.columns:
             columns[f"costaccess_{purpose}_{limit}"] = reached[limit]
@@ -382,7 +385,8 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
     record = {
         "mode": mode_id,
         "max_minutes": cap,
-        "zone_cap": ZONE_CAP,
+        "zone_cap": zone_cap(table),
+        "kind": str(table.get("kind", "zones")),
         "zones": meta.get("zones", []),
         "adjacency": meta.get("adjacency", {}),
         "fare_source": table.get("source_url"),

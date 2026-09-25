@@ -177,10 +177,14 @@ def cost_payload(settings: Settings, table: pd.DataFrame) -> dict:
     reach and how many there are. Jobs are a share of all the region's jobs,
     which is how the rest of the site reports them.
     """
+    steps = max(
+        (int(c.rsplit("_z", 1)[1]) for c in table.columns if c.startswith("costmin_") or c.startswith("costshare_")),
+        default=4,
+    )
     out: dict[str, dict] = {}
     for purpose in settings.fares.get("purposes", []):
         block: dict[str, list] = {}
-        for limit in range(1, 5):
+        for limit in range(1, steps + 1):
             if purpose == "jobs":
                 column = f"costshare_{purpose}_z{limit}"
                 if column in table:
@@ -232,6 +236,9 @@ def fare_meta(settings: Settings, summary: dict) -> dict:
         "budget": spec.get("budget", {}),
         "profiles": spec.get("profiles", []),
         "zone_cap": record.get("zone_cap", 4),
+        "kind": record.get("kind", "zones"),
+        "offpeak_hours": (table.get("rules", {}) or {}).get("offpeak_hours", []),
+        "periods": (table.get("rules", {}) or {}).get("periods", {}),
         "zones": record.get("zones", []),
         "adjacency": record.get("adjacency", {}),
         "fares": table.get("fares", {}),

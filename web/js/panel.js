@@ -373,7 +373,7 @@ export function renderTraveller(root, model, set) {
   const profiles = (model.profiles || []).map((p) => [p.key, p.label]);
   const fields = [
     radios('Travelling as', profiles, model.profile, (profile) => set({ profile }), { compact: true }),
-    radios('Paying with', [['hop', 'AT HOP or contactless'], ['cash', 'Cash']], model.payment, (payment) => set({ payment }), { compact: true }),
+    radios('Paying with', model.payments, model.payment, (payment) => set({ payment }), { compact: true }),
     radios('Budget covers', [['return', 'There and back'], ['one', 'One way']], model.returnTrip ? 'return' : 'one',
       (value) => set({ returnTrip: value === 'return' }), { compact: true }),
   ];

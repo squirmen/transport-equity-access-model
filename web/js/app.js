@@ -6,8 +6,8 @@ import {
   reasons as reasonCodes, times, weightedMedian, weightedShare,
 } from './data.js';
 import {
-  affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, serviceHour,
-  travellerSummary, ZONE_CAP,
+  affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, payments,
+  serviceHour, travellerSummary, zoneCap,
 } from './fares.js';
 import { count, el, minutes, MODES, place } from './format.js';
 import {
@@ -181,6 +181,8 @@ function zonesFor(service) {
   if (state.budget == null || state.measure === 'score') return null;
   const meta = data.meta.fares;
   if (!meta || !meta.fares || !data.cost[service]) return null;
+  // A network names its own ways of paying, so fall back to the first one
+  // rather than assuming Auckland's card.
   return affordableZones(meta, { ...state, hour: serviceHour(data.meta, service) });
 }
 
@@ -196,6 +198,30 @@ function routedMask(service) {
     cache.routed.set(service, Uint8Array.from({ length: data.n }, (_, i) => (modes.some((t) => Number.isFinite(t[i])) ? 1 : 0)));
   }
   return cache.routed.get(service);
+}
+
+/** Where to open the map: around the people, not around the whole region.
+ *
+ *  Taken from the middle 98% of residents so one remote settlement cannot
+ *  pull the first view out to sea.
+ */
+function regionBounds() {
+  const lons = [];
+  const lats = [];
+  for (const spot of data.places) {
+    if (!spot || !spot.bbox) continue;
+    lons.push(spot.lon);
+    lats.push(spot.lat);
+  }
+  if (!lons.length) return [[174.6, -37.08], [174.95, -36.72]];
+  const span = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const cut = Math.floor(sorted.length * 0.01);
+    return [sorted[cut], sorted[sorted.length - 1 - cut]];
+  };
+  const [west, east] = span(lons);
+  const [south, north] = span(lats);
+  return [[west, south], [east, north]];
 }
 
 function placeName(i) {
@@ -402,7 +428,7 @@ function jobsModel() {
   // the gravity cap rather than the job thresholds, so it replaces the values
   // and says so rather than pretending the threshold still applies.
   const priced = zones != null && choice.mode === 'pt' && data.cost.jobs
-    ? (zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, ZONE_CAP)}`])
+    ? (zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, zoneCap(data.meta.fares))}`])
     : null;
   const values = priced || (choice.fair ? data.fair[choice.mode][String(choice.limit)] : data.jobs[choice.mode][String(choice.limit)]);
   const edges = choice.fair ? FAIR_BREAKS : JOBS_BREAKS;
@@ -570,7 +596,8 @@ function renderBudget() {
   // traveller changes, which is the clearest way to show that a concession
   // changes what money buys.
   const ticks = $('budget-ticks');
-  const steps = fareSteps(meta, state).filter((step) => step.cost <= max);
+  const steps = fareSteps(meta, { ...state, hour: serviceHour(data.meta, state.service) })
+    .filter((step) => step.cost <= max);
   ticks.replaceChildren(
     ...steps.map((step) => {
       const tick = el('span', 'tick', String(step.zones));
@@ -591,6 +618,7 @@ function renderTravellerLine() {
   const clock = Number.isFinite(hour) ? `${String(hour).padStart(2, '0')}:00` : 'the modelled window';
   renderTraveller($('traveller-body'), {
     profiles: data.meta.fares.profiles || [],
+    payments: payments(data.meta.fares),
     profile: state.profile,
     payment: state.payment,
     returnTrip: state.returnTrip,
@@ -876,6 +904,11 @@ async function init() {
     $('loading').textContent = 'The data could not be loaded. If you opened this file directly, serve the folder over HTTP instead.';
     throw error;
   }
+  // A network names its own ways of paying, so start on one this one has
+  // rather than on Auckland's card.
+  const ways = payments(data.meta.fares || {}).map(([key]) => key);
+  if (ways.length && !ways.includes(state.payment)) state.payment = ways[0];
+
   await ready;
   const addLayers = () => {
     setCells(map, cellCollection(data.h3));
@@ -908,7 +941,7 @@ async function init() {
     if ([zoom, lat, lng].every(Number.isFinite)) map.jumpTo({ center: [lng, lat], zoom });
   } else {
     const padding = phone ? { top: 120, bottom: 110, left: 16, right: 16 } : { top: 30, bottom: 30, left: 390, right: 30 };
-    map.fitBounds([[174.6, -37.08], [174.95, -36.72]], { padding, duration: 0 });
+    map.fitBounds(regionBounds(), { padding, duration: 0 });
   }
   $('loading').hidden = true;
   // Network lines only show when a layer is switched on, so they load after the first view.
