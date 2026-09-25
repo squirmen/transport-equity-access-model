@@ -43,3 +43,18 @@ OpenStreetMap-derived parts are subject to ODbL share-alike conditions.
 
 The MIT licence in [`LICENSE`](../LICENSE) covers the source code only. Input
 and output datasets remain under the terms set by their providers, listed above.
+
+## Wellington, for the second city
+
+| What | Where | Note |
+| --- | --- | --- |
+| Timetable | `https://static.opendata.metlink.org.nz/v1/gtfs/full.zip` | Static GTFS, no API key. The developer API needs one; this does not. |
+| Fare zones | `stops.zone_id` in that feed | Fourteen numbered zones, with boundary stops given two as `1/2` or `4/5`. Nothing to digitise, unlike Auckland. |
+| Fare table | Metlink, Tickets and fares | Read on 26 September 2026 into `raw/wellington/fares/`. Peak and off-peak Snapper fares for all fourteen zones, plus cash, and the concessions. |
+| Fare zone lines | `https://mapping.gw.govt.nz/arcgis/rest/services/GW/Public_Transport_P/MapServer/4` | Boundary lines rather than polygons. Only needed if cells have to be zoned away from stops. |
+
+Christchurch was the first choice for a second city, because a flat fare is
+the simplest cost model there is. Its GTFS needs a free API key from
+`apidevelopers.metroinfo.co.nz`, which someone has to register for, so
+Wellington goes first: its feed is open and it is the one region that already
+publishes the fare zone of every stop.
