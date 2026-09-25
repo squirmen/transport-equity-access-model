@@ -84,6 +84,19 @@ function radios(label, options, current, onPick, { compact = false } = {}) {
   return field;
 }
 
+/** A short line, with the detail folded away behind it.
+ *
+ *  Anyone who wants to know how a number was made can open it; anyone who
+ *  just wants the number is not made to read a paragraph first.
+ */
+function method(summary, ...paragraphs) {
+  const box = el('details', 'method');
+  const head = el('summary');
+  head.append(el('span', 'method-mark', 'i'), el('span', null, summary));
+  box.append(head, ...paragraphs.map((text) => el('p', 'method-text', text)));
+  return box;
+}
+
 function hero(figure, text, sub) {
   const box = el('div', 'hero');
   box.append(el('div', 'hero-figure', figure), el('p', 'hero-text', text));

@@ -124,6 +124,10 @@ def build(settings: Settings, origins) -> pd.DataFrame:
 def low_stress_network(settings: Settings):
     import geopandas as gpd
 
+    # Optional: not every city publishes a cycling network layer, and the
+    # distance to a low-stress route is the only thing that needs it.
+    if "cycling_network" not in settings.raw["data"]:
+        return None
     path = settings.data("cycling_network")
     if not path.exists():
         return None

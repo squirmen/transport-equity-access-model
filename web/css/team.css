@@ -336,3 +336,48 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 }
 
 .traveller-body .field { margin-bottom: 8px; }
+
+
+/* Method notes: a line anyone can open, and most people will not ---------- */
+
+.method {
+  margin: 8px 0 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.method > summary {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+}
+
+.method > summary::-webkit-details-marker { display: none; }
+.method > summary:hover { color: var(--accent); }
+
+.method-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.method[open] > summary { color: var(--ink); font-weight: 600; }
+
+.method-text {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -14,6 +14,26 @@ function row(label, value) {
   return line;
 }
 
+/** The share of residents this cell beats on a measure, population weighted.
+ *
+ *  A number on its own says little: 31% of jobs within reach is good in one
+ *  city and poor in another. Where it sits among everyone else is the part
+ *  that carries meaning.
+ */
+export function rankAmong(values, weights, i) {
+  if (!values || !Number.isFinite(values[i])) return NaN;
+  const here = values[i];
+  let below = 0;
+  let total = 0;
+  for (let k = 0; k < values.length; k += 1) {
+    const w = weights[k];
+    if (!(w > 0) || !Number.isFinite(values[k])) continue;
+    total += w;
+    if (values[k] < here) below += w;
+  }
+  return total > 0 ? below / total : NaN;
+}
+
 function section(title, ...children) {
   const box = el('section', 'place-section');
   box.append(el('h3', null, title), ...children);
@@ -135,23 +155,70 @@ export function renderPlace(root, data, i, state) {
     row('Low-stress bike route', metres(data.mBike[i])),
   ];
 
+  // A share of a small hexagon is hard to picture, so say how many people
+  // that is as well.
+  const residents = data.pop[i];
+  const group = (key, label) => {
+    const share = data.shares[key]?.[i];
+    if (!Number.isFinite(share)) return null;
+    const heads = Number.isFinite(residents) ? ` · about ${count((share / 100) * residents)}` : '';
+    return row(label, `${share}%${heads}`);
+  };
+  const labels = data.meta.groups || {};
   const people = [
     row('Neighbourhood deprivation', Number.isFinite(data.nzdep[i]) ? `NZDep ${data.nzdep[i]} of 10` : '–'),
-    row('Households without a car', Number.isFinite(data.shares.no_car[i]) ? `${data.shares.no_car[i]}%` : '–'),
-    row('Children under 15', Number.isFinite(data.shares.children[i]) ? `${data.shares.children[i]}%` : '–'),
-    row('Aged 65 and over', Number.isFinite(data.shares.older[i]) ? `${data.shares.older[i]}%` : '–'),
-  ];
+    group('no_car', labels.no_car || 'Households without a car'),
+    group('children', labels.children || 'Children under 15'),
+    group('older', labels.older || 'Aged 65 and over'),
+    group('low_income', labels.low_income || 'Households under $70,000'),
+    group('maori', labels.maori || 'Māori'),
+    group('pacific', labels.pacific || 'Pacific peoples'),
+    group('disabled', labels.disabled || 'Disabled people'),
+  ].filter(Boolean);
   if (Number.isFinite(data.drive[i])) people.push(row('Drove to work (this SA2, 2023)', `${data.drive[i]}%`));
   if (data.zone && data.zone[i]) around.unshift(row('Fare zone', data.zone[i]));
+
+  // What the whole basket of opportunities is worth from here, and what the
+  // cheapest way to each service costs.
+  const scoreMode = state.measure === 'score' ? state.scoreMode : (state.mode && state.mode !== 'best' ? state.mode : 'pt');
+  const scores = data.access[scoreMode]?.all;
+  const standing = [];
+  if (scores && Number.isFinite(scores[i])) {
+    standing.push(row(`Access score by ${MODES[scoreMode].short}`, `${Math.round(scores[i])} · ${placeNames.name} average is 100`));
+    const better = rankAmong(scores, data.pop, i);
+    if (Number.isFinite(better)) standing.push(row('Better than', `${Math.round(better * 100)}% of residents`));
+  }
+  if (data.cost && data.meta.fares) {
+    const cheapest = SERVICE_ORDER.filter((sv) => sv !== 'jobs' && data.cost[sv]).map((sv) => {
+      const standard = state.standard[sv] ?? data.meta.services[sv].standard_minutes;
+      const free = ['walk', 'bike_low_stress'].some((m) => {
+        const t = data.t[sv]?.[m]?.[i];
+        return Number.isFinite(t) && t <= standard;
+      });
+      if (free) return 0;
+      for (let z = 1; z <= 4; z += 1) {
+        const t = data.cost[sv][`z${z}`]?.[i];
+        if (Number.isFinite(t) && t <= standard) return z;
+      }
+      return null;
+    });
+    const freeCount = cheapest.filter((z) => z === 0).length;
+    const payable = cheapest.filter((z) => z && z > 0).length;
+    const never = cheapest.filter((z) => z === null).length;
+    standing.push(row('Everyday services reachable', `${freeCount} free on foot or by bike, ${payable} for a fare, ${never} not at all`));
+  }
 
   let heading = viewMode === 'best'
     ? 'Everyday services, fastest without a car'
     : `Everyday services by ${MODES[viewMode].short}`;
   if (zones != null) heading += zones <= 0 ? ', no fare affordable' : `, within ${zones} fare ${zones === 1 ? 'zone' : 'zones'}`;
   root.body.replaceChildren(
-    section(heading, ...services),
-    section('Jobs within reach', ...jobs),
-    section('Around here', ...around),
-    section('Who lives here', ...people, el('p', 'note', 'Census shares describe the surrounding block, not this hexagon alone.')),
+    ...[
+      section(heading, ...services),
+      standing.length ? section('How this place stands', ...standing) : null,
+      section('Jobs within reach', ...jobs),
+      section('Around here', ...around),
+      section('Who lives here', ...people, el('p', 'note', 'Census shares describe the surrounding block, not this hexagon alone. Ethnic groups overlap, so they do not add to the population.')),
+    ].filter(Boolean),
   );
 }

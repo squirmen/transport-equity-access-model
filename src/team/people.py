@@ -180,8 +180,10 @@ def build(settings: Settings, origins) -> pd.DataFrame:
     people = people.merge(household_shares(settings), on="sa1", how="left")
     people["working_age_share"] = (1.0 - people["children_share"].fillna(0) - people["older_share"].fillna(0)).clip(0, 1)
 
-    commute_path = settings.data("commute_share")
-    if commute_path.exists():
+    # Optional: a city without this file still builds, it just loses the
+    # plausibility check against how people actually got to work.
+    commute_path = settings.data("commute_share") if "commute_share" in settings.raw["data"] else None
+    if commute_path is not None and commute_path.exists():
         commute = pd.read_csv(commute_path)
         code = next(c for c in commute.columns if c.lower() in ("sa2_code", "sa22023_code", "sa2"))
         share = next(c for c in commute.columns if c.lower() in ("commute_car_share", "car_share", "share"))
