@@ -77,3 +77,8 @@ export const DECILE = [
   '#f0f5fb', '#dbe8f8', '#c3daf4', '#a8c9ef', '#8ab6e9',
   '#6da7ec', '#4a8ddf', '#2a78d6', '#1b5eae', '#0d366b',
 ];
+
+// Cheapest fare to reach the nearest one inside the time standard. The first
+// step is free, because walking and cycling cost nothing, and the rest follow
+// Auckland Transport's four zone fares.
+export const FARE = ['#1a7f5a', '#7cb342', '#f2c200', '#f08a24', '#e0562d', '#9c2f2f'];

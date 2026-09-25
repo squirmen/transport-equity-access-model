@@ -34,13 +34,28 @@ const GROUP_PHRASE = {
   children: 'children under 15',
   older: 'people aged 65 and over',
   low_income: 'people in households under $70,000',
-  maori: 'Maori',
+  maori: 'Māori',
   pacific: 'Pacific peoples',
   asian: 'Asian Aucklanders',
   disabled: 'disabled people',
 };
 
 const phrase = (group) => GROUP_PHRASE[group] || 'people';
+
+// Chips have room for a couple of words; the charts carry the full label.
+const GROUP_SHORT = {
+  everyone: 'Everyone',
+  no_car: 'No car',
+  children: 'Children',
+  older: '65 and over',
+  low_income: 'Lower income',
+  maori: 'Māori',
+  pacific: 'Pacific',
+  asian: 'Asian',
+  disabled: 'Disabled',
+};
+
+const chipLabels = (groups) => groups.map(([key, label]) => [key, GROUP_SHORT[key] || label]);
 
 const REASON_SENTENCE = {
   0: 'the nearest one is close in a straight line, but the walk there is indirect',
@@ -135,14 +150,39 @@ function fareLine(model) {
     `Public transport counts only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`);
 }
 
+function showSwitch(current, set, available) {
+  if (!available) return null;
+  return radios('Show', [['minutes', 'Minutes'], ['fare', 'What it costs']], current, (show) => set({ show }), { compact: true });
+}
+
 export function renderAccess(root, model, set) {
   root.replaceChildren(
     ...[
       hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
       fareLine(model),
+      showSwitch('minutes', set, model.canShowFare),
       radios('Travel by', Object.keys(MODES).map((m) => [m, MODES[m].label]), model.mode, (mode) => set({ mode }), { compact: true }),
       legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
     ].filter(Boolean),
+  );
+}
+
+/** The cost surface: what the cheapest way to reach the nearest one costs.
+ *
+ *  This answers a question the minutes map cannot. Two places can both be
+ *  twenty minutes from a supermarket, and one of them pays nothing to get
+ *  there while the other pays a three zone fare.
+ */
+export function renderFareSurface(root, model, set) {
+  root.replaceChildren(
+    hero(
+      percent(model.freeShare),
+      `of Aucklanders can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
+      model.paid > 0 ? `${count(model.paid)} more can, but only by paying.` : null,
+    ),
+    showSwitch('fare', set, true),
+    legend(`Cheapest way to reach ${model.noun}, ${model.trip}`, model.legend, { divider: 1, note: model.note }),
+    el('p', 'note', `${count(model.none)} people cannot reach ${model.noun} within ${model.standard} minutes at any price without a car.`),
   );
 }
 
@@ -165,7 +205,7 @@ export function renderPeople(root, model, set) {
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
   root.replaceChildren(
     hero(count(model.below), `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`, sub),
-    radios('Count', model.groups, model.group, (group) => set({ group }), { compact: true }),
+    radios('Count', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     legend(`${phrase(model.group)[0].toUpperCase()}${phrase(model.group).slice(1)} beyond the standard, per hexagon`, model.legend),
     chartQ,
     chartG,
@@ -210,7 +250,7 @@ export function renderFixes(root, model, set) {
   }
   root.replaceChildren(
     hero(count(model.below), `${phrase(model.group)} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
-    radios('Count', model.groups, model.group, (group) => set({ group }), { compact: true }),
+    radios('Count', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     el('span', 'field-label', 'Main reason, and what would help'),
     list,
     el('p', 'note', 'Screening rules, not a verdict: they show which kind of fix to look at first. Pick a reason to show only those places.'),

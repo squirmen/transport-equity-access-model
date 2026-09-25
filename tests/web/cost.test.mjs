@@ -62,3 +62,45 @@ test('the diagnosis sees the trip the traveller can pay for', () => {
   assert.equal(Number.isFinite(cellInputs(data, 'gp', 0, 25, 0).pt), false);
   assert.equal(cellInputs(data, 'gp', 0, 12, 3).pt, 12);
 });
+
+import { cheapestFareClasses, fareClassCosts } from '../../web/js/fares.js';
+
+const meta = {
+  fares: { adult: { hop: { 1: 3.0, 2: 4.9, 3: 6.5, 4: 7.9 } } },
+  free: { supergold: { free_from: '09:00' } },
+};
+
+test('the cheapest fare is free where walking or cycling already does it', () => {
+  // cell 1 has a 30-minute walk but a 9-minute bus inside one zone.
+  const classes = cheapestFareClasses({ ...data, meta: { ...data.meta, fares: meta } }, 'gp', 20);
+  assert.equal(classes[1], 1);
+});
+
+test('the cheapest fare is the smallest zone count that gets there in time', () => {
+  const d = {
+    ...data,
+    meta: { ...data.meta, fares: meta },
+    t: { gp: { walk: Float32Array.from([50]), bike_low_stress: Float32Array.from([40]), pt: Float32Array.from([15]) } },
+    cost: { gp: { z1: Float32Array.from([NaN]), z2: Float32Array.from([NaN]), z3: Float32Array.from([15]), z4: Float32Array.from([15]) } },
+    n: 1,
+    pop: Float32Array.from([100]),
+  };
+  assert.equal(cheapestFareClasses(d, 'gp', 20)[0], 3);
+});
+
+test('a place nothing reaches in time is out of reach, not free', () => {
+  const d = {
+    ...data,
+    meta: { ...data.meta, fares: meta },
+    t: { gp: { walk: Float32Array.from([50]), bike_low_stress: Float32Array.from([45]), pt: Float32Array.from([40]) } },
+    cost: { gp: { z1: Float32Array.from([40]), z2: Float32Array.from([40]), z3: Float32Array.from([40]), z4: Float32Array.from([40]) } },
+    n: 1,
+    pop: Float32Array.from([100]),
+  };
+  assert.equal(cheapestFareClasses(d, 'gp', 20)[0], 5);
+});
+
+test('the legend prices each class for the trip the budget covers', () => {
+  assert.deepEqual(fareClassCosts(meta, { profile: 'adult', payment: 'hop', returnTrip: true }), [0, 6, 9.8, 13, 15.8]);
+  assert.deepEqual(fareClassCosts(meta, { profile: 'adult', payment: 'hop', returnTrip: false }), [0, 3, 4.9, 6.5, 7.9]);
+});

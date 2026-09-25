@@ -22,7 +22,7 @@ GROUPS = {
     "children": ("Children under 15", "children_share"),
     "older": ("People aged 65 and over", "older_share"),
     "low_income": ("People in households under $70,000", "low_income_share"),
-    "maori": ("Maori", "maori_share"),
+    "maori": ("Māori", "maori_share"),
     "pacific": ("Pacific peoples", "pacific_share"),
     "asian": ("Asian", "asian_share"),
     "disabled": ("Disabled people", "disabled_share"),

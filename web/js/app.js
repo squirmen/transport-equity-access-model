@@ -5,19 +5,22 @@ import {
   byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
   reasons as reasonCodes, times, weightedMedian, weightedShare,
 } from './data.js';
-import { affordableZones, budgetSentence, fareSteps, money, serviceHour, travellerSummary, ZONE_CAP } from './fares.js';
+import {
+  affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, serviceHour,
+  travellerSummary, ZONE_CAP,
+} from './fares.js';
 import { count, el, minutes, MODES } from './format.js';
 import {
   BASEMAPS, cellCollection, createMap, fitPlace, onCells, OVERLAYS, paintCells, select, setBasemap,
   setCells, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
-  ACCESS, accessBreaks, classify, DECILE, FADED, FAIR, FAIR_BREAKS, JOBS, JOBS_BREAKS, PEOPLE, quartileBreaks,
-  REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
+  ACCESS, accessBreaks, classify, DECILE, FADED, FAIR, FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
+  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
 } from './palette.js';
 import {
-  renderAccess, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople, renderPeople,
-  renderScore, renderServicePicker, renderTraveller, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
+  renderAccess, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
+  renderPeople, renderScore, renderServicePicker, renderTraveller, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -39,7 +42,7 @@ const GROUP_NOUN = {
   children: 'children',
   older: 'people 65+',
   low_income: 'people on lower household incomes',
-  maori: 'Maori',
+  maori: 'Māori',
   pacific: 'Pacific peoples',
   asian: 'Asian Aucklanders',
   disabled: 'disabled people',
@@ -67,6 +70,7 @@ const state = {
   profile: 'adult',
   payment: 'hop',
   returnTrip: true,
+  show: 'minutes',
   zonesNow: null,
   basemap: 'light',
   overlays: {},
@@ -102,6 +106,7 @@ function readHash() {
   if (score[0]) state.scoreKey = score[0];
   if (score[1]) state.scoreMode = score[1];
   if (score[2] === 'd') state.scoreDisplay = 'decile';
+  if (params.get('w') === 'fare') state.show = 'fare';
   const cost = (params.get('c') || '').split('.');
   if (cost[0] !== undefined && cost[0] !== '') {
     const amount = Number(cost[0]);
@@ -131,6 +136,7 @@ function hashNow() {
     params.set('m', state.mode);
     params.set('t', String(standardFor(state.service)));
   }
+  if (state.show !== 'minutes') params.set('w', state.show);
   if (state.budget != null) {
     params.set('c', [state.budget, state.profile, state.payment, state.returnTrip ? 'r' : '1'].join('.'));
   }
@@ -228,10 +234,59 @@ function accessModel() {
       standard,
       mode: state.mode,
       zones,
+      canShowFare: fareAvailable() && Boolean(data.cost[service]),
       fare: fareClause(),
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
       legend,
+    },
+  };
+}
+
+/** What it costs to reach the nearest one inside the standard, per cell. */
+function fareSurfaceModel() {
+  const service = state.service;
+  const standard = standardFor(service);
+  const classes = cheapestFareClasses(data, service, standard);
+  const costs = fareClassCosts(data.meta.fares, state);
+  const trip = state.returnTrip ? 'return' : 'one way';
+  const legend = FARE.map((colour, k) => ({
+    colour,
+    label: k === 0 ? 'Free' : k === 5 ? 'No way' : money(costs[k]),
+  }));
+  let free = 0;
+  let paid = 0;
+  let none = 0;
+  for (let i = 0; i < data.n; i += 1) {
+    const w = data.pop[i];
+    if (!(w > 0)) continue;
+    if (classes[i] === 0) free += w;
+    else if (classes[i] > 0 && classes[i] < 5) paid += w;
+    else if (classes[i] === 5) none += w;
+  }
+  const total = free + paid + none;
+  return {
+    classes,
+    colours: FARE,
+    tooltip: (i) => {
+      const cls = classes[i];
+      if (cls < 0) return ['Not routed'];
+      if (cls === 0) return [`${SERVICE_SHORT[service]}: free, on foot or by bike within ${standard} min`];
+      if (cls === 5) return [`${SERVICE_SHORT[service]}: no way to get there within ${standard} min`];
+      return [`${SERVICE_SHORT[service]}: ${money(costs[cls])} ${trip}`, `${cls} fare ${cls === 1 ? 'zone' : 'zones'} by public transport`];
+    },
+    panel: {
+      noun: SERVICE_NOUN[service],
+      standard,
+      show: 'fare',
+      trip,
+      freeShare: total > 0 ? free / total : NaN,
+      paid,
+      none,
+      legend,
+      note: 'The cheapest way to reach the nearest one inside the standard. Free means walking or a '
+        + 'low-stress bike route already does it. The rest is what the fare would cost this traveller, '
+        + 'so the map changes when the traveller does.',
     },
   };
 }
@@ -465,6 +520,7 @@ function compute() {
   if (state.service === 'jobs') return jobsModel();
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
+  if (state.show === 'fare' && fareAvailable() && data.cost[state.service]) return fareSurfaceModel();
   return accessModel();
 }
 
@@ -563,7 +619,10 @@ function renderView(model) {
     else renderJobsFixes(root);
     return;
   }
-  if (state.view === 'access') renderAccess(root, model.panel, set);
+  if (state.view === 'access') {
+    if (model.panel.show === 'fare') renderFareSurface(root, model.panel, set);
+    else renderAccess(root, model.panel, set);
+  }
   else if (state.view === 'people') renderPeople(root, model.panel, set);
   else renderFixes(root, model.panel, set);
 }

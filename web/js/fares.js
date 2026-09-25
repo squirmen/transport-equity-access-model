@@ -100,3 +100,46 @@ export function travellerSummary(meta, state, hour) {
   const pay = state.payment === 'cash' ? 'cash' : 'HOP';
   return `${label} · ${pay} · ${state.returnTrip ? 'return' : 'one way'} · ${clock}`;
 }
+
+/** The cheapest way to reach the nearest one inside the time standard.
+ *
+ *  Returns a class per cell: 0 when walking or cycling already does it, 1 to 4
+ *  for the number of zones that must be paid for, 5 when nothing reaches it
+ *  inside the standard, and -1 where there is no route at all.
+ *
+ *  Walking and cycling are free, so they are checked first. Otherwise the
+ *  answer is the smallest zone count whose journey is inside the standard,
+ *  which is what the priced layers already hold.
+ */
+export function cheapestFareClasses(data, service, standard) {
+  const free = data.meta.standard_modes.filter((m) => m !== 'pt');
+  const priced = data.cost[service] || {};
+  const out = new Int8Array(data.n).fill(-1);
+  for (let i = 0; i < data.n; i += 1) {
+    let cls = -1;
+    for (const mode of free) {
+      const t = data.t[service]?.[mode]?.[i];
+      if (Number.isFinite(t)) {
+        cls = t <= standard ? 0 : 5;
+        break;
+      }
+    }
+    if (cls !== 0) {
+      for (let z = 1; z <= ZONE_CAP; z += 1) {
+        const t = priced[`z${z}`]?.[i];
+        if (Number.isFinite(t)) {
+          if (t <= standard) { cls = z; break; }
+          cls = 5;
+        }
+      }
+    }
+    out[i] = cls;
+  }
+  return out;
+}
+
+/** What each fare class costs this traveller, for the legend. */
+export function fareClassCosts(meta, state) {
+  const trips = state.returnTrip ? 2 : 1;
+  return [0, 1, 2, 3, 4].map((z) => (z === 0 ? 0 : fare(meta, z, state.profile, state.payment) * trips));
+}
