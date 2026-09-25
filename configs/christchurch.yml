@@ -1,0 +1,191 @@
+# TEAM configuration for Christchurch.
+#
+# Inputs were prepared with scripts/add_city.py, which pulls the census blocks,
+# builds the hexagon grid, spreads jobs onto it, clips the street network out
+# of the national extract and fetches the schools directory.
+#
+# Paths under `data` are relative to the data root, set with --data-root or
+# the TEAM_DATA_ROOT environment variable.
+
+name: christchurch
+region: Christchurch City
+
+naming:
+  place: Christchurch
+  residents: Christchurch residents
+  possessive: Christchurch's
+  slug: christchurch
+  agency: Metro
+
+data:
+  osm: raw/christchurch/osm/christchurch_bbox.osm.pbf
+  gtfs: raw/christchurch/gtfs/metro_gtfs_2026-09-26.zip
+  grid: processed/christchurch/grid/christchurch_h3_r9_population.parquet
+  jobs_grid: processed/christchurch/grid/christchurch_h3_r9_v2_opportunities.parquet
+  schools: raw/christchurch/education/educationcounts_schools_christchurch.json
+  census_sa1: raw/christchurch/census/statsnz_census_sa1_2023_christchurch.geojson
+  census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
+  census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
+  census_equity: raw/auckland/census/statsnz_census_individual_equity_sa1_2023.json
+  fare_table: raw/christchurch/fares/metro_fares_2026-09-26.json
+
+origins:
+  # Cells with fewer residents than this are slivers left by spreading census
+  # blocks over the hexagon grid.
+  min_population: 0.75
+
+routing:
+  date: "2026-09-15"          # a Tuesday in school term 3
+  java_home: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  max_memory: 14G
+  max_minutes: 60
+  batch_size: 2000
+  speed_walking_kmh: 4.8
+  speed_cycling_kmh: 15
+  windows:
+    am_peak: {start: "07:00", minutes: 120}
+    interpeak: {start: "10:00", minutes: 120}
+  modes:
+    walk: {kind: walk, label: Walking}
+    bike_low_stress: {kind: cycle, max_traffic_stress: 2, label: Cycling on low-stress routes}
+    bike: {kind: cycle, max_traffic_stress: 3, label: Cycling on any bikeable street}
+    pt: {kind: transit, max_walk_minutes: 15, label: Public transport}
+    car: {kind: car, label: Car}
+
+# Modes that count towards an access standard. Cycling counts only on
+# low-stress routes. Car times are kept for reference and never count.
+standard_modes: [walk, bike_low_stress, pt]
+
+services:
+  supermarket:
+    label: Supermarket
+    window: interpeak
+    standard_minutes: 20
+    osm: {shop: [supermarket]}
+  gp:
+    label: GP or medical centre
+    window: interpeak
+    standard_minutes: 20
+    osm: {amenity: [doctors, clinic], healthcare: [doctor, clinic, centre]}
+  pharmacy:
+    label: Pharmacy
+    window: interpeak
+    standard_minutes: 20
+    osm: {amenity: [pharmacy], healthcare: [pharmacy]}
+  primary_school:
+    label: Primary school
+    window: am_peak
+    standard_minutes: 15
+    school_types: [Contributing, Full Primary, Composite, Composite (Year 1-10)]
+  intermediate_school:
+    label: Intermediate school
+    window: am_peak
+    standard_minutes: 20
+    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Yr 7-10)]
+  secondary_school:
+    label: Secondary school
+    window: am_peak
+    standard_minutes: 30
+    school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
+
+# Gravity access scores, the companion to the standards measures. Functional
+# forms and beta values are those published by Transport for NSW for TAI-PT
+# (Technical Development Report, August 2026, Table 4.9), fitted to the New
+# South Wales Household Travel Survey. They are a starting point for Auckland,
+# not a local calibration: a New Zealand travel survey would be better, and
+# these are settings, not constants. The log-logistic median is the routed
+# median for that purpose and mode in this run.
+gravity:
+  modes: [walk, pt, bike_low_stress]
+  beta_modes: [bike_low_stress]   # published as beta: no local decay curve yet
+  max_minutes: 60              # the furthest any journey was routed; each curve cuts in sooner
+  # Walking and public transport use the travel time distribution parameters
+  # published by the NZ Transport Agency for the New Zealand accessibility
+  # analysis methodology (Abley and Halden 2013, research report 512, tables
+  # 13.2 and 13.4, Main Urban Area), fitted to the New Zealand Household
+  # Travel Survey 2003 to 2010. Lambda there is already a per-minute
+  # parameter on routed travel time, so it is used as published.
+  #
+  # That method fits its curves to the first 95% of surveyed travel times and
+  # counts nothing beyond, so `cutoff: rr512` gives each curve its own horizon
+  # of ln(20)/beta minutes rather than one number for every purpose. Public
+  # transport horizons come out past an hour and are clipped to the 60 minutes
+  # actually routed, so those scores are cut shorter than the method intends.
+  #
+  # Where report 512 marks a cell as reference only, having too small a sample
+  # to rely on, the mode's all-activities value is used instead and said so
+  # below. Cycling keeps the Propensity to Cycle Tool curve: report 512's
+  # cycling cells for school trips are all reference only, and a thin local
+  # curve is not an improvement on a sound borrowed one.
+  cycling: &cycling
+    function: pct
+    b0: -1.468
+    b1: -0.71726
+    b2: 1.988
+    b3: 0.008775
+    speed_kmh: 15
+  purposes:
+    jobs:
+      label: Jobs
+      group: employment
+      walk: {function: negative_exponential, beta: 0.065, cutoff: rr512}   # employment, R2 0.93
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # employment, R2 0.70
+      bike_low_stress: *cycling
+    supermarket:
+      label: Supermarkets
+      group: everyday
+      walk: {function: negative_exponential, beta: 0.100, cutoff: rr512}   # shopping, R2 0.96
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # shopping, R2 0.79
+      bike_low_stress: *cycling
+    gp:
+      label: GPs
+      group: everyday
+      # "Other" in report 512 groups medical and dental with personal
+      # business, social welfare and social visits.
+      walk: {function: negative_exponential, beta: 0.092, cutoff: rr512}   # other, R2 0.98
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # other, R2 0.78
+      bike_low_stress: *cycling
+    pharmacy:
+      label: Pharmacies
+      group: everyday
+      walk: {function: negative_exponential, beta: 0.092, cutoff: rr512}   # other, R2 0.98
+      pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # other, R2 0.78
+      bike_low_stress: *cycling
+    primary_school:
+      label: Primary schools
+      group: education
+      walk: {function: negative_exponential, beta: 0.101, cutoff: rr512}   # primary school, R2 0.89
+      # The bus cell for primary school is marked reference only, so the bus
+      # all-activities value is used instead.
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # all activities, R2 0.76
+      bike_low_stress: *cycling
+    intermediate_school:
+      label: Intermediate schools
+      group: education
+      walk: {function: negative_exponential, beta: 0.077, cutoff: rr512}   # intermediate school, R2 0.93
+      # The bus cell for intermediate school is marked reference only.
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}     # all activities, R2 0.76
+      bike_low_stress: *cycling
+    secondary_school:
+      label: Secondary schools
+      group: education
+      walk: {function: negative_exponential, beta: 0.057, cutoff: rr512}   # high school, R2 0.84
+      # The weakest fit in the whole Main Urban Area set, but the sample is
+      # large enough to use.
+      pt: {function: negative_exponential, beta: 0.034, cutoff: rr512}     # high school, R2 0.51
+      bike_low_stress: *cycling
+
+jobs:
+  window: am_peak
+  resolution: 8
+  thresholds: [30, 45]
+  modes: [walk, bike_low_stress, bike, pt, car]
+
+# What a journey costs, and what a traveller can reach for it. Auckland
+# Transport charges by the number of fare zones a journey passes through,
+# capped at four, so a dollar budget becomes a number of zones and the whole
+# calculation can be redone in the browser as a budget slider moves.
+#
+# Fares were read from Auckland Transport's fares page on 25 September 2026.
+# The zones are recovered from AT's published map by
+# scripts/build_at_fare_zones.py, because AT publishes no zone geometry.

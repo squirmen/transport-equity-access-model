@@ -29,3 +29,7 @@ node_modules/
 
 # Local agent and preview settings
 .claude/
+
+# API keys live outside the repo, in ~/.config/team/keys.env
+*.env
+keys.env

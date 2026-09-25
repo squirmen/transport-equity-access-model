@@ -373,3 +373,75 @@ def test_unknown_cutoff_rule_is_refused():
 
     with pytest.raises(ValueError):
         cutoff_minutes({"cutoff": "whatever"}, 45)
+
+
+# ------------------------------------------------- fare systems beyond zones
+
+FLAT_TABLE = {
+    "kind": "flat",
+    "fares": {"adult": {"card": {"1": 3.0}, "cash": {"1": 4.0}}, "child": {"card": {"1": 1.5}}},
+    "free": {"supergold": {"free_from": "09:00"}},
+}
+
+PERIOD_TABLE = {
+    "rules": {"periods": {"peak": "standard", "offpeak": "a fifth off"}, "offpeak_hours": [[9, 15]]},
+    "fares": {
+        "adult": {
+            "snapper_peak": {"1": 2.12, "2": 3.50, "3": 4.67},
+            "snapper_offpeak": {"1": 1.70, "2": 2.80, "3": 3.74},
+            "cash": {"1": 3.00, "2": 4.50, "3": 6.00},
+        }
+    },
+    "free": {},
+}
+
+
+def test_a_flat_fare_has_one_step():
+    from team import fares
+
+    assert fares.zone_cap(FLAT_TABLE) == 1
+    # However far the journey, the fare is the same.
+    assert fares.fare(FLAT_TABLE, 1, "adult", "card") == 3.0
+    assert fares.fare(FLAT_TABLE, 4, "adult", "card") == 3.0
+
+
+def test_a_flat_fare_still_needs_paying_twice_to_come_home():
+    from team import fares
+
+    assert fares.affordable_zones(FLAT_TABLE, 5.0, "adult", "card") == 0
+    assert fares.affordable_zones(FLAT_TABLE, 6.0, "adult", "card") == 1
+    assert fares.affordable_zones(FLAT_TABLE, 3.0, "adult", "card", return_trip=False) == 1
+    assert fares.affordable_zones(FLAT_TABLE, 3.0, "child", "card") == 1
+
+
+def test_flat_distance_prices_every_pair_the_same():
+    from team import fares
+
+    distance = fares.flat_distance(["A", "B", "C"])
+    assert distance[("A", "C")] == 1
+    assert set(distance.values()) == {1}
+
+
+def test_the_hour_picks_the_peak_or_off_peak_column():
+    from team import fares
+
+    assert fares.payment_key(PERIOD_TABLE, "snapper", 8) == "snapper_peak"
+    assert fares.payment_key(PERIOD_TABLE, "snapper", 10) == "snapper_offpeak"
+    # A weekend is off-peak whatever the hour.
+    assert fares.is_offpeak(PERIOD_TABLE, 8, weekday=False) is True
+    # Cash has no off-peak column, so it is left alone.
+    assert fares.payment_key(PERIOD_TABLE, "cash", 10) == "cash"
+
+
+def test_a_budget_buys_more_off_peak():
+    from team import fares
+
+    assert fares.affordable_zones(PERIOD_TABLE, 8.0, "adult", "snapper", hour=8) == 2
+    assert fares.affordable_zones(PERIOD_TABLE, 8.0, "adult", "snapper", hour=10) == 3
+
+
+def test_a_table_without_periods_is_unaffected():
+    from team import fares
+
+    assert fares.payment_key(FLAT_TABLE, "card", 8) == "card"
+    assert fares.is_offpeak(FLAT_TABLE, 10) is False

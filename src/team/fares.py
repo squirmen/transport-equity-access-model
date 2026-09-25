@@ -47,6 +47,13 @@ KINDS = ("zones", "flat")
 PROFILES = ("adult", "child_5_15", "secondary_student", "tertiary_student", "accessible", "community_connect")
 PAYMENTS = ("hop", "cash")
 
+# Some networks charge less outside the peak. Wellington discounts every
+# Snapper fare by a fifth off-peak; Auckland does not vary by time at all. A
+# fare table says which of its payment keys belong to which period, so the
+# right column is picked from the hour a journey is routed at rather than
+# being asked of the person using the site.
+PERIODS = ("peak", "offpeak")
+
 
 def load_table(path: Path) -> dict:
     """The fare table as published, with its provenance."""
@@ -81,10 +88,55 @@ def zone_distance(adjacency: dict[str, list[str]], cap: int = ZONE_CAP) -> dict[
 
 
 def zone_cap(table: dict) -> int:
-    """How many zone steps this fare table has. A flat fare has one."""
+    """How many zone steps this fare table has. A flat fare has one.
+
+    A table that states its own cap is believed. Otherwise the cap is however
+    many numbered steps the adult fare actually has, so a table can never be
+    asked for a step it does not carry.
+    """
     if str(table.get("kind", "zones")) == "flat":
         return 1
-    return int(table.get("rules", {}).get("zone_cap", ZONE_CAP))
+    stated = (table.get("rules", {}) or {}).get("zone_cap")
+    if stated:
+        return int(stated)
+    prices = (table.get("fares", {}) or {}).get("adult", {})
+    steps = [
+        int(key)
+        for scale in prices.values()
+        if isinstance(scale, dict)
+        for key in scale
+        if str(key).isdigit()
+    ]
+    return max(steps) if steps else ZONE_CAP
+
+
+def payment_key(table: dict, payment: str, hour: float | None, weekday: bool = True) -> str:
+    """The column of the fare table to read, given when the journey is made.
+
+    A table that has no peak and off-peak split returns the payment method
+    unchanged, which is Auckland. Where there is a split, an off-peak hour
+    picks the cheaper column and anything else picks the dearer one.
+    """
+    periods = (table.get("rules", {}) or {}).get("periods")
+    if not periods or payment == "cash":
+        return payment
+    offpeak = is_offpeak(table, hour, weekday)
+    suffix = "offpeak" if offpeak else "peak"
+    candidate = f"{payment}_{suffix}"
+    prices = (table.get("fares", {}) or {}).get("adult", {})
+    return candidate if candidate in prices else payment
+
+
+def is_offpeak(table: dict, hour: float | None, weekday: bool = True) -> bool:
+    """Whether this hour is charged at the off-peak rate."""
+    windows = (table.get("rules", {}) or {}).get("offpeak_hours")
+    if not windows:
+        return False
+    if not weekday:
+        return True
+    if hour is None:
+        return False
+    return any(float(start) <= float(hour) < float(end) for start, end in windows)
 
 
 def fare(table: dict, zones: int, profile: str = "adult", payment: str = "hop") -> float:
@@ -137,10 +189,11 @@ def affordable_zones(
     cap = zone_cap(table)
     if free_travel(table, profile, hour, weekday):
         return cap
+    column = payment_key(table, payment, hour, weekday)
     trips = 2 if return_trip else 1
     best = 0
     for zones in range(1, cap + 1):
-        if fare(table, zones, profile, payment) * trips <= budget + 1e-9:
+        if fare(table, zones, profile, column) * trips <= budget + 1e-9:
             best = zones
     return best
 
