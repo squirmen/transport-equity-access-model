@@ -206,4 +206,29 @@ def overlays(settings: Settings) -> dict[str, dict]:
         cycle["geometry"] = cycle.geometry.simplify(0.00002)
         cycle["class"] = np.where(cycle["low_stress"], "low_stress", "other")
         out["cycling"] = gpd.GeoDataFrame(cycle[["class", "facility", "geometry"]]).__geo_interface__
+
+    # Where you can actually board. A route line says a bus passes; a stop says
+    # you can get on, which is the thing that decides whether a place has
+    # public transport or merely has it going past.
+    window = settings.jobs["window"]
+    per_hour = stops.get(f"per_hour_{window}", pd.Series(0.0, index=stops.index))
+    kinds = np.where(
+        stops["rail_or_ferry"], "rail_ferry",
+        np.where(per_hour >= FREQUENT_PER_HOUR, "frequent", "other"),
+    )
+    boarding = stops[per_hour > 0]
+    keep = kinds[(per_hour > 0).to_numpy()]
+    out["stops"] = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"kind": str(kind), "per_hour": round(float(rate), 1)},
+                "geometry": {"type": "Point", "coordinates": [round(float(lon), 5), round(float(lat), 5)]},
+            }
+            for kind, rate, lon, lat in zip(
+                keep, per_hour[per_hour > 0], boarding["stop_lon"], boarding["stop_lat"]
+            )
+        ],
+    }
     return out

@@ -12,7 +12,7 @@ import {
 } from './fares.js';
 import { count, el, minutes, MODES, place } from './format.js';
 import {
-  BASEMAPS, cellCollection, createMap, fitPlace, onCells, OVERLAYS, paintCells, select, setBasemap,
+  BASEMAPS, cellCollection, createMap, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
   setCells, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
@@ -280,6 +280,7 @@ function accessModel() {
       mode: state.mode,
       zones,
       canShowFare: fareAvailable() && Boolean(data.cost[service]),
+      standardModes: data.meta.standard_modes,
       fare: fareClause(),
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
@@ -863,15 +864,61 @@ function wireControls() {
     });
     basemaps.append(button);
   }
+  // Switching a layer on adds its key to the map, so nothing is drawn that
+  // the reader has no way of naming.
   const layers = $('layer-list');
+  const mapKey = $('map-key');
+  const shown = new Set();
+  const drawKey = () => {
+    const rows = [];
+    for (const [key, spec] of Object.entries(OVERLAYS)) {
+      if (!shown.has(key) || !spec.key) continue;
+      for (const entry of spec.key) {
+        const row = el('div', 'key-row');
+        const swatch = el('span', `key-swatch key-${entry.swatch}`);
+        swatch.style.setProperty('--swatch', entry.colour);
+        row.append(swatch, el('span', 'key-label', entry.label));
+        rows.push(row);
+      }
+    }
+    mapKey.replaceChildren(...rows);
+    mapKey.hidden = rows.length === 0;
+  };
   for (const [key, spec] of Object.entries(OVERLAYS)) {
     const label = el('label', 'check');
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.addEventListener('change', () => setOverlay(map, key, box.checked));
+    box.addEventListener('change', () => {
+      setOverlay(map, key, box.checked);
+      if (box.checked) shown.add(key); else shown.delete(key);
+      drawKey();
+    });
     label.append(box, document.createTextNode(` ${spec.label}`));
     layers.append(label);
   }
+  drawKey();
+
+  onPoints(map, ({ kind, properties, lngLat }) => {
+    const box = el('div', 'point-card');
+    if (kind === 'stop') {
+      const names = { rail_ferry: 'Train or ferry stop', frequent: 'Frequent stop', other: 'Bus stop' };
+      box.append(el('strong', null, names[properties.kind] || 'Stop'));
+      const rate = Number(properties.per_hour);
+      const window = data.meta.jobs.window === 'am_peak' ? '7 to 9am' : '10am to midday';
+      box.append(el('span', null, Number.isFinite(rate)
+        ? `${rate.toFixed(rate < 10 ? 1 : 0)} departures an hour, ${window}`
+        : 'Departures not counted'));
+    } else {
+      box.append(el('strong', null, properties.name || 'Unnamed'));
+      const services = String(properties.services || '').replace(/[[\]"]/g, '').split(',').filter(Boolean);
+      const named = services.map((id) => SERVICE_SHORT[id.trim()] || id.trim()).join(', ');
+      if (named) box.append(el('span', null, named));
+    }
+    new window.maplibregl.Popup({ closeButton: true, offset: 10, className: 'point-popup' })
+      .setLngLat(lngLat)
+      .setDOMContent(box)
+      .addTo(map);
+  });
 
   const tooltip = $('tooltip');
   onCells(map, {

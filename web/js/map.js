@@ -16,12 +16,49 @@ export const BASEMAPS = {
   satellite: { label: 'Satellite', layers: ['bm-imagery', 'bm-imagery-labels'] },
 };
 
+// Each overlay says what it draws, so the key on the map can be built from
+// this rather than written out again somewhere else and left to drift.
 export const OVERLAYS = {
-  rail: { label: 'Rail and ferry', layers: ['ov-rail', 'ov-ferry'] },
-  frequent_bus: { label: 'Frequent bus routes', layers: ['ov-frequent_bus'] },
-  cycling: { label: 'Low-stress bike routes', layers: ['ov-cycling'] },
-  destinations: { label: 'Destinations', layers: ['destinations'] },
+  rail: {
+    label: 'Rail and ferry',
+    layers: ['ov-rail', 'ov-ferry'],
+    key: [
+      { swatch: 'line', colour: '#0c0c48', label: 'Rail' },
+      { swatch: 'dash', colour: '#0c0c48', label: 'Ferry' },
+    ],
+  },
+  frequent_bus: {
+    label: 'Frequent bus routes',
+    layers: ['ov-frequent_bus'],
+    key: [{ swatch: 'line', colour: '#2b2b2b', label: 'Four or more an hour' }],
+  },
+  stops: {
+    label: 'Stops and stations',
+    layers: ['ov-stops'],
+    key: [
+      { swatch: 'dot', colour: '#0c0c48', label: 'Train or ferry' },
+      { swatch: 'dot', colour: '#2b78c4', label: 'Frequent stop' },
+      { swatch: 'dot', colour: '#9bb0bd', label: 'Other stop' },
+    ],
+  },
+  cycling: {
+    label: 'Low-stress bike routes',
+    layers: ['ov-cycling'],
+    key: [{ swatch: 'line', colour: '#1d5c3a', label: 'Path, protected lane or quiet street' }],
+  },
+  destinations: {
+    label: 'Places you are getting to',
+    layers: ['destinations'],
+    key: [{ swatch: 'ring', colour: '#0c0c48', label: 'Shown for the destination chosen' }],
+  },
 };
+
+const STOP_COLOUR = [
+  'match', ['get', 'kind'],
+  'rail_ferry', '#0c0c48',
+  'frequent', '#2b78c4',
+  '#9bb0bd',
+];
 
 let cells = EMPTY;
 let lastClasses = null;
@@ -53,6 +90,7 @@ export function createMap(container) {
       ferry: { type: 'geojson', data: EMPTY },
       frequent_bus: { type: 'geojson', data: EMPTY },
       cycling: { type: 'geojson', data: EMPTY },
+      stops: { type: 'geojson', data: EMPTY },
       destinations: { type: 'geojson', data: EMPTY },
     },
     layers: [
@@ -81,6 +119,15 @@ export function createMap(container) {
       {
         id: 'ov-rail', type: 'line', source: 'rail', layout: { visibility: 'none' },
         paint: { 'line-color': '#0c0c48', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 15, 4] },
+      },
+      {
+        id: 'ov-stops', type: 'circle', source: 'stops', layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1.6, 14, 3.4, 17, 6],
+          'circle-color': STOP_COLOUR,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0, 14, 0.8],
+        },
       },
       { id: 'bm-light-labels', type: 'raster', source: 'esri-light-labels' },
       { id: 'bm-imagery-labels', type: 'raster', source: 'esri-imagery-labels', layout: { visibility: 'none' } },
@@ -143,7 +190,7 @@ export function paintCells(map, classes, colours) {
 }
 
 export function setOverlays(map, overlays, destinations) {
-  for (const name of ['rail', 'ferry', 'frequent_bus', 'cycling']) {
+  for (const name of ['rail', 'ferry', 'frequent_bus', 'cycling', 'stops']) {
     if (overlays[name]) map.getSource(name).setData(overlays[name]);
   }
   map.getSource('destinations').setData({
@@ -169,6 +216,26 @@ export function setBasemap(map, key) {
 
 export function setOverlay(map, key, on) {
   for (const layer of OVERLAYS[key].layers) map.setLayoutProperty(layer, 'visibility', on ? 'visible' : 'none');
+}
+
+/** Clicks on a destination pin or a stop, which are points rather than cells
+ *  and so need their own handler. Returns what was clicked and where. */
+export function onPoints(map, handler) {
+  for (const layer of ['destinations', 'ov-stops']) {
+    map.on('click', layer, (event) => {
+      const feature = event.features && event.features[0];
+      if (!feature) return;
+      // Stop the cell underneath from also being selected.
+      event.originalEvent.stopPropagation();
+      handler({
+        kind: layer === 'destinations' ? 'destination' : 'stop',
+        properties: feature.properties || {},
+        lngLat: event.lngLat,
+      });
+    });
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  }
 }
 
 export function onCells(map, { hover, leave, click }) {

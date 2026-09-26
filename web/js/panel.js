@@ -144,17 +144,56 @@ function legend(title, items, { note, divider } = {}) {
   return box;
 }
 
+// Eight destinations in one row wraps to three lines and reads as a wall.
+// They fall into three kinds, and naming the kind first turns one long list
+// into a short one plus whatever belongs under it. Picking a kind picks its
+// first destination, so nobody has to click twice to get somewhere.
+const SERVICE_GROUPS = [
+  { key: 'everyday', label: 'Everyday', members: ['supermarket', 'gp', 'pharmacy'] },
+  { key: 'education', label: 'Education', members: ['early_childhood', 'primary_school', 'intermediate_school', 'secondary_school'] },
+  { key: 'jobs', label: 'Jobs', members: ['jobs'] },
+];
+
+function groupsPresent() {
+  return SERVICE_GROUPS
+    .map((group) => ({ ...group, members: group.members.filter((id) => SERVICE_ORDER.includes(id)) }))
+    .filter((group) => group.members.length);
+}
+
+export function groupOf(service) {
+  const found = groupsPresent().find((group) => group.members.includes(service));
+  return found ? found.key : (groupsPresent()[0] || { key: 'everyday' }).key;
+}
+
+function chipRow(options, current, onPick, extraClass = '') {
+  const row = el('div', `chips${extraClass}`);
+  row.setAttribute('role', 'radiogroup');
+  for (const [value, text] of options) {
+    const button = el('button', 'chip', text);
+    button.type = 'button';
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', String(value === current));
+    button.addEventListener('click', () => onPick(value));
+    row.append(button);
+  }
+  return row;
+}
+
 export function renderServicePicker(root, current, set) {
-  root.replaceChildren(
-    ...SERVICE_ORDER.map((id) => {
-      const button = el('button', 'chip', SERVICE_SHORT[id]);
-      button.type = 'button';
-      button.setAttribute('role', 'radio');
-      button.setAttribute('aria-checked', String(id === current));
-      button.addEventListener('click', () => set({ service: id }));
-      return button;
+  const groups = groupsPresent();
+  const active = groupOf(current);
+  const inGroup = (groups.find((g) => g.key === active) || groups[0]).members;
+  const rows = [
+    chipRow(groups.map((g) => [g.key, g.label]), active, (key) => {
+      const group = groups.find((g) => g.key === key);
+      if (group && !group.members.includes(current)) set({ service: group.members[0] });
     }),
-  );
+  ];
+  // One destination in a kind needs no second row to choose from.
+  if (inGroup.length > 1) {
+    rows.push(chipRow(inGroup.map((id) => [id, SERVICE_SHORT[id]]), current, (id) => set({ service: id }), ' chips-sub'));
+  }
+  root.replaceChildren(...rows);
 }
 
 function accessSentence(model) {
@@ -186,6 +225,27 @@ function fareLine(model) {
     `Public transport counts only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`);
 }
 
+/** Travel by, split the way the measure splits it.
+ *
+ *  Four of these count towards a standard. Driving and riding on any street
+ *  never do, and are kept for comparison, so they sit apart and say so rather
+ *  than sitting in the same row looking like equals.
+ */
+function modePicker(current, set, standardModes) {
+  const counts = ['best', ...standardModes];
+  const compare = Object.keys(MODES).filter((m) => !counts.includes(m));
+  const field = el('div', 'field');
+  const title = el('span', 'field-label', 'Travel by');
+  field.append(title, chipRow(counts.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact'));
+  if (compare.length) {
+    const row = el('div', 'compare-row');
+    row.append(el('span', 'compare-label', 'Compare with'));
+    row.append(chipRow(compare.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact chips-quiet'));
+    field.append(row);
+  }
+  return field;
+}
+
 function showSwitch(current, set, available) {
   if (!available) return null;
   return radios('Show', [['minutes', 'Minutes'], ['fare', 'What it costs']], current, (show) => set({ show }), { compact: true });
@@ -197,7 +257,7 @@ export function renderAccess(root, model, set) {
       hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
       fareLine(model),
       showSwitch('minutes', set, model.canShowFare),
-      radios('Travel by', Object.keys(MODES).map((m) => [m, MODES[m].label]), model.mode, (mode) => set({ mode }), { compact: true }),
+      modePicker(model.mode, set, model.standardModes),
       legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
     ].filter(Boolean),
   );

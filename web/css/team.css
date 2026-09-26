@@ -499,3 +499,85 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .lean-dot.is-toward { background: #1a7f5a; }
 .lean-dot.is-away { background: #c2452d; }
 .lean-dot.is-even { background: var(--line-strong); }
+
+
+/* The second row of destinations sits under the kind it belongs to -------- */
+
+.chips-sub {
+  margin-top: 5px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.chips-sub .chip {
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+
+
+/* Modes kept for comparison sit apart from the ones that count ------------ */
+
+.compare-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.compare-label {
+  flex: none;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.chips-quiet .chip {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.chips-quiet .chip[aria-checked="true"] {
+  border-style: solid;
+}
+
+
+/* A key that fills itself from whatever layers are switched on ----------- */
+
+.map-key {
+  display: grid;
+  gap: 5px;
+  max-width: 230px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-label { color: var(--ink-soft); font-size: 12px; line-height: 1.3; }
+
+.key-swatch { flex: none; }
+.key-line { width: 18px; height: 0; border-top: 3px solid var(--swatch); border-radius: 2px; }
+.key-dash { width: 18px; height: 0; border-top: 2px dashed var(--swatch); }
+.key-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--swatch); }
+.key-ring {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--swatch);
+  border-radius: 50%;
+  background: #fff;
+}
+
+.point-popup .maplibregl-popup-content {
+  padding: 9px 26px 10px 11px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.point-card { display: grid; gap: 2px; }
+.point-card strong { color: var(--navy); font-size: 13px; }
+.point-card span { color: var(--ink-soft); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .map-key { max-width: 170px; padding: 7px 9px; }
+  .key-label { font-size: 11px; }
+}
