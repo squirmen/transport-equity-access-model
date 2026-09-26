@@ -16,6 +16,7 @@ tractable.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 from pathlib import Path
@@ -24,6 +25,8 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
+
+log = logging.getLogger("team.destinations")
 
 OTHER_TAG_RE = re.compile(r'"([^"]+)"=>"([^"]*)"')
 DUPLICATE_METRES = 40.0
@@ -255,6 +258,13 @@ def build_services(settings: Settings) -> pd.DataFrame:
     if covered:
         osm = osm[~osm["service"].isin(covered)]
     table = pd.concat([osm, facilities, school_services(settings), ece_services(settings)], ignore_index=True)
+    # A register can list the same facility twice at slightly different
+    # addresses: Health New Zealand has Peninsula Medical Centre at two points
+    # two hundred metres apart. One id is one place, so keep the first.
+    before = len(table)
+    table = table.drop_duplicates(["source_id", "service"], keep="first")
+    if len(table) < before:
+        log.info("dropped %d destination rows repeating an id", before - len(table))
     # Routing needs one id per physical point; the same point can serve several services.
     table["id"] = pd.factorize(table["source_id"])[0].astype(str)
     table = table.sort_values(["service", "source_id"]).reset_index(drop=True)
