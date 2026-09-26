@@ -109,11 +109,9 @@
   </aside>
 
   <div class="map-tools">
-    <div class="search">
-      <label class="visually-hidden" for="search">Find a place</label>
-      <input id="search" type="search" placeholder="Find a suburb" autocomplete="off" role="combobox"
-             aria-expanded="false" aria-controls="search-results" aria-autocomplete="list">
-      <ul id="search-results" class="search-results" role="listbox" hidden></ul>
+    <div class="city-picker">
+      <label class="visually-hidden" for="city">Urban area</label>
+      <select id="city"></select>
     </div>
     <div class="segmented basemaps" id="basemaps" role="group" aria-label="Basemap"></div>
     <details class="layers" id="layers">
@@ -124,6 +122,21 @@
 
   <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
   <div id="loading" class="loading" role="status">Loading…</div>
+
+  <section id="start" class="start" hidden aria-labelledby="start-title">
+    <div class="start-card">
+      <header class="start-head">
+        <img class="brand-mark" src="assets/team-mark.svg" alt="" width="44" height="44">
+        <div>
+          <h1 id="start-title">TEAM</h1>
+          <p class="tagline">Transport Equity and Access Model</p>
+        </div>
+      </header>
+      <p class="start-lede" id="start-lede"></p>
+      <ul class="start-list" id="start-list"></ul>
+      <p class="note" id="start-note"></p>
+    </div>
+  </section>
 
   <dialog id="about" class="about" aria-labelledby="about-title">
     <form method="dialog" class="about-close-form">

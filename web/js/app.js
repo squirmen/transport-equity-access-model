@@ -32,7 +32,24 @@ function dataBase() {
   return window.TEAM_DATA_BASE || 'data/';
 }
 
+/** The city being shown, from the address bar. Nothing means the opening view. */
+function requestedCity() {
+  const asked = new URLSearchParams(window.location.search).get('city');
+  return asked && /^[a-z][a-z0-9_-]*$/.test(asked) ? asked : null;
+}
+
+/** Switching city reloads the page. A city is a megabyte and a half of its own
+ *  data and its own map layers, so starting cleanly beats unpicking the old
+ *  one, and it keeps the address bar honest about what is on screen. */
+function goToCity(slug) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('city', slug);
+  url.hash = '';
+  window.location.assign(url.toString());
+}
+
 const DATA_BASE = dataBase();
+const CITY = requestedCity();
 const VIEWS = ['access', 'people', 'fixes'];
 // Which groups exist depends on the census tables the build had, so they come
 // from the data rather than being listed here.
@@ -834,54 +851,83 @@ function wireControls() {
   map.on('moveend', writeHash);
 }
 
-function wireSearch() {
-  const input = $('search');
-  const list = $('search-results');
-  const names = data.places.map((p, i) => ({ i, name: p.name, board: p.board, key: p.name.toLowerCase() }));
-  let hits = [];
-  let active = -1;
-  const hide = () => {
-    list.hidden = true;
-    input.setAttribute('aria-expanded', 'false');
-    active = -1;
-  };
-  const choose = (hit) => {
-    input.value = hit.name;
-    fitPlace(map, data.places[hit.i].bbox);
-    hide();
-  };
-  const render = () => {
-    list.replaceChildren(
-      ...hits.map((hit, k) => {
-        const item = el('li', k === active ? 'is-active' : null);
-        item.setAttribute('role', 'option');
-        item.append(el('span', null, hit.name), el('span', 'search-board', hit.board || ''));
-        item.addEventListener('mousedown', (event) => {
-          event.preventDefault();
-          choose(hit);
-        });
-        return item;
-      }),
+
+/** The opening view: every city, and what each one is like. */
+async function start() {
+  const response = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`Could not load the list of places (${response.status})`);
+  const index = await response.json();
+  $('loading').hidden = true;
+  $('start').hidden = false;
+  $('start-lede').textContent = `Everyday services and jobs within reach without a car, for ${count(index.totals.population)} `
+    + `people across ${index.totals.cities} urban ${index.totals.cities === 1 ? 'area' : 'areas'}.`;
+  const list = $('start-list');
+  list.replaceChildren(...index.cities.map((city) => {
+    const item = el('li');
+    const button = el('button', 'start-city');
+    button.type = 'button';
+    const figures = [];
+    if (Number.isFinite(city.everyday_share)) figures.push(`${Math.round(city.everyday_share * 100)}% reach everyday services without a car`);
+    if (Number.isFinite(city.jobs_pt_45)) figures.push(`${(city.jobs_pt_45 * 100).toFixed(1)}% of jobs by bus in 45 min`);
+    button.append(
+      el('span', 'start-city-name', city.place),
+      el('span', 'start-city-people', `${count(city.population)} people`),
+      el('span', 'start-city-figures', figures.join(' · ')),
     );
-    list.hidden = hits.length === 0;
-    input.setAttribute('aria-expanded', String(hits.length > 0));
-  };
-  input.addEventListener('input', () => {
-    const q = input.value.trim().toLowerCase();
-    hits = q.length < 2 ? [] : names.filter((n) => n.key.includes(q)).sort((a, b) => a.key.indexOf(q) - b.key.indexOf(q)).slice(0, 8);
-    active = hits.length ? 0 : -1;
-    render();
+    button.addEventListener('click', () => goToCity(city.slug));
+    item.append(button);
+    return item;
+  }));
+  $('start-note').textContent = `Built ${index.built}. Pick a place to begin.`;
+  wireCityPicker(index, null);
+}
+
+function wireCityPicker(index, current) {
+  const picker = $('city');
+  if (!picker) return;
+  picker.replaceChildren(
+    ...[el('option', null, current ? 'Change place' : 'Pick a place'), ...index.cities.map((city) => {
+      const option = el('option', null, city.place);
+      option.value = city.slug;
+      if (city.slug === current) option.selected = true;
+      return option;
+    })],
+  );
+  picker.firstChild.value = '';
+  picker.disabled = false;
+  picker.addEventListener('change', () => {
+    if (picker.value) goToCity(picker.value);
   });
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowDown' && hits.length) { active = (active + 1) % hits.length; render(); event.preventDefault(); }
-    if (event.key === 'ArrowUp' && hits.length) { active = (active - 1 + hits.length) % hits.length; render(); event.preventDefault(); }
-    if (event.key === 'Enter' && active >= 0) choose(hits[active]);
-    if (event.key === 'Escape') hide();
-  });
-  input.addEventListener('blur', () => window.setTimeout(hide, 120));
 }
 
 async function init() {
+  if (!CITY) {
+    // A link made before there was more than one city carries a hash and no
+    // city. Those links should still land where they were pointed, so a hash
+    // means the first city rather than the front page.
+    if (window.location.hash.length > 1) {
+      try {
+        const response = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' });
+        const index = response.ok ? await response.json() : null;
+        const first = index && index.cities && index.cities[0];
+        if (first) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('city', first.slug);
+          window.location.replace(url.toString());
+          return;
+        }
+      } catch {
+        // fall through to the front page
+      }
+    }
+    try {
+      await start();
+    } catch (error) {
+      $('loading').textContent = 'The list of places could not be loaded.';
+      throw error;
+    }
+    return;
+  }
   const at = readHash();
   map = createMap('map');
   // Exposed for browser tests and scripted tours.
@@ -899,7 +945,7 @@ async function init() {
     window.setTimeout(resolve, 6000);
   });
   try {
-    data = await load(DATA_BASE);
+    data = await load(`${DATA_BASE}${CITY}/`);
   } catch (error) {
     $('loading').textContent = 'The data could not be loaded. If you opened this file directly, serve the folder over HTTP instead.';
     throw error;
@@ -925,7 +971,6 @@ async function init() {
     });
   }
   wireControls();
-  wireSearch();
   const date = new Date(`${data.meta.routing_date}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
   $('build-note').textContent = `Timetable ${date} · Census 2023 · v${data.meta.version}`;
   const phone = window.matchMedia('(max-width: 760px)').matches;
@@ -945,7 +990,11 @@ async function init() {
   }
   $('loading').hidden = true;
   // Network lines only show when a layer is switched on, so they load after the first view.
-  loadOverlays(DATA_BASE)
+  fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((index) => { if (index) wireCityPicker(index, CITY); })
+    .catch(() => { /* one city on its own still works */ });
+  loadOverlays(`${DATA_BASE}${CITY}/`)
     .then((overlays) => setOverlays(map, overlays, data.destinations))
     .catch((error) => console.warn('Network layers could not be loaded.', error));
 }

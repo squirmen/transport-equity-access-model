@@ -381,3 +381,76 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
   font-size: 12px;
   line-height: 1.5;
 }
+
+
+/* Urban area picker, where the suburb search used to be ------------------- */
+
+.city-picker select {
+  appearance: none;
+  min-width: 170px;
+  padding: 9px 30px 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5 8l5 5 5-5' fill='none' stroke='%2355646c' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 9px center/15px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.city-picker select:hover { border-color: var(--line-strong); }
+
+/* The opening view: every place, before anything heavy is downloaded ------ */
+
+.start {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(12, 12, 72, 0.35);
+  backdrop-filter: blur(3px);
+}
+
+.start-card {
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 22px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.start-head { display: flex; align-items: center; gap: 12px; }
+.start-head h1 { margin: 0; color: var(--navy); font-size: 26px; letter-spacing: -0.01em; }
+.start-lede { margin: 14px 0 4px; color: var(--ink-soft); font-size: 15px; line-height: 1.5; }
+
+.start-list { margin: 10px 0 0; padding: 0; list-style: none; }
+
+.start-city {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 12px 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.start-city:hover { background: var(--wash); }
+.start-city-name { color: var(--navy); font-size: 17px; font-weight: 700; }
+.start-city-people { color: var(--muted); font-size: 13px; text-align: right; }
+.start-city-figures { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .city-picker select { min-width: 132px; }
+  .start-card { padding: 16px; }
+}
