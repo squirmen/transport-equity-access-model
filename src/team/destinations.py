@@ -1,7 +1,13 @@
 """Destination sets for routing.
 
-Services (supermarkets, GPs, pharmacies) come from OpenStreetMap. Schools come
-from the Ministry of Education school directory. Jobs come from Stats NZ
+Supermarkets come from OpenStreetMap, which carries about 98% of New Zealand's
+full-service supermarket banners. GPs and pharmacies come from Health New
+Zealand's facility register instead, because OpenStreetMap is measurably
+incomplete for them: in Auckland it holds 276 pharmacies against the
+register's 440. It also cannot tell an enrolling GP practice from a
+specialist's rooms, which is a different thing to measure access to.
+
+Schools come from the Ministry of Education school directory. Jobs come from Stats NZ
 business demography employee counts, already spread over the hexagon grid,
 and are summed to coarser hexagons so public transport routing stays
 tractable.
@@ -72,6 +78,8 @@ def osm_services(settings: Settings) -> pd.DataFrame:
     import geopandas as gpd
 
     rules = {sid: s["osm"] for sid, s in settings.services.items() if s.get("osm")}
+    if not rules:
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
     filters = sorted({f"nwr/{key}={','.join(values)}" for tags in rules.values() for key, values in tags.items()})
     subset = settings.cache_dir / "osm_services.osm.pbf"
     subprocess.run(
@@ -105,6 +113,64 @@ def osm_services(settings: Settings) -> pd.DataFrame:
     points["source"] = "OpenStreetMap"
     points["weight"] = 1.0
     return points[["source_id", "service", "name", "source", "weight", "lon", "lat"]]
+
+
+# Which row of Health New Zealand's register counts as which service.
+FACILITY_TYPES = {
+    "gp": "Enrolling GP Practice",
+    "pharmacy": "Community Pharmacy",
+}
+
+
+def city_bounds(settings: Settings, margin: float = 0.08) -> tuple[float, float, float, float]:
+    """The city's extent, with a margin, so a national file can be cut to it."""
+    import geopandas as gpd
+
+    blocks = gpd.read_file(settings.data("census_sa1"), columns=["geometry"])
+    west, south, east, north = blocks.total_bounds
+    return west - margin, south - margin, east + margin, north + margin
+
+
+def facility_services(settings: Settings) -> pd.DataFrame:
+    """GPs and pharmacies from Health New Zealand's facility register.
+
+    One row per facility, with a longitude and latitude already on it. Rows
+    with no coordinates are dropped: about 1% of the file, and there is
+    nothing to route to without them.
+
+    The register covers the whole country, so it is cut to the city being
+    built, with a margin wide enough to keep a practice just over the boundary
+    that people near the edge would really use.
+    """
+    wanted = {sid: FACILITY_TYPES[sid] for sid in settings.services if sid in FACILITY_TYPES}
+    if not wanted or "health_facilities" not in settings.raw["data"]:
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+    path = settings.data("health_facilities")
+    if not path.exists():
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+
+    table = pd.read_excel(path)
+    west, south, east, north = city_bounds(settings)
+    rows = []
+    for service, kind in wanted.items():
+        block = table[table["Facility Type Name"] == kind].copy()
+        block["lon"] = pd.to_numeric(block["NZGD2K X"], errors="coerce")
+        block["lat"] = pd.to_numeric(block["NZGD2K Y"], errors="coerce")
+        block = block.dropna(subset=["lon", "lat"])
+        block = block[block["lon"].between(west, east) & block["lat"].between(south, north)]
+        for _, record in block.iterrows():
+            rows.append(
+                {
+                    "source_id": f"hpi:{record['HPI Facility Id']}",
+                    "service": service,
+                    "name": record.get("Name"),
+                    "source": "Health New Zealand facility register",
+                    "weight": 1.0,
+                    "lon": float(record["lon"]),
+                    "lat": float(record["lat"]),
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def school_services(settings: Settings) -> pd.DataFrame:
@@ -141,7 +207,13 @@ def school_services(settings: Settings) -> pd.DataFrame:
 
 def build_services(settings: Settings) -> pd.DataFrame:
     """One row per (destination, service). A school can serve two year ranges."""
-    table = pd.concat([osm_services(settings), school_services(settings)], ignore_index=True)
+    facilities = facility_services(settings)
+    # Whatever the register covers, OpenStreetMap is not asked for.
+    covered = set(facilities["service"].unique()) if not facilities.empty else set()
+    osm = osm_services(settings)
+    if covered:
+        osm = osm[~osm["service"].isin(covered)]
+    table = pd.concat([osm, facilities, school_services(settings)], ignore_index=True)
     # Routing needs one id per physical point; the same point can serve several services.
     table["id"] = pd.factorize(table["source_id"])[0].astype(str)
     table = table.sort_values(["service", "source_id"]).reset_index(drop=True)

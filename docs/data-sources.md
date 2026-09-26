@@ -58,3 +58,30 @@ the simplest cost model there is. Its GTFS needs a free API key from
 `apidevelopers.metroinfo.co.nz`, which someone has to register for, so
 Wellington goes first: its feed is open and it is the one region that already
 publishes the fare zone of every stop.
+
+## Where each destination comes from, and why
+
+| Destination | Source | Why this one |
+| --- | --- | --- |
+| GPs | Health New Zealand facility register, `Enrolling GP Practice` | OpenStreetMap cannot tell an enrolling GP practice from a specialist's rooms. In Auckland it returns 396 "doctors" where the register has 430 practices you can actually enrol with, and they are not the same 396. |
+| Pharmacies | Health New Zealand facility register, `Community Pharmacy` | A measured gap, not a suspected one: OpenStreetMap had 276 in Auckland against the register's 442. |
+| Supermarkets | OpenStreetMap, `shop=supermarket` | Counter-intuitive but well evidenced: OpenStreetMap carries about 98% of New Zealand's full-service supermarket banners against the Commerce Commission's audited counts. |
+| Schools | Ministry of Education school directory | Authoritative, has rolls, updated nightly. |
+| Jobs | Stats NZ business demography, SA2 | SA2 is a confidentiality floor rather than a publishing choice, so nothing finer exists outside the Data Lab. |
+
+The health register is national and is cut to each city as it is built.
+
+Attribution: Facility data from Health New Zealand | Te Whatu Ora, Facility
+Code Table, CC BY 4.0.
+
+### Known weaknesses
+
+Jobs are the weakest layer. An SA2's employee count is spread over its
+hexagons by area, and jobs cluster inside an area far more tightly than
+residents do, so the job figures rank places rather than counting jobs in any
+one hexagon.
+
+Four Square stores are not counted as supermarkets. OpenStreetMap holds
+fewer than half of them, so including them would bias the measure in exactly
+the places TEAM exists to look at, and a small-format store is not a
+substitute for a weekly shop either way.
