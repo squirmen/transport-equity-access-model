@@ -22,6 +22,7 @@ import {
 import {
   renderAccess, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
   renderPeople, renderScore, renderServicePicker, renderTraveller, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
+  setServices,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -997,6 +998,9 @@ async function init() {
     $('loading').textContent = 'The data could not be loaded. If you opened this file directly, serve the folder over HTTP instead.';
     throw error;
   }
+  setServices(data.meta);
+  if (!SERVICE_ORDER.includes(state.service)) state.service = SERVICE_ORDER[0];
+
   // A network names its own ways of paying, so start on one this one has
   // rather than on Auckland's card.
   const ways = payments(data.meta.fares || {}).map(([key]) => key);

@@ -5,14 +5,21 @@
 import { bars } from './charts.js';
 import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.js';
 
-export const SERVICE_ORDER = [
-  'supermarket', 'gp', 'pharmacy', 'primary_school', 'intermediate_school', 'secondary_school', 'jobs',
+// Everyday errands first, then education in the order a child meets it, then
+// jobs. A service the build does not have is dropped by setServices.
+const PREFERRED_ORDER = [
+  'supermarket', 'gp', 'pharmacy',
+  'early_childhood', 'primary_school', 'intermediate_school', 'secondary_school',
+  'jobs',
 ];
+
+export let SERVICE_ORDER = [...PREFERRED_ORDER];
 
 export const SERVICE_SHORT = {
   supermarket: 'Supermarket',
   gp: 'GP',
   pharmacy: 'Pharmacy',
+  early_childhood: 'Early childhood',
   primary_school: 'Primary school',
   intermediate_school: 'Intermediate',
   secondary_school: 'Secondary school',
@@ -23,10 +30,26 @@ export const SERVICE_NOUN = {
   supermarket: 'a supermarket',
   gp: 'a GP',
   pharmacy: 'a pharmacy',
+  early_childhood: 'an early childhood service',
   primary_school: 'a primary school',
   intermediate_school: 'an intermediate school',
   secondary_school: 'a secondary school',
 };
+
+/** Which services this build actually has, in the order to show them.
+ *  Anything the data carries but this file has not met is shown too, under a
+ *  label made from its name, so a new destination type appears without an
+ *  edit here. */
+export function setServices(meta) {
+  const have = Object.keys(meta.services || {});
+  const known = PREFERRED_ORDER.filter((id) => have.includes(id));
+  const extra = have.filter((id) => !PREFERRED_ORDER.includes(id));
+  for (const id of extra) {
+    if (!SERVICE_SHORT[id]) SERVICE_SHORT[id] = meta.services[id].label || id;
+    if (!SERVICE_NOUN[id]) SERVICE_NOUN[id] = (meta.services[id].label || id).toLowerCase();
+  }
+  SERVICE_ORDER = [...known, ...extra, 'jobs'].filter((id, i, all) => all.indexOf(id) === i);
+}
 
 const GROUP_PHRASE = {
   everyone: 'people',

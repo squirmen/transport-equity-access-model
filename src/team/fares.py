@@ -44,6 +44,9 @@ ZONE_CAP = 4
 # you go. A flat fare is the same calculation with a single zone, which keeps
 # one code path rather than two.
 KINDS = ("zones", "flat")
+
+# What the single zone is called where one fare covers the whole network.
+WHOLE_NETWORK = "Whole network"
 PROFILES = ("adult", "child_5_15", "secondary_student", "tertiary_student", "accessible", "community_connect")
 PAYMENTS = ("hop", "cash")
 
@@ -331,22 +334,39 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
     if not spec:
         return pd.DataFrame(index=index), {}
     data = settings.raw["data"]
-    for key in ("fare_table", "fare_zones", "fare_zone_meta"):
-        if key not in data or not settings.data(key).exists():
-            log.warning("no %s configured; skipping the cost measures", key)
-            return pd.DataFrame(index=index), {}
-
+    if "fare_table" not in data or not settings.data("fare_table").exists():
+        log.warning("no fare table configured; skipping the cost measures")
+        return pd.DataFrame(index=index), {}
     table = load_table(settings.data("fare_table"))
-    meta = json.loads(settings.data("fare_zone_meta").read_text(encoding="utf-8"))
-    distance = zone_distance(meta["adjacency"], zone_cap(table))
+    flat = str(table.get("kind", "zones")) == "flat"
+
+    if flat:
+        # One fare covers any journey, so there is no geometry to load and
+        # every pair of places is one zone apart.
+        meta = {
+            "zones": [WHOLE_NETWORK],
+            "adjacency": {WHOLE_NETWORK: []},
+            "source_url": table.get("source_url"),
+        }
+        distance = flat_distance([WHOLE_NETWORK])
+    else:
+        for key in ("fare_zones", "fare_zone_meta"):
+            if key not in data or not settings.data(key).exists():
+                log.warning("no %s configured; skipping the cost measures", key)
+                return pd.DataFrame(index=index), {}
+        meta = json.loads(settings.data("fare_zone_meta").read_text(encoding="utf-8"))
+        distance = zone_distance(meta["adjacency"], zone_cap(table))
     mode_id = str(spec.get("mode", "pt"))
     cap = float(spec.get("max_minutes", 45))
 
     places = pd.DataFrame(
         {"id": origins["id"].to_numpy(), "lon": origins.geometry.x.to_numpy(), "lat": origins.geometry.y.to_numpy()}
     )
-    origin_zone = assign_zones(places, settings.data("fare_zones"))
-    origin_zone.index = places["id"]
+    if flat:
+        origin_zone = pd.Series("Whole network", index=pd.Index(places["id"]), dtype="object")
+    else:
+        origin_zone = assign_zones(places, settings.data("fare_zones"))
+        origin_zone.index = places["id"]
     log.info("fare zones: %d of %d cells", int(origin_zone.notna().sum()), len(origin_zone))
 
     from .gravity import _pairs
@@ -357,8 +377,11 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
         weights, destinations = _destination_weights(settings, purpose)
         if destinations.empty:
             continue
-        destination_zone = assign_zones(destinations, settings.data("fare_zones"))
-        destination_zone.index = destinations["id"]
+        if flat:
+            destination_zone = pd.Series("Whole network", index=pd.Index(destinations["id"]), dtype="object")
+        else:
+            destination_zone = assign_zones(destinations, settings.data("fare_zones"))
+            destination_zone.index = destinations["id"]
         pairs = _pairs(settings, purpose, mode_id, int(cap))
         if pairs is None or pairs.empty:
             log.warning("no %s pairs for %s; skipping", mode_id, purpose)

@@ -212,3 +212,25 @@ jobs:
 # Fares were read from Auckland Transport's fares page on 25 September 2026.
 # The zones are recovered from AT's published map by
 # scripts/build_at_fare_zones.py, because AT publishes no zone geometry.
+
+# Metro charges one fare however far the bus goes, so a budget is a count of
+# trips rather than a count of zones. A return trip is two of them, which is
+# also exactly the daily cap, so a day's travel never costs more than a
+# return fare.
+fares:
+  mode: pt
+  max_minutes: 45
+  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
+  budget:
+    min: 0
+    max: 12
+    step: 0.5
+    default: null
+    return_trip: true
+  profiles:
+    - {key: adult, label: Adult, ages: "26 to 64"}
+    - {key: child, label: Child, ages: "5 to 18"}
+    - {key: youth, label: Youth, ages: "19 to 24"}
+    - {key: community_connect, label: Community Services Card, ages: any}
+    - {key: total_mobility, label: Total Mobility, ages: any}
+    - {key: supergold, label: SuperGold, ages: "65 and over"}
