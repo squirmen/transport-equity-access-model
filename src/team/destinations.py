@@ -205,6 +205,47 @@ def school_services(settings: Settings) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def ece_services(settings: Settings) -> pd.DataFrame:
+    """Early childhood services, from the Ministry of Education directory.
+
+    Home-based networks are left out. Their address is the coordinator's
+    office rather than anywhere a child is dropped off, so routing to it would
+    measure the wrong journey.
+    """
+    wanted = {sid: set(spec["ece_types"]) for sid, spec in settings.services.items() if spec.get("ece_types")}
+    if not wanted or "ece" not in settings.raw["data"]:
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+    path = settings.data("ece")
+    if not path.exists():
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    records = payload["records"] if isinstance(payload, dict) else payload
+    rows = []
+    for record in records:
+        kind = str(record.get("Org_Type") or "").strip()
+        try:
+            lon, lat = float(record["Longitude"]), float(record["Latitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        roll = pd.to_numeric(record.get("Total"), errors="coerce")
+        for service, kinds in wanted.items():
+            if kind not in kinds:
+                continue
+            rows.append(
+                {
+                    "source_id": f"moe-ece:{record.get('ECE_Id')}",
+                    "service": service,
+                    "name": record.get("Org_Name"),
+                    "source": "Ministry of Education early childhood directory",
+                    "weight": float(roll) if pd.notna(roll) and roll > 0 else 1.0,
+                    "lon": lon,
+                    "lat": lat,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def build_services(settings: Settings) -> pd.DataFrame:
     """One row per (destination, service). A school can serve two year ranges."""
     facilities = facility_services(settings)
@@ -213,7 +254,7 @@ def build_services(settings: Settings) -> pd.DataFrame:
     osm = osm_services(settings)
     if covered:
         osm = osm[~osm["service"].isin(covered)]
-    table = pd.concat([osm, facilities, school_services(settings)], ignore_index=True)
+    table = pd.concat([osm, facilities, school_services(settings), ece_services(settings)], ignore_index=True)
     # Routing needs one id per physical point; the same point can serve several services.
     table["id"] = pd.factorize(table["source_id"])[0].astype(str)
     table = table.sort_values(["service", "source_id"]).reset_index(drop=True)

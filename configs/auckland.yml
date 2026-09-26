@@ -23,6 +23,7 @@ data:
   grid: processed/auckland/grid/auckland_h3_r9_population.parquet
   jobs_grid: processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet
   schools: raw/auckland/education/educationcounts_schools_auckland.json
+  ece: raw/auckland/education/educationcounts_ece_auckland.json
   census_sa1: raw/auckland/census/statsnz_census_sa1_2023_auckland.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
@@ -78,6 +79,19 @@ services:
     window: interpeak
     standard_minutes: 20
     osm: {amenity: [pharmacy], healthcare: [pharmacy]}
+  early_childhood:
+    label: Early childhood service
+    window: am_peak
+    standard_minutes: 15
+    # Home-based networks are left out: their address is the coordinator's
+    # office, not anywhere a child is dropped off.
+    ece_types:
+      - Education & Care Service
+      - Free Kindergarten
+      - Playcentre
+      - Te Kōhanga Reo
+      - Leo o Fanau Moana Immersion
+      - Leo o Fanau Moana Bilingual
   primary_school:
     label: Primary school
     window: am_peak
@@ -157,6 +171,14 @@ gravity:
       walk: {function: negative_exponential, beta: 0.092, cutoff: rr512}   # other, R2 0.98
       pt: {function: negative_exponential, beta: 0.036, cutoff: rr512}     # other, R2 0.78
       bike_low_stress: *cycling
+    early_childhood:
+      label: Early childhood services
+      group: education
+      # Report 512 has no early childhood category. The primary school curve
+      # is the nearest thing it publishes: the same daily trip with a child.
+      walk: {function: negative_exponential, beta: 0.101, cutoff: rr512}
+      pt: {function: negative_exponential, beta: 0.037, cutoff: rr512}
+      bike_low_stress: *cycling
     primary_school:
       label: Primary schools
       group: education
@@ -198,7 +220,7 @@ jobs:
 fares:
   mode: pt                  # the only mode with a fare to model
   max_minutes: 45           # same cap as the gravity scores
-  purposes: [jobs, supermarket, gp, pharmacy, primary_school, intermediate_school, secondary_school]
+  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
   # Budget slider on the site: dollars for a return trip.
   budget:
     min: 0

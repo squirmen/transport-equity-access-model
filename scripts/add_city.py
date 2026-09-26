@@ -53,12 +53,13 @@ SA1_FIELDS = (
     "NZDep2023,NZDep2023_Score,C23_URPopTot"
 )
 SCHOOLS_RESOURCE = "4b292323-9fcc-41f8-814b-3c7b19cf14b3"
+ECE_RESOURCE = "a9d65b07-8483-4b05-bdfd-d2abe4f38827"
 SCHOOLS_API = "https://catalogue.data.govt.nz/api/3/action/datastore_search"
 NATIONAL_OSM = "raw/supporting/new-zealand-latest.osm.pbf"
 JOBS_SOURCE = "raw/auckland/jobs/statsnz_business_demography_sa2_2024.json"
 RESOLUTION = 9
 PAGE = 1000
-STEPS = ("sa1", "grid", "jobs", "osm", "schools")
+STEPS = ("sa1", "grid", "jobs", "osm", "schools", "ece")
 
 
 def _get(url: str, timeout: int = 180) -> dict:
@@ -275,13 +276,13 @@ def clip_osm(root: Path, city: str, margin: float = 0.05) -> Path:
     return out
 
 
-def fetch_schools(root: Path, city: str, region: str) -> Path:
-    """The schools directory for the region, with rolls and coordinates."""
+def _ckan(resource: str, region: str) -> list[dict]:
+    """Every row of a data.govt.nz table for one regional council."""
     rows: list[dict] = []
     offset = 0
     while True:
         query = urllib.parse.urlencode({
-            "resource_id": SCHOOLS_RESOURCE,
+            "resource_id": resource,
             "filters": json.dumps({"Regional_Council": region}),
             "limit": PAGE,
             "offset": offset,
@@ -294,6 +295,12 @@ def fetch_schools(root: Path, city: str, region: str) -> Path:
         offset += len(got)
         if len(got) < PAGE:
             break
+    return rows
+
+
+def fetch_schools(root: Path, city: str, region: str) -> Path:
+    """The schools directory for the region, with rolls and coordinates."""
+    rows = _ckan(SCHOOLS_RESOURCE, region)
     if not rows:
         raise SystemExit(f"No schools found for Regional_Council = {region!r}.")
     out = root / "raw" / city / "education" / f"educationcounts_schools_{city}.json"
@@ -308,6 +315,31 @@ def fetch_schools(root: Path, city: str, region: str) -> Path:
         "record_count": len(rows),
     })
     log.info("schools: wrote %s (%d schools)", out.name, len(rows))
+    return out
+
+
+def fetch_ece(root: Path, city: str, region: str) -> Path:
+    """Early childhood services for the region, with rolls and coordinates.
+
+    A first-order destination for households with young children, which is
+    most of the group TEAM reports on as "children under 15".
+    """
+    rows = _ckan(ECE_RESOURCE, region)
+    if not rows:
+        raise SystemExit(f"No early childhood services found for Regional_Council = {region!r}.")
+    out = root / "raw" / city / "education" / f"educationcounts_ece_{city}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"records": rows}), encoding="utf-8")
+    _write_metadata(out, {
+        "attribution": "Ministry of Education / Education Counts",
+        "dataset_id": f"educationcounts_ece_{city}",
+        "license": "CC-BY-4.0",
+        "resource_id": ECE_RESOURCE,
+        "where": f'"Regional_Council" = {region!r}',
+        "record_count": len(rows),
+        "notes": "Early Childhood Services Directory, with coordinates and the licensed roll.",
+    })
+    log.info("ece: wrote %s (%d services)", out.name, len(rows))
     return out
 
 
@@ -337,6 +369,10 @@ def main() -> None:
         if not args.region:
             raise SystemExit("--region is needed to fetch the schools directory.")
         fetch_schools(root, args.city, args.region)
+    if "ece" in steps:
+        if not args.region:
+            raise SystemExit("--region is needed to fetch the early childhood directory.")
+        fetch_ece(root, args.city, args.region)
 
 
 if __name__ == "__main__":
