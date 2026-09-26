@@ -274,6 +274,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "region": settings.raw.get("region"),
         "naming": settings.naming,
         "routing_date": str(settings.routing["date"]),
+        "routing_max_minutes": int(settings.routing.get("max_minutes", 60)),
         "windows": settings.routing["windows"],
         "modes": {k: v.get("label", k) for k, v in settings.modes.items()},
         "standard_modes": settings.standard_modes,

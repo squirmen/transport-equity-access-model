@@ -200,29 +200,70 @@ export function renderFareSurface(root, model, set) {
 }
 
 export function renderPeople(root, model, set) {
-  const chartQ = el('div', 'chart');
   const chartG = el('div', 'chart');
+  const chartQ = el('div', 'chart');
+  // Groups are sorted worst first, with the regional rate as the line to beat.
+  bars(chartG, model.byGroup.map((row) => ({ ...row, value: row.value })), {
+    format: (v) => percent(v),
+    caption: 'Share missing the standard, by group',
+    label: 'Share missing the standard by group',
+  });
   bars(chartQ, model.byQuintile, {
     format: (v) => percent(v),
     caption: 'Share meeting the standard, by neighbourhood deprivation',
     label: 'Share meeting the standard by NZDep',
   });
-  bars(chartG, model.byGroup, {
-    format: (v) => percent(v),
-    caption: 'Share meeting the standard, by group',
-    label: 'Share meeting the standard by group',
-  });
-  const sub = Number.isFinite(model.q5) && Number.isFinite(model.q1)
-    ? `In the most deprived fifth of neighbourhoods, ${percent(model.q5)} can, against ${percent(model.q1)} in the least deprived.`
-    : null;
+
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
-  root.replaceChildren(
-    hero(count(model.below), `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`, sub),
+  const depth = Number.isFinite(model.minutesShort)
+    ? `On average they are ${Math.round(model.minutesShort)} minutes short of it.`
+    : null;
+
+  const parts = [
+    hero(
+      count(model.below),
+      `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`,
+      depth,
+    ),
+  ];
+
+  // The split no other tool can make: near enough, but priced out of it.
+  if (model.split && (model.split.priced > 0 || model.split.distance > 0)) {
+    const box = el('div', 'split');
+    const priced = el('div', 'split-row');
+    priced.append(el('strong', null, count(model.split.priced)), el('span', null, 'could get there in time, but not on this budget'));
+    const far = el('div', 'split-row');
+    far.append(el('strong', null, count(model.split.distance)), el('span', null, 'are too far away at any price'));
+    box.append(priced, far);
+    parts.push(box);
+  }
+
+  if (model.leanText) {
+    const lean = el('p', 'lean');
+    lean.append(el('span', `lean-dot ${model.lean < -0.02 ? 'is-toward' : model.lean > 0.02 ? 'is-away' : 'is-even'}`), el('span', null, model.leanText));
+    parts.push(lean);
+  }
+
+  parts.push(
     radios('Count', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
-    legend(`${phrase(model.group)[0].toUpperCase()}${phrase(model.group).slice(1)} beyond the standard, per hexagon`, model.legend),
-    chartQ,
+    legend('Where the shortfall piles up: how many people, and how far short', model.legend),
     chartG,
+    chartQ,
+    method(
+      'How this is worked out',
+      'A headcount cannot tell a place three minutes over the standard from one forty minutes over, so the '
+        + 'map shows both together: how many people miss out, and how far short they are.',
+      'These are the Foster-Greer-Thorbecke measures, with the access standard used as the line. Somewhere '
+        + 'with no route at all counts at the routing limit rather than being left out, because dropping it '
+        + 'would flatter the result exactly where things are worst.',
+      'The leaning is a concentration index. It ranks people by deprivation rather than by their own access, '
+        + 'so it can say whether the places missing out are the poorer ones. A measure of spread alone, such '
+        + 'as a Gini, cannot answer that.',
+      'Group figures come from census shares of the block around each hexagon, so they estimate people in an '
+        + 'area rather than counting individuals.',
+    ),
   );
+  root.replaceChildren(...parts);
 }
 
 export function renderFixes(root, model, set) {

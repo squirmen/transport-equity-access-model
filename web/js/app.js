@@ -5,6 +5,7 @@ import {
   byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
   reasons as reasonCodes, times, weightedMedian, weightedShare,
 } from './data.js';
+import { byGroup as shortfallByGroup, concentrationIndex, fgt, leaning, pricedOut, shortfalls } from './equity.js';
 import {
   affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, payments,
   serviceHour, travellerSummary, zoneCap,
@@ -334,36 +335,82 @@ function fareSurfaceModel() {
   };
 }
 
+/** The access score to judge the lean of, for the service being looked at. */
+function scoreForService(service) {
+  const key = service === 'jobs' ? 'jobs'
+    : ['primary_school', 'intermediate_school', 'secondary_school'].includes(service) ? 'education'
+      : 'everyday';
+  const modes = data.meta.access?.modes || [];
+  const mode = modes.includes(state.mode) ? state.mode : (modes.includes('pt') ? 'pt' : modes[0]);
+  return { values: data.access[mode]?.[key], mode, key };
+}
+
 function peopleModel() {
   const service = state.service;
   const standard = standardFor(service);
-  const flags = meetsFlags(bestTimes(service, state.zonesNow), standard);
+  const shown = bestTimes(service, state.zonesNow);
   const weights = data.weights[state.group];
-  const values = Float32Array.from(weights, (w, i) => (flags[i] ? 0 : w));
-  const edges = quartileBreaks(values);
-  const classes = Int8Array.from(values, (v) => (v > 0 ? classify(v, edges) : -1));
+  const cap = data.meta.routing_max_minutes || 60;
+
+  // The map shows where the shortfall actually piles up: how many people, and
+  // how far short each of them is. Somewhere three minutes over and somewhere
+  // forty minutes over are the same colour on a headcount map, and should not be.
+  const gaps = shortfalls(shown, standard, cap);
+  const burden = Float32Array.from(weights, (w, i) => (gaps[i] > 0 ? w * gaps[i] : 0));
+  const edges = quartileBreaks(burden);
+  const classes = Int8Array.from(burden, (v) => (v > 0 ? classify(v, edges) : -1));
+
+  const overall = fgt(shown, weights, standard, cap);
+  const groups = shortfallByGroup(shown, standard, groupChips().map(([g, label]) => [g, label, data.weights[g]]), cap);
+  const regional = fgt(shown, data.pop, standard, cap);
+
+  // Priced out only means something once a budget is set.
+  const unlimited = state.zonesNow != null ? bestTimes(service, null) : null;
+  const split = unlimited ? pricedOut(shown, unlimited, weights, standard) : null;
+
+  const score = scoreForService(service);
+  const lean = score.values ? concentrationIndex(score.values, data.pop, data.nzdep) : NaN;
+
+  const flags = meetsFlags(shown, standard);
   const quintiles = byQuintile(data, flags, weights);
   const labels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   return {
     classes,
     colours: PEOPLE,
-    tooltip: (i) => [values[i] > 0 ? `About ${count(values[i])} ${GROUP_NOUN[state.group]} beyond ${standard} min` : `Within ${standard} min`],
+    tooltip: (i) => {
+      if (!(gaps[i] > 0)) return [`Within ${standard} min`];
+      const short = Math.round(gaps[i] * standard);
+      return [`About ${count(weights[i])} ${GROUP_NOUN[state.group] || 'people'} miss out`, `Short by ${short} min`];
+    },
     panel: {
       noun: SERVICE_NOUN[service],
       standard,
       group: state.group,
       fare: fareClause(),
-      below: peopleBelow(flags, weights),
+      below: overall.below,
+      minutesShort: overall.minutesShort,
+      depth: overall.depth,
+      severity: overall.severity,
+      regionalRate: regional.rate,
+      split,
+      lean,
+      leanText: leaning(lean, { noun: `Access to ${SERVICE_NOUN[service]}`, groupNoun: 'more deprived areas' }),
+      leanMode: score.mode,
       q1: quintiles[0].share,
       q5: quintiles[4].share,
       byQuintile: quintiles.map((q, k) => ({ label: labels[k], value: q.share, emphasis: k === 4 })),
       groups: groupChips(),
-      byGroup: groupChips().map(([g, label]) => ({ label, value: weightedShare(flags, data.weights[g]), emphasis: g === state.group })),
+      byGroup: groups.map((row) => ({
+        label: row.label,
+        value: row.rate,
+        emphasis: row.key === state.group,
+        minutesShort: row.minutesShort,
+      })),
       legend: [
-        { colour: PEOPLE[0], label: `${edges[0]} or fewer` },
-        { colour: PEOPLE[1], label: `${edges[0]}–${edges[1]}` },
-        { colour: PEOPLE[2], label: `${edges[1]}–${edges[2]}` },
-        { colour: PEOPLE[3], label: `over ${edges[2]}` },
+        { colour: PEOPLE[0], label: 'least' },
+        { colour: PEOPLE[1], label: '' },
+        { colour: PEOPLE[2], label: '' },
+        { colour: PEOPLE[3], label: 'most' },
       ],
     },
   };

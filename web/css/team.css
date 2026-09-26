@@ -454,3 +454,48 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
   .city-picker select { min-width: 132px; }
   .start-card { padding: 16px; }
 }
+
+
+/* Who misses out: the split, and which way access leans ------------------ */
+
+.split {
+  margin: 10px 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.split-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.split-row + .split-row { border-top: 1px solid var(--line); }
+.split-row strong { color: var(--navy); font-size: 15px; font-variant-numeric: tabular-nums; }
+.split-row span { color: var(--ink-soft); }
+
+.lean {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 10px 0 2px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.lean-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  transform: translateY(-1px);
+}
+
+.lean-dot.is-toward { background: #1a7f5a; }
+.lean-dot.is-away { background: #c2452d; }
+.lean-dot.is-even { background: var(--line-strong); }
