@@ -52,6 +52,11 @@ routing:
   windows:
     am_peak: {start: "07:00", minutes: 120}
     interpeak: {start: "10:00", minutes: 120}
+    # A Saturday in the same school term. Weekend access is where timetables
+    # thin out most, and nothing in the model saw it until now.
+    saturday: {start: "10:00", minutes: 120, date: "2026-09-19"}
+    # Evening, for anyone whose shift does not end at five.
+    evening: {start: "18:30", minutes: 120}
   modes:
     walk: {kind: walk, label: Walking}
     bike_low_stress: {kind: cycle, max_traffic_stress: 2, label: Cycling on low-stress routes}

@@ -151,6 +151,10 @@ def _departure(settings: Settings, window: str | None) -> tuple[dt.datetime, dt.
         # Walking, cycling and driving times do not depend on the clock in R5.
         return dt.datetime.combine(date, dt.time(10, 0)), dt.timedelta(minutes=10)
     spec = settings.routing["windows"][window]
+    # A weekend window cannot run on the weekday the rest of the model uses,
+    # so a window may name its own date.
+    if spec.get("date"):
+        date = dt.date.fromisoformat(str(spec["date"]))
     hour, minute = (int(part) for part in str(spec["start"]).split(":"))
     return dt.datetime.combine(date, dt.time(hour, minute)), dt.timedelta(minutes=int(spec["minutes"]))
 
