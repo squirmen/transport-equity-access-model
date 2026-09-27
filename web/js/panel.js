@@ -179,6 +179,22 @@ function chipRow(options, current, onPick, extraClass = '') {
   return row;
 }
 
+/** When the trip is made. Picking a time keeps it for everything that was
+ *  timed then, so moving from GPs to jobs stays on Saturday; anything that
+ *  was not, such as a school run, keeps its own time. */
+export function renderWhenPicker(root, options, current, set) {
+  const buttons = options.map(([value, text, title]) => {
+    const button = el('button', 'chip', text);
+    button.type = 'button';
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', String(value === current));
+    if (title) button.title = title;
+    button.addEventListener('click', () => set({ when: value }));
+    return button;
+  });
+  root.replaceChildren(...buttons);
+}
+
 export function renderServicePicker(root, current, set) {
   const groups = groupsPresent();
   const active = groupOf(current);
@@ -282,14 +298,26 @@ export function renderFareSurface(root, model, set) {
   );
 }
 
+/** The measures behind the tab, as numbers, for anyone who wants to cite them. */
+function figures(model) {
+  const bits = [];
+  const fixed = (v, digits) => (Number.isFinite(v) ? v.toFixed(digits) : '–');
+  bits.push(`Headcount rate ${percent(model.rate, 1)}`);
+  bits.push(`poverty gap index ${fixed(model.depth, 3)}`);
+  bits.push(`squared gap index ${fixed(model.severity, 3)}`);
+  if (Number.isFinite(model.lean)) bits.push(`concentration index of the shortfall by NZDep ${fixed(model.lean, 3)}`);
+  const who = model.group === 'everyone' ? 'Everyone' : `${phrase(model.group)[0].toUpperCase()}${phrase(model.group).slice(1)}`;
+  return `${who}: ${bits.join(', ').replace(/^Headcount/, 'headcount')}. The gap indices measure the shortfall as a share of the standard.`;
+}
+
 export function renderPeople(root, model, set) {
   const chartG = el('div', 'chart');
   const chartQ = el('div', 'chart');
   // Groups are sorted worst first, with the regional rate as the line to beat.
-  bars(chartG, model.byGroup.map((row) => ({ ...row, value: row.value })), {
+  bars(chartG, model.byGroup, {
     format: (v) => percent(v),
-    caption: 'Share missing the standard, by group',
-    label: 'Share missing the standard by group',
+    caption: 'Share missing the standard, and how far short on average',
+    label: 'Share missing the standard by group, with average minutes short',
   });
   bars(chartQ, model.byQuintile, {
     format: (v) => percent(v),
@@ -322,8 +350,9 @@ export function renderPeople(root, model, set) {
   }
 
   if (model.leanText) {
+    // The shortfall landing on more deprived areas is the unfair direction.
     const lean = el('p', 'lean');
-    lean.append(el('span', `lean-dot ${model.lean < -0.02 ? 'is-toward' : model.lean > 0.02 ? 'is-away' : 'is-even'}`), el('span', null, model.leanText));
+    lean.append(el('span', `lean-dot ${model.lean < -0.02 ? 'is-away' : model.lean > 0.02 ? 'is-toward' : 'is-even'}`), el('span', null, model.leanText));
     parts.push(lean);
   }
 
@@ -339,11 +368,12 @@ export function renderPeople(root, model, set) {
       'These are the Foster-Greer-Thorbecke measures, with the access standard used as the line. Somewhere '
         + 'with no route at all counts at the routing limit rather than being left out, because dropping it '
         + 'would flatter the result exactly where things are worst.',
-      'The leaning is a concentration index. It ranks people by deprivation rather than by their own access, '
-        + 'so it can say whether the places missing out are the poorer ones. A measure of spread alone, such '
-        + 'as a Gini, cannot answer that.',
+      'Where the shortfall falls is a concentration index of the shortfall, ranking people by deprivation '
+        + 'rather than by their own access, so it can say whether the places missing out are the poorer ones. '
+        + 'A measure of spread alone, such as a Gini, cannot answer that.',
       'Group figures come from census shares of the block around each hexagon, so they estimate people in an '
         + 'area rather than counting individuals.',
+      figures(model),
     ),
   );
   root.replaceChildren(...parts);
@@ -404,7 +434,7 @@ export function renderJobsAccess(root, model, set) {
     ? `of ${place.possessive} jobs are within ${model.limit} minutes by public transport for a typical resident${model.fare}.`
     : model.fair
       ? `the regional average: job access for a typical resident by ${MODES[model.mode].short}, within ${model.limit} minutes, allowing for other workers who can reach the same jobs.`
-      : `of ${place.possessive} jobs are within ${model.limit} minutes by ${MODES[model.mode].short} for a typical resident.`;
+      : `of ${place.possessive} jobs are within ${model.limit} minutes by ${MODES[model.mode].short}${model.when || ''} for a typical resident.`;
   const toggle = el('label', 'check');
   const box = document.createElement('input');
   box.type = 'checkbox';
@@ -466,7 +496,9 @@ export function renderScore(root, model, set) {
   const noun = SCORE_NOUN[key] || 'opportunities';
   const modeLabel = MODES[mode] ? MODES[mode].short : mode;
   const figure = Number.isFinite(median) ? String(Math.round(median)) : '–';
-  const text = `is the typical ${place.name} score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
+  const text = model.when
+    ? `is the typical ${place.name} score for ${noun} by ${modeLabel}${model.when}, where 100 is the regional average at the usual time.`
+    : `is the typical ${place.name} score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
   const sub = Number.isFinite(palma)
     ? `The best-served tenth of residents score ${palma.toFixed(1)} times the least-served 40%.`
     : null;
@@ -476,8 +508,13 @@ export function renderScore(root, model, set) {
     caption: 'Typical score by neighbourhood deprivation',
     label: 'Score by NZDep quintile',
   });
+  let lean = null;
+  if (model.leanText) {
+    lean = el('p', 'lean');
+    lean.append(el('span', `lean-dot ${model.lean < -0.02 ? 'is-toward' : model.lean > 0.02 ? 'is-away' : 'is-even'}`), el('span', null, model.leanText));
+  }
   root.replaceChildren(
-    hero(figure, text, sub),
+    ...[hero(figure, text, sub), lean].filter(Boolean),
     radios('Score for', keys, key, (value) => set({ scoreKey: value }), { compact: true }),
     radios('By', modes, mode, (value) => set({ scoreMode: value }), { compact: true }),
     radios('Show', [['index', 'Score'], ['decile', 'Decile']], display, (value) => set({ scoreDisplay: value }), { compact: true }),

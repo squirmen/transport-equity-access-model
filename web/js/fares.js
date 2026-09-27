@@ -35,7 +35,8 @@ export function payments(meta) {
     const base = key.replace(/_(peak|offpeak)$/, '');
     if (seen.has(base)) continue;
     seen.add(base);
-    out.push([base, PAYMENT_LABELS[base] || base.replace(/_/g, ' ')]);
+    // A network can name its own card: "card" is a Bee Card in most regions.
+    out.push([base, (meta.payment_labels || {})[base] || PAYMENT_LABELS[base] || base.replace(/_/g, ' ')]);
   }
   return out.length ? out : [['hop', 'Card']];
 }
@@ -87,7 +88,12 @@ export function freeTravel(meta, profile, hour, weekday = true) {
   if (profile === 'child_0_4') return true;
   if (profile !== 'supergold') return false;
   if (!weekday) return true;
-  const from = ((meta.free || {}).supergold || {}).free_from || '09:00';
+  const rule = (meta.free || {}).supergold || {};
+  // Some networks charge again in the evening peak, and list their free hours.
+  if (Array.isArray(rule.free_hours_weekday)) {
+    return Number.isFinite(hour) && rule.free_hours_weekday.some(([from, to]) => hour >= from && hour < to);
+  }
+  const from = rule.free_from || '09:00';
   return Number.isFinite(hour) && hour >= Number(String(from).split(':')[0]);
 }
 
@@ -109,9 +115,9 @@ export function affordableZones(meta, { budget, profile = 'adult', payment = 'ho
 }
 
 /** What each zone limit costs this traveller, so a slider can be marked. */
-export function fareSteps(meta, { profile = 'adult', payment = 'hop', returnTrip = true, hour } = {}) {
+export function fareSteps(meta, { profile = 'adult', payment = 'hop', returnTrip = true, hour, weekday = true } = {}) {
   const trips = returnTrip ? 2 : 1;
-  const column = paymentKey(meta, payment, hour);
+  const column = paymentKey(meta, payment, hour, weekday);
   const steps = [];
   for (let zones = 1; zones <= zoneCap(meta); zones += 1) {
     const cost = fare(meta, zones, profile, column) * trips;
@@ -125,18 +131,11 @@ export function money(value) {
   return value % 1 === 0 ? `$${value.toFixed(0)}` : `$${value.toFixed(2)}`;
 }
 
-/** The departure hour of the window a service is routed in. */
-export function serviceHour(meta, service) {
-  const window = (meta.services[service] || {}).window;
-  const spec = (meta.windows || {})[window];
-  if (!spec) return null;
-  return Number(String(spec.start).split(':')[0]);
-}
-
 /** One line saying what the budget buys, in plain words.
- *  `hour` is when the trip is timetabled, which decides SuperGold. */
-export function budgetSentence(meta, state, hour) {
-  const zones = affordableZones(meta, { ...state, hour });
+ *  `hour` and `weekday` are when the trip is timetabled, which decides
+ *  SuperGold and, where a network has them, peak and off-peak fares. */
+export function budgetSentence(meta, state, hour, weekday = true) {
+  const zones = affordableZones(meta, { ...state, hour, weekday });
   if (zones == null) {
     const cap = zoneCap(meta);
     return cap <= 1
@@ -144,15 +143,17 @@ export function budgetSentence(meta, state, hour) {
       : `No limit on the fare. The marks show what 1 to ${cap} zones cost.`;
   }
   const trip = state.returnTrip ? 'return' : 'one way';
-  if (freeTravel(meta, state.profile, hour, true)) {
+  if (freeTravel(meta, state.profile, hour, weekday)) {
     const clock = `${String(hour).padStart(2, '0')}:00`;
-    return `Free at ${clock}, so the whole network is within reach.`;
+    return weekday
+      ? `Free at ${clock}, so the whole network is within reach.`
+      : 'Free at the weekend, so the whole network is within reach.';
   }
   if (zones === 0) {
-    const cheapest = fare(meta, 1, state.profile, paymentKey(meta, state.payment, hour)) * (state.returnTrip ? 2 : 1);
+    const cheapest = fare(meta, 1, state.profile, paymentKey(meta, state.payment, hour, weekday)) * (state.returnTrip ? 2 : 1);
     return `Not enough to board: the cheapest ${trip} trip is ${money(cheapest)}. Walking and cycling only.`;
   }
-  const column = paymentKey(meta, state.payment, hour);
+  const column = paymentKey(meta, state.payment, hour, weekday);
   const paid = fare(meta, zones, state.profile, column) * (state.returnTrip ? 2 : 1);
   const next = zones < zoneCap(meta) ? fare(meta, zones + 1, state.profile, column) * (state.returnTrip ? 2 : 1) : null;
   const more = next ? ` ${money(next)} would buy ${zones + 1}.` : ' That covers the whole network.';
@@ -162,11 +163,15 @@ export function budgetSentence(meta, state, hour) {
 /** How the traveller reads in the collapsed summary line. */
 const PAYMENT_SHORT = { hop: 'HOP', snapper: 'Snapper', card: 'Motu Move', cash: 'cash' };
 
-export function travellerSummary(meta, state, hour) {
+/** `when` is the hour the trip starts, or a short name for the time such as
+ *  "Saturday". */
+export function travellerSummary(meta, state, when) {
   const profile = (meta.profiles || []).find((p) => p.key === state.profile);
   const label = profile ? profile.label : 'Adult';
-  const clock = Number.isFinite(hour) ? `${String(hour).padStart(2, '0')}:00` : 'weekday';
-  const pay = state.payment === 'cash' ? 'cash' : (PAYMENT_SHORT[state.payment] || 'card');
+  const clock = typeof when === 'string' ? when
+    : Number.isFinite(when) ? `${String(when).padStart(2, '0')}:00` : 'weekday';
+  const pay = state.payment === 'cash' ? 'cash'
+    : ((meta.payment_labels || {})[state.payment] || PAYMENT_SHORT[state.payment] || 'card');
   return `${label} · ${pay} · ${state.returnTrip ? 'return' : 'one way'} · ${clock}`;
 }
 
@@ -174,7 +179,8 @@ export function travellerSummary(meta, state, hour) {
  *
  *  Returns a class per cell: 0 when walking or cycling already does it, 1 to 4
  *  for the number of zones that must be paid for, 5 when nothing reaches it
- *  inside the standard, and -1 where there is no route at all.
+ *  inside the standard, and -1 where there is no route at all. A network with
+ *  more than four zone steps puts four and over in class 4.
  *
  *  Walking and cycling are free, so they are checked first. Otherwise the
  *  answer is the smallest zone count whose journey is inside the standard,
@@ -195,10 +201,10 @@ export function cheapestFareClasses(data, service, standard) {
       }
     }
     if (cls !== 0) {
-      for (let z = 1; z <= Math.min(cap, 4); z += 1) {
+      for (let z = 1; z <= cap; z += 1) {
         const t = priced[`z${z}`]?.[i];
         if (Number.isFinite(t)) {
-          if (t <= standard) { cls = z; break; }
+          if (t <= standard) { cls = Math.min(z, 4); break; }
           cls = 5;
         }
       }
@@ -208,9 +214,10 @@ export function cheapestFareClasses(data, service, standard) {
   return out;
 }
 
-/** What each fare class costs this traveller, for the legend. */
-export function fareClassCosts(meta, state) {
+/** What each fare class costs this traveller, for the legend. Class 4 is the
+ *  cost of four zones, which is the least a class of "four and over" costs. */
+export function fareClassCosts(meta, state, hour = state.hour, weekday = true) {
   const trips = state.returnTrip ? 2 : 1;
-  const column = paymentKey(meta, state.payment, state.hour);
+  const column = paymentKey(meta, state.payment, hour, weekday);
   return [0, 1, 2, 3, 4].map((z) => (z === 0 ? 0 : fare(meta, z, state.profile, column) * trips));
 }

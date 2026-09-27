@@ -63,24 +63,36 @@ def _seconds(clock: pd.Series) -> pd.Series:
 def timetable(settings: Settings):
     """Stops with departures per hour in each window, and trips with their route type."""
     date = dt.date.fromisoformat(str(settings.routing["date"]))
+    # A window can run on its own day, such as a Saturday, and a Saturday
+    # timetable is a different set of trips.
+    dated = {
+        name: dt.date.fromisoformat(str(spec["date"])) if spec.get("date") else date
+        for name, spec in settings.routing["windows"].items()
+    }
     with zipfile.ZipFile(settings.data("gtfs")) as zf:
-        services = active_services(zf, date)
+        running = {day: set(active_services(zf, day)) for day in {date, *dated.values()}}
         routes = _read(zf, "routes.txt", usecols=["route_id", "route_type"])
-        trips = _read(zf, "trips.txt", usecols=["trip_id", "route_id", "service_id", "shape_id"])
-        trips = trips[trips["service_id"].isin(services)].merge(routes, on="route_id", how="left")
-        trips["route_type"] = pd.to_numeric(trips["route_type"], errors="coerce")
+        all_trips = _read(zf, "trips.txt", usecols=["trip_id", "route_id", "service_id", "shape_id"])
+        all_trips = all_trips.merge(routes, on="route_id", how="left")
+        all_trips["route_type"] = pd.to_numeric(all_trips["route_type"], errors="coerce")
         times = _read(zf, "stop_times.txt", usecols=["trip_id", "departure_time", "stop_id"])
-        times = times[times["trip_id"].isin(set(trips["trip_id"]))].copy()
         stops = _read(zf, "stops.txt", usecols=["stop_id", "stop_lat", "stop_lon"])
+    service_of = all_trips.set_index("trip_id")["service_id"]
+    times = times[times["trip_id"].isin(set(all_trips.loc[all_trips["service_id"].isin(set().union(*running.values())), "trip_id"]))].copy()
     times["t"] = _seconds(times["departure_time"].fillna("99:00:00"))
+    times["service_id"] = times["trip_id"].map(service_of)
     stops[["stop_lat", "stop_lon"]] = stops[["stop_lat", "stop_lon"]].astype(float)
     for name, spec in settings.routing["windows"].items():
         hour, minute = (int(p) for p in str(spec["start"]).split(":"))
         start = hour * 3600 + minute * 60
         length = int(spec["minutes"]) * 60
-        in_window = times[(times["t"] >= start) & (times["t"] < start + length)]
+        on_day = times["service_id"].isin(running[dated[name]])
+        in_window = times[on_day & (times["t"] >= start) & (times["t"] < start + length)]
         per_hour = in_window.groupby("stop_id").size() / (length / 3600)
         stops[f"per_hour_{name}"] = stops["stop_id"].map(per_hour).fillna(0.0)
+    # Everything else describes the ordinary weekday.
+    trips = all_trips[all_trips["service_id"].isin(running[date])]
+    times = times[times["service_id"].isin(running[date])].drop(columns="service_id")
     stop_types = times[["trip_id", "stop_id"]].merge(trips[["trip_id", "route_type"]], on="trip_id")
     rail = set(stop_types.loc[stop_types["route_type"].isin(RAIL_TYPES), "stop_id"])
     ferry = set(stop_types.loc[stop_types["route_type"].isin(FERRY_TYPES), "stop_id"])

@@ -30,7 +30,8 @@ these definitions.
 | --- | --- | --- |
 | `h3` | id | H3 resolution 9 cell |
 | `population` | people | usual residents, 2023 Census, spread from SA1 blocks by area |
-| `t_<service>_<mode>` | minutes | time to the nearest destination of that service by that mode; blank when none is within 60 minutes |
+| `t_<service>_<mode>` | minutes | time to the nearest destination of that service by that mode; blank when none is within 60 minutes. Public transport is in the service's usual window |
+| `t_<service>_pt_<window>` | minutes | the same by public transport in another window (`am_peak`, `interpeak` or `saturday`) |
 | `n_<service>_<mode>` | count | destinations of that service within its standard time by that mode |
 | `best_<service>` | minutes | fastest of walking, low-stress cycling and public transport |
 | `via_<service>` | mode id | the mode that gave `best_<service>` |
@@ -43,12 +44,18 @@ these definitions.
 | `jobsfair<T>_<mode>` | ratio | job access allowing for competing workers; 1 is the regional average (public transport and low-stress cycling only) |
 | `pt_per_hour_am_peak` | departures | departures per hour at the busiest stop within 800 m, 07:00–09:00 |
 | `pt_per_hour_interpeak` | departures | the same, 10:00–12:00 |
+| `pt_per_hour_saturday` | departures | the same, Saturday 10:00–12:00 |
 | `m_frequent_stop` | metres | straight-line distance to the nearest stop with four or more departures an hour, 07:00–09:00 |
 | `m_rail_ferry` | metres | straight-line distance to the nearest rail station or ferry terminal |
 | `m_low_stress_route` | metres | straight-line distance to the nearest low-stress cycle facility in the Auckland Transport network |
 | `access_<purpose>_<mode>` | score | Gravity score: every opportunity of that type within 45 minutes, discounted by travel time |
 | `accessidx_<purpose>_<mode>` | index | The same score where the population-weighted regional mean is 100 |
 | `accessdec_<purpose>_<mode>` | 1–10 | Population-weighted decile of the score, 1 lowest access to 10 highest |
+
+Job and gravity columns for public transport also come with a window suffix,
+such as `jobshare45_pt_saturday` or `accessidx_everyday_pt_saturday`, for each
+window after the usual one. Gravity indices in any window are scaled to the
+usual window's regional mean, so they can be compared directly.
 | `nzdep` | decile | NZDep2023 deprivation, 1 least to 10 most deprived |
 | `no_vehicle_share` | share | households with no motor vehicle |
 | `children_share` | share | residents under 15 |

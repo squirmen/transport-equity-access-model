@@ -136,6 +136,23 @@ export function leaning(index, { noun = 'access', groupNoun = 'more deprived are
     : `${noun} ${strength} favours better-off areas, not ${groupNoun}.`;
 }
 
+/** Where the shortfall falls, as a sentence.
+ *
+ *  `index` is the concentration index of the shortfall itself, ranked by
+ *  deprivation. Unlike an index of access, it moves with everything on
+ *  screen: the standard, the mode, the time and the fare. Negative means the
+ *  shortfall piles up in more deprived areas, which is the unfair direction.
+ */
+export function shortfallLeaning(index) {
+  if (!Number.isFinite(index)) return null;
+  const size = Math.abs(index);
+  if (size < 0.02) return 'The shortfall is spread evenly between more and less deprived areas.';
+  const where = index < 0 ? 'more deprived areas' : 'better-off areas';
+  if (size > 0.2) return `The shortfall is heavily concentrated in ${where}.`;
+  if (size > 0.08) return `The shortfall is concentrated in ${where}.`;
+  return `The shortfall leans slightly towards ${where}.`;
+}
+
 /** Shortfall by group, sorted worst first, against the regional rate. */
 export function byGroup(times, standard, groups, unreachable = 60) {
   const rows = groups.map(([key, label, weights]) => ({

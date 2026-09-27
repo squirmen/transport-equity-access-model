@@ -36,7 +36,11 @@ def headline(summary: dict) -> dict:
     """The few figures the opening view shows for a city."""
     meta = summary["meta"]
     services = {row["service"]: row for row in summary.get("services", [])}
-    jobs = [row for row in summary.get("jobs", []) if row.get("mode") == "pt" and row.get("minutes") == 45]
+    usual = (meta.get("jobs") or {}).get("window")
+    jobs = [
+        row for row in summary.get("jobs", [])
+        if row.get("mode") == "pt" and row.get("minutes") == 45 and row.get("window", usual) == usual
+    ]
     everyday = [s for s in ("supermarket", "gp", "pharmacy") if s in services]
     share = (
         sum(services[s]["share_meeting"]["everyone"] for s in everyday) / len(everyday) if everyday else None

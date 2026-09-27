@@ -21,6 +21,8 @@ export function bars(container, rows, { format, max = 1, caption, label } = {}) 
     fill.style.width = `${(share * 100).toFixed(1)}%`;
     track.append(fill);
     const value = el('span', 'bar-value', format(row.value));
+    // A second figure, quieter, for a row that needs two numbers to read.
+    if (row.detail) value.append(el('span', 'bar-detail', ` · ${row.detail}`));
     value.setAttribute('role', 'cell');
     if (row.title) line.title = row.title;
     line.append(name, track, value);

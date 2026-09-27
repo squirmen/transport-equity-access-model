@@ -73,19 +73,35 @@ def _write_metadata(path: Path, payload: dict) -> None:
     path.with_suffix(path.suffix + ".metadata.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def where_clause(tas: list[str]) -> str:
-    quoted = ", ".join("'" + ta.replace("'", "''") + "'" for ta in tas)
-    return f"TA2023_name IN ({quoted})"
+def _quoted(names: list[str]) -> str:
+    return ", ".join("'" + name.replace("'", "''") + "'" for name in names)
 
 
-def fetch_sa1(root: Path, city: str, tas: list[str]) -> Path:
-    """Census blocks for these territorial authorities, with their geometry."""
-    where = where_clause(tas)
+def where_clause(tas: list[str] | None, urban: list[str] | None = None) -> str:
+    """Census blocks by territorial authority, by urban area, or both.
+
+    A district is often mostly farmland, and some take in a second town with
+    no bus of its own, as Queenstown-Lakes takes in Wānaka. Urban areas keep a
+    town to the people its network is there for.
+    """
+    parts = []
+    if tas:
+        parts.append(f"TA2023_name IN ({_quoted(tas)})")
+    if urban:
+        parts.append(f"UR2023_name IN ({_quoted(urban)})")
+    if not parts:
+        raise SystemExit("Give --tas, --urban or both.")
+    return " AND ".join(parts)
+
+
+def fetch_sa1(root: Path, city: str, tas: list[str] | None, urban: list[str] | None = None) -> Path:
+    """Census blocks for these territorial authorities or urban areas, with their geometry."""
+    where = where_clause(tas, urban)
     count = _get(f"{SA1_LAYER}/query?" + urllib.parse.urlencode({"where": where, "returnCountOnly": "true", "f": "json"}))
     total = int(count.get("count", 0))
     if not total:
-        raise SystemExit(f"No census blocks matched {where}. Check the territorial authority names.")
-    log.info("sa1: %d blocks for %s", total, ", ".join(tas))
+        raise SystemExit(f"No census blocks matched {where}. Check the names against Stats NZ's spelling.")
+    log.info("sa1: %d blocks for %s", total, where)
 
     features: list[dict] = []
     offset = 0
@@ -349,6 +365,7 @@ def main() -> None:
     parser.add_argument("--data-root", required=True, type=Path)
     parser.add_argument("--city", required=True, help="short name, used in paths")
     parser.add_argument("--tas", nargs="+", help="territorial authority names, as Stats NZ spells them")
+    parser.add_argument("--urban", nargs="+", help="urban area names (UR2023), as Stats NZ spells them")
     parser.add_argument("--region", help="regional council name, for the schools directory")
     parser.add_argument("--only", choices=STEPS, help="run one step")
     args = parser.parse_args()
@@ -356,9 +373,9 @@ def main() -> None:
     steps = [args.only] if args.only else list(STEPS)
 
     if "sa1" in steps:
-        if not args.tas:
-            raise SystemExit("--tas is needed to fetch census blocks.")
-        fetch_sa1(root, args.city, args.tas)
+        if not args.tas and not args.urban:
+            raise SystemExit("--tas or --urban is needed to fetch census blocks.")
+        fetch_sa1(root, args.city, args.tas, args.urban)
     if "grid" in steps:
         build_grid(root, args.city)
     if "jobs" in steps:

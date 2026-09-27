@@ -161,7 +161,8 @@ def free_travel(table: dict, profile: str, hour: float | None, weekday: bool = T
 
     SuperGold holders travel free after 9am on a weekday and all day at
     weekends. Before 9am on a weekday they pay an adult fare, which is why the
-    time of day a journey is made changes what it costs.
+    time of day a journey is made changes what it costs. Some networks also
+    charge again in the evening peak, and list their free hours instead.
     """
     if profile == "child_0_4":
         return True
@@ -171,7 +172,10 @@ def free_travel(table: dict, profile: str, hour: float | None, weekday: bool = T
         return True
     if hour is None:
         return False
-    return float(hour) >= float(str(table["free"]["supergold"]["free_from"]).split(":")[0])
+    rule = table["free"]["supergold"]
+    if rule.get("free_hours_weekday"):
+        return any(float(start) <= float(hour) < float(end) for start, end in rule["free_hours_weekday"])
+    return float(hour) >= float(str(rule["free_from"]).split(":")[0])
 
 
 def affordable_zones(
@@ -369,7 +373,7 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
         origin_zone.index = places["id"]
     log.info("fare zones: %d of %d cells", int(origin_zone.notna().sum()), len(origin_zone))
 
-    from .gravity import _pairs
+    from .gravity import _pairs, purpose_windows
 
     columns: dict[str, pd.Series] = {}
     used: dict[str, dict] = {}
@@ -382,26 +386,32 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
         else:
             destination_zone = assign_zones(destinations, settings.data("fare_zones"))
             destination_zone.index = destinations["id"]
-        pairs = _pairs(settings, purpose, mode_id, int(cap))
-        if pairs is None or pairs.empty:
-            log.warning("no %s pairs for %s; skipping", mode_id, purpose)
-            continue
-        counts = pair_zone_counts(pairs, origin_zone, destination_zone, distance)
-        steps = zone_cap(table)
-        reached = reachable_within(pairs, weights, counts, cap, index, steps)
-        soonest = nearest_within(pairs, counts, cap, index, steps)
-        total = float(weights.sum())
-        for limit in reached.columns:
-            columns[f"costaccess_{purpose}_{limit}"] = reached[limit]
-            columns[f"costmin_{purpose}_{limit}"] = soonest[limit]
-            if total > 0:
-                columns[f"costshare_{purpose}_{limit}"] = (reached[limit] / total).astype("float32")
-        used[purpose] = {
-            "pairs": int(len(pairs)),
-            "priced": int(np.isfinite(counts).sum()),
-            "destinations": int(len(destinations)),
-            "total_weight": round(total, 1),
-        }
+        windows = purpose_windows(settings, purpose)
+        for window in windows:
+            pairs = _pairs(settings, purpose, mode_id, int(cap), window)
+            if pairs is None or pairs.empty:
+                log.warning("no %s pairs for %s in %s; skipping", mode_id, purpose, window)
+                continue
+            # The usual window keeps the plain names; another adds its own.
+            name = purpose if window == windows[0] else f"{purpose}_{window}"
+            counts = pair_zone_counts(pairs, origin_zone, destination_zone, distance)
+            steps = zone_cap(table)
+            reached = reachable_within(pairs, weights, counts, cap, index, steps)
+            soonest = nearest_within(pairs, counts, cap, index, steps)
+            total = float(weights.sum())
+            for limit in reached.columns:
+                columns[f"costaccess_{name}_{limit}"] = reached[limit]
+                columns[f"costmin_{name}_{limit}"] = soonest[limit]
+                if total > 0:
+                    columns[f"costshare_{name}_{limit}"] = (reached[limit] / total).astype("float32")
+            if window == windows[0]:
+                used[purpose] = {
+                    "pairs": int(len(pairs)),
+                    "priced": int(np.isfinite(counts).sum()),
+                    "destinations": int(len(destinations)),
+                    "total_weight": round(total, 1),
+                    "windows": windows,
+                }
 
     frame = pd.DataFrame(columns, index=index)
     frame["costzone"] = origin_zone.reindex(index).astype("object")

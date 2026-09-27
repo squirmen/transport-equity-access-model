@@ -82,7 +82,10 @@ def load(
         raise SystemExit("Set the data root with --data-root or TEAM_DATA_ROOT.")
     root_path = Path(root).expanduser().resolve()
     out = Path(output_dir).expanduser() if output_dir else root_path / "team"
-    cache = Path(cache_dir or os.environ.get("TEAM_CACHE_DIR") or "~/.cache/team").expanduser()
+    # Each city gets its own cache by default. Cached route pairs are named by
+    # run, not by city, so two cities sharing a cache overwrite each other.
+    default_cache = Path("~/.cache/team") / str(raw.get("name") or config_path.stem)
+    cache = Path(cache_dir or os.environ.get("TEAM_CACHE_DIR") or default_cache).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
     return Settings(raw=raw, config_path=config_path, data_root=root_path, output_dir=out, cache_dir=cache)

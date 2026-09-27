@@ -24,7 +24,7 @@ import pandas as pd
 from . import __version__
 from .config import Settings
 from .diagnosis import REASONS
-from . import equity
+from . import equity, gravity, routing
 from .equity import GROUPS, QUINTILE_LABELS
 
 WEB_MODES = ["walk", "bike_low_stress", "bike", "pt", "car"]
@@ -124,14 +124,30 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
                 chosen = table[f"via_{service}"] == mode
                 ids[chosen] = table.loc[chosen, column]
         nearest[service] = [dest_index.get(str(v)) if isinstance(v, str) else None for v in ids]
-    jobs, fair = {}, {}
+    windows = routing.all_windows(settings)
+    jobs, fair, jobs_by_window, fair_by_window = {}, {}, {}, {}
     for column in table.columns:
-        if column.startswith("jobshare"):
-            limit, mode = column.removeprefix("jobshare").split("_", 1)
-            jobs.setdefault(mode, {})[limit] = _floats(table[column], 2, scale=100)
-        elif column.startswith("jobsfair"):
-            limit, mode = column.removeprefix("jobsfair").split("_", 1)
-            fair.setdefault(mode, {})[limit] = _floats(table[column], 2)
+        for prefix, usual, other, digits, scale in (
+            ("jobshare", jobs, jobs_by_window, 2, 100),
+            ("jobsfair", fair, fair_by_window, 2, 1),
+        ):
+            if not column.startswith(prefix):
+                continue
+            limit, mode = column.removeprefix(prefix).split("_", 1)
+            values = _floats(table[column], digits, scale=scale)
+            window = next((w for w in windows if mode == f"pt_{w}"), None)
+            if window:
+                other.setdefault(window, {})[limit] = values
+            else:
+                usual.setdefault(mode, {})[limit] = values
+    # Public transport in the windows after a service's usual one. The usual
+    # window is already in `t`, so nothing is sent twice.
+    by_window = {}
+    for s in services:
+        for w in routing.service_windows(settings.services[s])[1:]:
+            column = f"t_{s}_pt_{w}"
+            if column in table:
+                by_window.setdefault(s, {})[w] = _ints(table[column])
     return {
         "h3": [str(c) for c in table.index],
         "pop": _floats(table["population"], 1),
@@ -157,12 +173,17 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "m_rail": _ints(table["m_rail_ferry"]),
         "m_bike": _ints(table["m_low_stress_route"]),
         "t": {s: {m: _ints(table[f"t_{s}_{m}"]) for m in WEB_MODES if f"t_{s}_{m}" in table} for s in services},
+        "tw": by_window,
         "km": {s: _floats(table[f"km_{s}"], 2) for s in services},
         "nearest": nearest,
         "jobs": jobs,
         "fair": fair,
+        "jobsw": jobs_by_window,
+        "fairw": fair_by_window,
         "access": access_payload(settings, table),
+        "accessw": access_payload(settings, table, by_window=True),
         "cost": cost_payload(settings, table),
+        "costw": cost_payload(settings, table, by_window=True),
         "zone": [str(v) if isinstance(v, str) else None for v in table["costzone"]] if "costzone" in table else None,
     }
 
@@ -170,41 +191,65 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
 ACCESS_WEB_KEYS = ("jobs", "everyday", "education", "all")
 
 
-def cost_payload(settings: Settings, table: pd.DataFrame) -> dict:
+def cost_payload(settings: Settings, table: pd.DataFrame, by_window: bool = False) -> dict:
     """What each zone budget reaches, per cell.
 
     Services are counts, because the question is whether a shop is within
     reach and how many there are. Jobs are a share of all the region's jobs,
     which is how the rest of the site reports them.
+
+    With `by_window`, the same for each window after a purpose's usual one,
+    keyed purpose, then window.
     """
+    from .gravity import purpose_windows
+
     steps = max(
         (int(c.rsplit("_z", 1)[1]) for c in table.columns if c.startswith("costmin_") or c.startswith("costshare_")),
         default=4,
     )
+
+    def block(name: str, jobs: bool) -> dict[str, list]:
+        out: dict[str, list] = {}
+        for limit in range(1, steps + 1):
+            column = f"{'costshare' if jobs else 'costmin'}_{name}_z{limit}"
+            if column in table:
+                out[f"z{limit}"] = _floats(table[column], 2, scale=100) if jobs else _ints(table[column])
+        return out
+
     out: dict[str, dict] = {}
     for purpose in settings.fares.get("purposes", []):
-        block: dict[str, list] = {}
-        for limit in range(1, steps + 1):
-            if purpose == "jobs":
-                column = f"costshare_{purpose}_z{limit}"
-                if column in table:
-                    block[f"z{limit}"] = _floats(table[column], 2, scale=100)
-            else:
-                column = f"costmin_{purpose}_z{limit}"
-                if column in table:
-                    block[f"z{limit}"] = _ints(table[column])
-        if block:
-            out[purpose] = block
+        if not by_window:
+            found = block(purpose, purpose == "jobs")
+            if found:
+                out[purpose] = found
+            continue
+        for window in purpose_windows(settings, purpose)[1:]:
+            found = block(f"{purpose}_{window}", purpose == "jobs")
+            if found:
+                out.setdefault(purpose, {})[window] = found
     return out
 
 
-def access_payload(settings: Settings, table: pd.DataFrame) -> dict:
+def access_payload(settings: Settings, table: pd.DataFrame, by_window: bool = False) -> dict:
     """Gravity indices for the web app: the headline keys only, as integers.
 
     The per-purpose scores stay in the download; the app needs the index, and
     works out deciles in the browser from whatever is on screen.
+
+    With `by_window`, public transport in each window after the usual one,
+    keyed window, then score.
     """
     out: dict[str, dict] = {}
+    if by_window:
+        for window in routing.all_windows(settings):
+            block = {
+                key: _ints(table[f"accessidx_{key}_pt_{window}"])
+                for key in ACCESS_WEB_KEYS
+                if f"accessidx_{key}_pt_{window}" in table
+            }
+            if block:
+                out[window] = block
+        return out
     for mode_id in settings.gravity.get("modes", []):
         block = {
             key: _ints(table[f"accessidx_{key}_{mode_id}"])
@@ -235,6 +280,7 @@ def fare_meta(settings: Settings, summary: dict) -> dict:
         "purposes": list(spec.get("purposes", [])),
         "budget": spec.get("budget", {}),
         "profiles": spec.get("profiles", []),
+        "payment_labels": spec.get("payment_labels", {}),
         "zone_cap": record.get("zone_cap", 4),
         "kind": record.get("kind", "zones"),
         "offpeak_hours": (table.get("rules", {}) or {}).get("offpeak_hours", []),
@@ -279,10 +325,20 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "modes": {k: v.get("label", k) for k, v in settings.modes.items()},
         "standard_modes": settings.standard_modes,
         "services": {
-            k: {"label": v["label"], "standard_minutes": v["standard_minutes"], "window": v["window"]}
+            k: {
+                "label": v["label"],
+                "standard_minutes": v["standard_minutes"],
+                "window": v["window"],
+                "windows": routing.service_windows(v),
+            }
             for k, v in settings.services.items()
         },
-        "jobs": {"thresholds": settings.jobs["thresholds"], "window": settings.jobs["window"], "total": round(jobs_total)},
+        "jobs": {
+            "thresholds": settings.jobs["thresholds"],
+            "window": settings.jobs["window"],
+            "windows": routing.job_windows(settings),
+            "total": round(jobs_total),
+        },
         "groups": {k: GROUPS[k][0] for k in equity.available_groups(table)},
         "group_note": "Shares describe the census block around a cell. Ethnicity is a multiple "
                       "response, so those groups overlap and do not add to the population.",
@@ -297,6 +353,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
                 "all": "All opportunities",
             },
             "functions": summary.get("gravity", {}).get("functions", {}),
+            # Windows each headline score exists in, usual first; a usual of
+            # null means its parts are usually timed differently.
+            "windows": {key: gravity.score_windows(settings, key) for key in ACCESS_WEB_KEYS},
             "purposes": {k: v.get("label", k) for k, v in settings.gravity.get("purposes", {}).items()},
         },
         "fares": fare_meta(settings, summary),
@@ -315,7 +374,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
 FIELD_NOTES = {
     "h3": "H3 resolution 9 cell id (about 0.1 km²).",
     "population": "Usual residents, 2023 Census, spread from SA1 blocks by area.",
-    "t_": "Minutes to the nearest destination of this type by this mode (blank: none within 60 minutes).",
+    "t_": "Minutes to the nearest destination of this type by this mode (blank: none within 60 minutes). "
+          "Public transport is in the service's usual window; a column ending in a window name "
+          "(am_peak, interpeak, saturday) is the same trip in that window.",
     "n_": "Number of destinations of this type within the service's standard time by this mode.",
     "id_": "Internal id of the nearest destination.",
     "best_": "Fastest time using walking, low-stress cycling or public transport.",

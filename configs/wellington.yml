@@ -46,14 +46,13 @@ routing:
   batch_size: 2000
   speed_walking_kmh: 4.8
   speed_cycling_kmh: 15
+  # Public transport is timed in each of these. Walking, cycling and driving
+  # do not depend on the clock. A window can name its own date, because a
+  # Saturday cannot be modelled on the Tuesday the rest of the model uses.
   windows:
-    am_peak: {start: "07:00", minutes: 120}
-    interpeak: {start: "10:00", minutes: 120}
-    # A Saturday in the same school term. Weekend access is where timetables
-    # thin out most, and nothing in the model saw it until now.
-    saturday: {start: "10:00", minutes: 120, date: "2026-09-19"}
-    # Evening, for anyone whose shift does not end at five.
-    evening: {start: "18:30", minutes: 120}
+    am_peak: {start: "07:00", minutes: 120, label: Peak, when: "weekdays 7 to 9am", phrase: "in the weekday morning peak"}
+    interpeak: {start: "10:00", minutes: 120, label: Off-peak, when: "weekdays 10am to midday", phrase: "off-peak on a weekday"}
+    saturday: {start: "10:00", minutes: 120, date: "2026-09-19", label: Saturday, when: "Saturday 10am to midday", phrase: "on a Saturday"}
   modes:
     walk: {kind: walk, label: Walking}
     bike_low_stress: {kind: cycle, max_traffic_stress: 2, label: Cycling on low-stress routes}
@@ -69,16 +68,19 @@ services:
   supermarket:
     label: Supermarket
     window: interpeak
+    windows: [am_peak, saturday]  # also timed at these
     standard_minutes: 20
     osm: {shop: [supermarket]}
   gp:
     label: GP or medical centre
     window: interpeak
+    windows: [am_peak, saturday]  # also timed at these
     standard_minutes: 20
     osm: {amenity: [doctors, clinic], healthcare: [doctor, clinic, centre]}
   pharmacy:
     label: Pharmacy
     window: interpeak
+    windows: [am_peak, saturday]  # also timed at these
     standard_minutes: 20
     osm: {amenity: [pharmacy], healthcare: [pharmacy]}
   early_childhood:
@@ -110,13 +112,7 @@ services:
     standard_minutes: 30
     school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
 
-# Gravity access scores, the companion to the standards measures. Functional
-# forms and beta values are those published by Transport for NSW for TAI-PT
-# (Technical Development Report, August 2026, Table 4.9), fitted to the New
-# South Wales Household Travel Survey. They are a starting point for Auckland,
-# not a local calibration: a New Zealand travel survey would be better, and
-# these are settings, not constants. The log-logistic median is the routed
-# median for that purpose and mode in this run.
+# Gravity access scores, the companion to the standards measures.
 gravity:
   modes: [walk, pt, bike_low_stress]
   beta_modes: [bike_low_stress]   # published as beta: no local decay curve yet
@@ -207,6 +203,7 @@ gravity:
 
 jobs:
   window: am_peak
+  windows: [interpeak, saturday]  # also timed at these, by public transport
   resolution: 8
   thresholds: [30, 45]
   modes: [walk, bike_low_stress, bike, pt, car]

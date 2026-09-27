@@ -1,6 +1,6 @@
 // The place panel: everything TEAM knows about one hexagon.
 
-import { bestMode } from './data.js';
+import { bestMode, costLayer } from './data.js';
 import { diagnoseCell } from './diagnose.js';
 import { count, el, metres, minutes, MODES, place as placeNames } from './format.js';
 import { SERVICE_ORDER, SERVICE_SHORT } from './panel.js';
@@ -50,7 +50,7 @@ function section(title, ...children) {
 export function timeFor(data, service, mode, i, zones = null) {
   if (mode !== 'pt' || zones == null) return data.t[service]?.[mode]?.[i];
   if (zones <= 0) return NaN;
-  return data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i];
+  return costLayer(data, service, zones)?.[i] ?? NaN;
 }
 
 export function serviceVerdict(data, i, service, standard, viewMode, zones = null) {
@@ -76,7 +76,7 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
       pt: timeFor(data, service, 'pt', i, zones),
       car: data.t[service].car?.[i],
       best,
-      freq: data.freq[data.meta.services[service].window]?.[i],
+      freq: data.freq[data.activeWindow?.[service] || data.meta.services[service].window]?.[i],
     },
     standard,
   );
@@ -136,21 +136,30 @@ export function renderPlace(root, data, i, state) {
     serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes, viewMode, zones),
   );
 
+  // Jobs follow the time and the fare budget, like everything else here.
   const jobs = [];
+  const windows = data.meta.windows || {};
+  const jobsWindow = data.activeWindow?.jobs;
+  const jobsWhen = jobsWindow && jobsWindow !== data.meta.jobs.window ? `, ${(windows[jobsWindow]?.label || jobsWindow).toLowerCase()}` : '';
+  const jobsLayer = zones != null && zones > 0 ? costLayer(data, 'jobs', zones) : null;
   for (const [mode, label] of [['pt', 'Public transport'], ['bike_low_stress', 'Low-stress cycling'], ['walk', 'Walking']]) {
-    const share = data.jobs[mode]?.['45']?.[i];
+    const priced = mode === 'pt' && zones != null;
+    const share = priced ? (zones <= 0 ? 0 : jobsLayer?.[i]) : data.jobs[mode]?.['45']?.[i];
     if (Number.isFinite(share)) {
       const total = data.meta.jobs.total;
-      jobs.push(row(`${label}, 45 min`, `${share.toFixed(share < 10 ? 1 : 0)}% · about ${count((share / 100) * total)} jobs`));
+      const name = mode === 'pt' ? `${label}, 45 min${jobsWhen}${priced ? ', on this budget' : ''}` : `${label}, 45 min`;
+      jobs.push(row(name, `${share.toFixed(share < 10 ? 1 : 0)}% · about ${count((share / 100) * total)} jobs`));
     }
   }
   const fair = data.fair.pt?.['45']?.[i];
   if (Number.isFinite(fair)) jobs.push(row('Allowing for competition', `${fair.toFixed(2)}× the ${placeNames.name} average`));
 
-  const windows = Object.keys(data.freq);
   const around = [
     row('Frequent stop', metres(data.mStop[i])),
-    ...windows.map((w) => row(`Busiest stop within 800 m, ${w === 'am_peak' ? '7–9am' : '10am–12pm'}`, `${Math.round(data.freq[w][i] || 0)} departures an hour`)),
+    ...Object.keys(data.freq).filter((w) => windows[w]).map((w) => row(
+      `Busiest stop within 800 m, ${windows[w].when || w}`,
+      `${Math.round(data.freq[w][i] || 0)} departures an hour`,
+    )),
     row('Train or ferry', metres(data.mRail[i])),
     row('Low-stress bike route', metres(data.mBike[i])),
   ];
@@ -196,8 +205,8 @@ export function renderPlace(root, data, i, state) {
         return Number.isFinite(t) && t <= standard;
       });
       if (free) return 0;
-      for (let z = 1; z <= 4; z += 1) {
-        const t = data.cost[sv][`z${z}`]?.[i];
+      for (let z = 1; data.cost[sv][`z${z}`]; z += 1) {
+        const t = data.cost[sv][`z${z}`][i];
         if (Number.isFinite(t) && t <= standard) return z;
       }
       return null;
@@ -211,10 +220,21 @@ export function renderPlace(root, data, i, state) {
   let heading = viewMode === 'best'
     ? 'Everyday services, fastest without a car'
     : `Everyday services by ${MODES[viewMode].short}`;
+  // A time only applies to what was timed then; the rest keep their usual time.
+  let untimed = null;
+  if (state.when && windows[state.when] && ['best', 'pt'].includes(viewMode)) {
+    heading += `, ${(windows[state.when].label || state.when).toLowerCase()}`;
+    const others = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s] && data.activeWindow?.[s] !== state.when);
+    if (others.length) {
+      const names = others.map((s) => SERVICE_SHORT[s].toLowerCase());
+      const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+      untimed = el('p', 'note', `${list[0].toUpperCase()}${list.slice(1)} ${others.length > 1 ? 'are' : 'is'} shown at the usual time.`);
+    }
+  }
   if (zones != null) heading += zones <= 0 ? ', no fare affordable' : `, within ${zones} fare ${zones === 1 ? 'zone' : 'zones'}`;
   root.body.replaceChildren(
     ...[
-      section(heading, ...services),
+      section(heading, ...services, ...(untimed ? [untimed] : [])),
       standing.length ? section('How this place stands', ...standing) : null,
       section('Jobs within reach', ...jobs),
       section('Around here', ...around),

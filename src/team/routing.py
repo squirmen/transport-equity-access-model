@@ -210,8 +210,92 @@ def summarise_jobs(matrix: pd.DataFrame, jobs: pd.DataFrame, thresholds: list[in
     return out, pairs.reset_index(drop=True)
 
 
+def service_windows(spec: dict) -> list[str]:
+    """The windows a service is routed in by public transport, usual one first.
+
+    `window` is when people would normally make the trip, and every measure
+    that shows one time uses it. `windows` adds other times the same trip is
+    worth checking, such as a Saturday for a supermarket. A school run has no
+    Saturday, so a service lists only the times that make sense for it.
+    """
+    usual = str(spec["window"])
+    extra = [str(w) for w in spec.get("windows", []) if str(w) != usual]
+    return [usual, *extra]
+
+
+def job_windows(settings: Settings) -> list[str]:
+    """The windows job access is routed in by public transport, usual one first."""
+    return service_windows(settings.jobs)
+
+
+def all_windows(settings: Settings) -> list[str]:
+    """Every window some public transport run uses, in config order."""
+    used = {w for spec in settings.services.values() for w in service_windows(spec)} | set(job_windows(settings))
+    return [w for w in settings.routing["windows"] if w in used]
+
+
 def run_tag(dataset: str, mode_id: str, window: str | None, transit: bool) -> str:
     return "_".join([dataset, *([window] if transit and window else []), mode_id])
+
+
+def _targets(settings: Settings, dataset: str, window: str | None):
+    """The destinations one run routes to, as a table and as points."""
+    table = destinations.load_set(settings, dataset)
+    if dataset == "services" and window is not None:
+        # Each service is routed in the windows it lists.
+        wanted = [sid for sid, spec in settings.services.items() if window in service_windows(spec)]
+        table = table[table["service"].isin(wanted)]
+    return table, _points(table)
+
+
+def scope_digest(targets) -> str:
+    """A short fingerprint of the destinations a run routes to."""
+    return hashlib.sha256("\n".join(sorted(targets["id"])).encode("utf-8")).hexdigest()[:16]
+
+
+def is_current(settings: Settings, dataset: str, mode_id: str, window: str | None) -> bool:
+    """Whether a finished run still covers the destinations it should.
+
+    Runs finished before fingerprints were recorded are judged on their
+    destination count, which is enough to notice a service added to a window.
+    """
+    tag = run_tag(dataset, mode_id, window, window is not None)
+    output = settings.out("routing", f"{tag}.parquet")
+    manifest = output.with_suffix(".json")
+    if not output.exists() or not manifest.exists():
+        return False
+    record = json.loads(manifest.read_text())
+    _, targets = _targets(settings, dataset, window)
+    if "scope" in record:
+        return record["scope"] == scope_digest(targets)
+    return int(record.get("destinations", -1)) == len(targets)
+
+
+def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str) -> None:
+    """Start a run afresh when the destinations it routes to have changed.
+
+    Finished batches are kept so a stopped run can resume, which is only safe
+    while the run is routing to the same places. When a service is added to a
+    window, the old batches are missing it, so they are cleared rather than
+    quietly reused.
+    """
+    digest = scope_digest(targets)
+    record = batch_dir / "scope.json"
+    if record.exists():
+        previous = json.loads(record.read_text()).get("destinations")
+        if previous != digest:
+            stale = list(batch_dir.glob("origins_*.parquet")) + list(pairs_dir.glob("origins_*.parquet"))
+            log.info("%s: destinations changed, clearing %d finished batches", tag, len(stale))
+            for path in stale:
+                path.unlink()
+    elif any(batch_dir.glob("origins_*.parquet")):
+        # Batches from before scopes were recorded: nothing says what they
+        # cover, so they are routed again.
+        stale = list(batch_dir.glob("origins_*.parquet")) + list(pairs_dir.glob("origins_*.parquet"))
+        log.info("%s: no record of what earlier batches covered, clearing %d", tag, len(stale))
+        for path in stale:
+            path.unlink()
+    record.write_text(json.dumps({"destinations": digest, "count": int(len(targets))}))
 
 
 def run(
@@ -235,12 +319,7 @@ def run(
     if transit and window is None:
         raise SystemExit("Public transport runs need --window.")
 
-    table = destinations.load_set(settings, dataset)
-    if dataset == "services" and transit:
-        # Each service is routed in the time window people would use it.
-        wanted = [sid for sid, spec in settings.services.items() if spec.get("window") == window]
-        table = table[table["service"].isin(wanted)]
-    targets = _points(table)
+    table, targets = _targets(settings, dataset, window if transit else None)
     origins = load_origins(settings)
     tag = run_tag(dataset, mode_id, window, transit)
     if limit:
@@ -250,6 +329,7 @@ def run(
     batch_dir = settings.output_dir / "routing" / "batches" / tag
     batch_dir.mkdir(parents=True, exist_ok=True)
     pairs_dir = settings.cache_dir / "pairs" / tag
+    _check_scope(batch_dir, pairs_dir, targets, tag)
     departure, window_length = _departure(settings, window if transit else None)
     kwargs = _mode_kwargs(r5py, mode, settings.routing)
     size = int(settings.routing.get("batch_size", 2000))
@@ -323,6 +403,7 @@ def run(
         "max_minutes": max_minutes,
         "origins": int(len(origins)),
         "destinations": int(len(targets)),
+        "scope": scope_digest(targets),
         "rows": int(len(result)),
         "osm": str(settings.data("osm")),
         "gtfs": str(settings.data("gtfs")),
@@ -342,11 +423,14 @@ def plan(settings: Settings) -> list[tuple[str, str, str | None]]:
     runs: list[tuple[str, str, str | None]] = []
     for mode_id in ("walk", "bike_low_stress", "bike", "car"):
         runs.append(("services", mode_id, None))
-    for window in sorted({spec["window"] for spec in settings.services.values()}):
-        runs.append(("services", "pt", window))
+    for window in all_windows(settings):
+        if any(window in service_windows(spec) for spec in settings.services.values()):
+            runs.append(("services", "pt", window))
     for mode_id in settings.jobs["modes"]:
-        window = settings.jobs["window"] if settings.modes[mode_id]["kind"] == "transit" else None
-        runs.append(("jobs", mode_id, window))
+        if settings.modes[mode_id]["kind"] == "transit":
+            runs += [("jobs", mode_id, window) for window in job_windows(settings)]
+        else:
+            runs.append(("jobs", mode_id, None))
     return runs
 
 
@@ -360,7 +444,7 @@ def run_plan(
         tag = run_tag(dataset, mode_id, window, window is not None)
         if only and tag not in only:
             continue
-        if settings.out("routing", f"{tag}.parquet").exists() and not force:
+        if not force and is_current(settings, dataset, mode_id, window):
             log.info("%s: already done", tag)
             continue
         run(settings, dataset, mode_id, window, force=force, shard=shard)

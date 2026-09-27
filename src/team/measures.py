@@ -2,7 +2,9 @@
 
 Column names used through the build and in the web data:
 
-    t_<service>_<mode>    minutes to the nearest <service> by <mode>
+    t_<service>_<mode>    minutes to the nearest <service> by <mode>; public
+                          transport in the service's usual window
+    t_<service>_pt_<w>    the same by public transport in another window <w>
     n_<service>_<mode>    how many <service> are within its standard time by <mode>
     id_<service>_<mode>   which destination was nearest
     best_<service>        fastest of the modes that count towards the standard
@@ -13,6 +15,9 @@ Column names used through the build and in the web data:
     jobs<T>_<mode>        jobs reachable within T minutes by <mode>
     jobshare<T>_<mode>    the same, as a share of all jobs in the region
     jobsfair<T>_<mode>    job access allowing for other workers (1 = regional average)
+
+Job columns by public transport also come as jobs<T>_pt_<w> and so on for each
+window after the usual one.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
-from .routing import run_tag
+from .routing import job_windows, run_tag, service_windows
 
 COUNT_MINUTES = (10, 15, 20, 30)
 
@@ -34,23 +39,24 @@ def count_column(standard_minutes: float) -> str:
     return f"n{max(eligible) if eligible else COUNT_MINUTES[0]}"
 
 
-def _service_runs(settings: Settings) -> list[tuple[str, Path]]:
-    windows = sorted({spec["window"] for spec in settings.services.values()})
+def _service_runs(settings: Settings) -> list[tuple[str, str | None, Path]]:
+    windows = sorted({w for spec in settings.services.values() for w in service_windows(spec)})
     runs = []
     for mode_id, mode in settings.modes.items():
         if mode["kind"] == "transit":
-            runs += [(mode_id, settings.output_dir / "routing" / f"services_{w}_{mode_id}.parquet") for w in windows]
+            runs += [(mode_id, w, settings.output_dir / "routing" / f"services_{w}_{mode_id}.parquet") for w in windows]
         else:
-            runs.append((mode_id, settings.output_dir / "routing" / f"services_{mode_id}.parquet"))
+            runs.append((mode_id, None, settings.output_dir / "routing" / f"services_{mode_id}.parquet"))
     return runs
 
 
 def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
     frames = []
-    for mode_id, path in _service_runs(settings):
+    for mode_id, window, path in _service_runs(settings):
         if path.exists():
             frame = pd.read_parquet(path)
             frame["mode"] = mode_id
+            frame["window"] = window or ""
             frames.append(frame)
     if not frames:
         raise SystemExit("No routing outputs found. Run `team route --all` first.")
@@ -59,11 +65,18 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
     for service, spec in settings.services.items():
         counted = count_column(float(spec["standard_minutes"]))
         rows = long[long["service"] == service]
-        for mode_id in settings.modes:
-            by_origin = rows[rows["mode"] == mode_id].set_index("origin")
-            columns[f"t_{service}_{mode_id}"] = by_origin["minutes"].reindex(origins).astype("float32")
-            columns[f"n_{service}_{mode_id}"] = by_origin[counted].reindex(origins).fillna(0).astype("int32")
-            columns[f"id_{service}_{mode_id}"] = by_origin["nearest_id"].reindex(origins)
+        windows = service_windows(spec)
+        for mode_id, mode in settings.modes.items():
+            transit = mode["kind"] == "transit"
+            for window in windows if transit else [""]:
+                by_origin = rows[(rows["mode"] == mode_id) & (rows["window"] == window)].set_index("origin")
+                # The usual window keeps the plain name, so everything that
+                # reads one time per mode goes on reading the usual one.
+                suffix = f"_{window}" if transit and window != windows[0] else ""
+                name = f"{service}_{mode_id}{suffix}"
+                columns[f"t_{name}"] = by_origin["minutes"].reindex(origins).astype("float32")
+                columns[f"n_{name}"] = by_origin[counted].reindex(origins).fillna(0).astype("int32")
+                columns[f"id_{name}"] = by_origin["nearest_id"].reindex(origins)
     return pd.DataFrame(columns, index=origins)
 
 
@@ -125,21 +138,24 @@ def job_table(settings: Settings, origins: pd.Index, demand: pd.Series) -> pd.Da
     total = float(jobs.sum())
     columns: dict[str, pd.Series] = {}
     thresholds = [int(t) for t in settings.jobs["thresholds"]]
+    windows = job_windows(settings)
     for mode_id in settings.jobs["modes"]:
         transit = settings.modes[mode_id]["kind"] == "transit"
-        tag = run_tag("jobs", mode_id, settings.jobs["window"] if transit else None, transit)
-        path = settings.output_dir / "routing" / f"{tag}.parquet"
-        if not path.exists():
-            continue
-        frame = pd.read_parquet(path).set_index("origin")
-        for limit in thresholds:
-            reached = frame[f"jobs_{limit}"].reindex(origins).fillna(0.0)
-            columns[f"jobs{limit}_{mode_id}"] = reached.astype("float32")
-            columns[f"jobshare{limit}_{mode_id}"] = (reached / total).astype("float32")
-        if mode_id in ("pt", "bike_low_stress"):
-            pairs = load_pairs(settings, tag)
-            if pairs is not None:
-                for limit in thresholds:
-                    fair = competition_adjusted(pairs, jobs, demand, limit)
-                    columns[f"jobsfair{limit}_{mode_id}"] = fair.reindex(origins).fillna(0.0).astype("float32")
+        for window in windows if transit else [None]:
+            tag = run_tag("jobs", mode_id, window, transit)
+            path = settings.output_dir / "routing" / f"{tag}.parquet"
+            if not path.exists():
+                continue
+            key = f"{mode_id}_{window}" if transit and window != windows[0] else mode_id
+            frame = pd.read_parquet(path).set_index("origin")
+            for limit in thresholds:
+                reached = frame[f"jobs_{limit}"].reindex(origins).fillna(0.0)
+                columns[f"jobs{limit}_{key}"] = reached.astype("float32")
+                columns[f"jobshare{limit}_{key}"] = (reached / total).astype("float32")
+            if mode_id in ("pt", "bike_low_stress"):
+                pairs = load_pairs(settings, tag)
+                if pairs is not None:
+                    for limit in thresholds:
+                        fair = competition_adjusted(pairs, jobs, demand, limit)
+                        columns[f"jobsfair{limit}_{key}"] = fair.reindex(origins).fillna(0.0).astype("float32")
     return pd.DataFrame(columns, index=origins)

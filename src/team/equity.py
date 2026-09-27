@@ -130,11 +130,19 @@ def jobs_summary(table: pd.DataFrame, settings: Settings) -> list[dict]:
     weights = group_weights(table, "everyone")
     quintile = nzdep_quintile(table["nzdep"])
     out = []
+    from .routing import job_windows
+
+    windows = job_windows(settings)
     for column in sorted(c for c in table.columns if c.startswith("jobshare")):
         limit, mode_id = column.removeprefix("jobshare").split("_", 1)
+        window = windows[0] if settings.modes.get(mode_id, {}).get("kind") == "transit" else None
+        for other in windows[1:]:
+            if mode_id.endswith(f"_{other}") and mode_id.removesuffix(f"_{other}") in settings.modes:
+                mode_id, window = mode_id.removesuffix(f"_{other}"), other
         values = table[column]
         entry = {
             "mode": mode_id,
+            "window": window,
             "minutes": int(limit),
             "median_share": weighted_quantile(values, weights, 0.5),
             "mean_share": float(np.average(values.fillna(0.0), weights=weights)) if weights.sum() > 0 else None,

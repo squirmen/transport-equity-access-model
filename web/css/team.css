@@ -115,13 +115,14 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .chart { display: flex; flex-direction: column; gap: 6px; }
 .chart-caption { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
 .bars { display: flex; flex-direction: column; gap: 5px; }
-.bar-row { display: grid; grid-template-columns: 138px 1fr 42px; align-items: center; gap: 8px; font-size: 12.5px; }
+.bar-row { display: grid; grid-template-columns: 124px 1fr minmax(42px, auto); align-items: center; gap: 8px; font-size: 12.5px; }
 .bar-label { overflow: hidden; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { height: 10px; background: var(--track); border-radius: 2px; }
 .bar-fill { display: block; height: 100%; background: var(--bar); border-radius: 0 4px 4px 0; opacity: 0.55; }
 .bar-row.is-emphasis .bar-fill { opacity: 1; }
 .bar-row.is-emphasis .bar-label { color: var(--ink); font-weight: 600; }
-.bar-value { text-align: right; font-variant-numeric: tabular-nums; }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-detail { color: var(--muted); font-weight: 400; }
 
 .reason-list { display: flex; flex-direction: column; gap: 4px; }
 .reason-row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left; }

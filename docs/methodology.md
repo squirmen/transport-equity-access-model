@@ -81,9 +81,23 @@ transport and walking from timetable and network data in a similar way.
 | Public transport | walking up to 15 minutes to and from stops; median time over every departure minute in the window, including waiting |
 | Car | uncongested driving; for reference only |
 
-**Time windows.** Schools and jobs use the weekday morning, 07:00–09:00.
-Supermarkets, GPs and pharmacies use weekday late morning, 10:00–12:00. The
-routing date is a Tuesday in school term.
+**Time windows.** Public transport is timed in three windows: the weekday
+morning peak (07:00–09:00), weekday off-peak (10:00–12:00) and Saturday
+(10:00–12:00). The weekday is a Tuesday in school term and the Saturday falls
+in the same term. Each service has a usual window, which every figure uses
+unless another time is picked: the weekday peak for schools, early childhood
+services and jobs, and weekday off-peak for supermarkets, GPs and pharmacies.
+Supermarkets, GPs, pharmacies and jobs are also timed in the other two
+windows. School trips are timed in the peak only, because a Saturday school
+run is not a real trip. Walking, cycling and driving times do not depend on
+the clock.
+
+Picking a time changes every public transport figure: travel times, fares,
+the gravity scores and job access. Gravity scores in any window are indexed
+against the usual window's regional mean, so a thinner Saturday timetable
+shows as a lower score rather than being rescaled back to 100. Fares follow
+the time too: Wellington charges less off-peak and at weekends, and SuperGold
+travel is free after 9am on weekdays and all weekend.
 
 **Traffic stress.** R5 classifies every street from its OpenStreetMap tags,
 following Mekuria, Furth & Nixon (2012). Level 2 or below covers off-road
@@ -252,10 +266,35 @@ because a ranking answers the question.
 ## 7. Who misses out
 
 For each service and standard, TEAM counts the people living in hexagons that
-miss it, overall and for three groups: people in households without a car,
-children under 15, and people aged 65 and over. A group count is the cell
-population multiplied by the group's share in the SA1 block, so it is an
+miss it, overall and for groups: people in households without a car, children
+under 15, people aged 65 and over, people in lower-income households, Māori,
+Pacific peoples, Asian residents and disabled people. A group count is the
+cell population multiplied by the group's share in the SA1 block, so it is an
 estimate for an area rather than a count of individuals.
+
+A headcount cannot tell a place three minutes over the standard from one
+forty minutes over, so the site also reports how far short people are, using
+the Foster-Greer-Thorbecke measures with the standard as the line (Foster,
+Greer & Thorbecke, 1984; applied to accessibility by Lucas, van Wee & Maat,
+2016). The shortfall of a place is its time past the standard as a share of
+the standard, and zero where the standard is met. The headcount rate is the
+share of people with any shortfall, the poverty gap index is the average
+shortfall across everyone, and the squared gap index weights the worst off
+most. A place with no route within the 60-minute routing limit counts at 60
+minutes rather than being dropped, which would flatter the result where it is
+worst.
+
+Where the shortfall falls is a concentration index of the shortfall, ranked by
+NZDep with the most deprived first (Wagstaff, Paci & van Doorslaer, 1991).
+A negative index means the shortfall piles up in more deprived areas. Karner,
+Pereira & Farber (2025) recommend ordered measures like this over Gini and
+Theil indices, which describe spread without saying who is on the losing end.
+Everything here is recomputed in the browser from what is on screen, so it
+changes with the standard, the mode, the time and the fare budget.
+
+With a fare budget set, the people who miss out are split into those who could
+get there in time but not on that budget, and those too far away at any
+price.
 
 Results are also broken down by NZDep quintile (deciles 1–2 through 9–10),
 giving the population share that meets the standard in each. The gap between
@@ -319,6 +358,9 @@ Conway, M. W., Byrd, A., & van der Linden, M. (2017). Evidence-based transit and
 land use sketch planning using interactive accessibility methods on
 combinatorial scenario designs. *Transportation Research Record*, 2653, 45–53.
 
+Karner, A., Pereira, R. H. M., & Farber, S. (2025). Advances and pitfalls in
+measuring transportation equity. *Transportation*, 52, 1399–1427.
+
 Lovelace, R., Goodman, A., Aldred, R., Berkoff, N., Abbas, A., & Woodcock, J.
 (2017). The Propensity to Cycle Tool: an open source online system for
 sustainable transport planning. *Journal of Transport and Land Use*, 10(1),
@@ -333,6 +375,9 @@ Report for TAI-PT*. August 2026.
 
 Dill, J., & McNeil, N. (2016). Revisiting the four types of cyclists: findings
 from a national survey. *Transportation Research Record*, 2587, 90–99.
+
+Foster, J., Greer, J., & Thorbecke, E. (1984). A class of decomposable poverty
+measures. *Econometrica*, 52(3), 761–766.
 
 Fink, C., Klumpenhouwer, W., Saraiva, M., Pereira, R., & Tenkanen, H. (2022).
 *r5py: Rapid Realistic Routing with R5 in Python*. Zenodo.
@@ -384,3 +429,7 @@ Transport for London.
 
 Victoria State Government (2019). *20-minute neighbourhoods: creating a more
 liveable Melbourne*. Department of Environment, Land, Water and Planning.
+
+
+Wagstaff, A., Paci, P., & van Doorslaer, E. (1991). On the measurement of
+inequalities in health. *Social Science & Medicine*, 33(5), 545–557.

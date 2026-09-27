@@ -3,12 +3,14 @@
 import { renderAbout } from './about.js';
 import {
   byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
-  reasons as reasonCodes, times, weightedMedian, weightedShare,
+  reasons as reasonCodes, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare, windowOf, windowsFor,
 } from './data.js';
-import { byGroup as shortfallByGroup, concentrationIndex, fgt, leaning, pricedOut, shortfalls } from './equity.js';
+import {
+  byGroup as shortfallByGroup, concentrationIndex, fgt, leaning, pricedOut, shortfallLeaning, shortfalls,
+} from './equity.js';
 import {
   affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, payments,
-  serviceHour, travellerSummary, zoneCap,
+  travellerSummary, zoneCap,
 } from './fares.js';
 import { count, el, minutes, MODES, place } from './format.js';
 import {
@@ -21,8 +23,8 @@ import {
 } from './palette.js';
 import {
   renderAccess, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
-  renderPeople, renderScore, renderServicePicker, renderTraveller, SERVICE_NOUN, SERVICE_ORDER, SERVICE_SHORT,
-  setServices,
+  renderPeople, renderScore, renderServicePicker, renderTraveller, renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER,
+  SERVICE_SHORT, setServices,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -38,6 +40,38 @@ function dataBase() {
 function requestedCity() {
   const asked = new URLSearchParams(window.location.search).get('city');
   return asked && /^[a-z][a-z0-9_-]*$/.test(asked) ? asked : null;
+}
+
+// The last city a visitor looked at, so a return visit goes straight back to
+// it instead of asking again. Kept in this browser only. Storage can be
+// blocked or cleared, in which case the opening view simply shows as before.
+const REMEMBER = 'team.city';
+
+function rememberCity(slug) {
+  try {
+    window.localStorage.setItem(REMEMBER, slug);
+  } catch {
+    // nothing to do: the next visit asks again
+  }
+}
+
+function rememberedCity() {
+  try {
+    const slug = window.localStorage.getItem(REMEMBER);
+    return slug && /^[a-z][a-z0-9_-]*$/.test(slug) ? slug : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Asked for the list of places on purpose, from the place picker. */
+const WANTS_LIST = new URLSearchParams(window.location.search).has('places');
+
+function goToList() {
+  const url = new URL(window.location.href);
+  url.search = '?places';
+  url.hash = '';
+  window.location.assign(url.toString());
 }
 
 /** Switching city reloads the page. A city is a megabyte and a half of its own
@@ -86,6 +120,7 @@ const state = {
   jobsLimit: '45',
   jobsFair: false,
   budget: null,
+  when: null,
   profile: 'adult',
   payment: 'hop',
   returnTrip: true,
@@ -134,6 +169,8 @@ function readHash() {
   if (cost[1]) state.profile = cost[1];
   if (cost[2]) state.payment = cost[2] === 'cash' ? 'cash' : 'hop';
   if (cost[3]) state.returnTrip = cost[3] !== '1';
+  const when = params.get('h');
+  if (when && /^[a-z_]+$/.test(when)) state.when = when;
   const jobs = (params.get('j') || '').split('.');
   if (jobs[0]) state.jobsMode = jobs[0];
   if (jobs[1]) state.jobsLimit = jobs[1];
@@ -159,6 +196,7 @@ function hashNow() {
   if (state.budget != null) {
     params.set('c', [state.budget, state.profile, state.payment, state.returnTrip ? 'r' : '1'].join('.'));
   }
+  if (state.when) params.set('h', state.when);
   if (state.group !== 'everyone') params.set('g', state.group);
   if (state.basemap !== 'light') params.set('b', state.basemap);
   if (map) {
@@ -176,6 +214,11 @@ function writeHash() {
 
 function set(patch) {
   if ('profile' in patch || 'payment' in patch || 'returnTrip' in patch || 'budget' in patch) cache.best.clear();
+  if ('when' in patch && patch.when !== state.when) {
+    setWindow(data, patch.when);
+    cache.best.clear();
+    cache.routed.clear();
+  }
   if ('zoomTo' in patch) {
     const place = data.places[patch.zoomTo];
     if (place) fitPlace(map, place.bbox);
@@ -194,15 +237,43 @@ function schedule() {
 
 // ---------------------------------------------------------------- derived figures
 
+/** What the map is about right now, for choosing a time window: a service,
+ *  'jobs', or an access score. */
+function subject() {
+  if (state.measure === 'score') return `score:${scoreChoice().key}`;
+  return state.service;
+}
+
+/** Whether public transport is part of what is on screen, which is the only
+ *  thing the time of day changes. */
+function transitShown() {
+  if (state.measure === 'score') return scoreChoice().mode === 'pt';
+  if (state.service === 'jobs') return jobsChoice().mode === 'pt';
+  return state.view !== 'access' || state.mode === 'best' || state.mode === 'pt';
+}
+
+/** The window a trip for `thing` is timed in, and when that is. */
+function tripWindow(thing = subject()) {
+  const window = windowOf(data, thing, state.when);
+  return { window, ...tripTime(data, window), spec: (data.meta.windows || {})[window] || {} };
+}
+
+/** ", on a Saturday" when the time on screen is not the usual one for what is
+ *  being looked at, and nothing otherwise. */
+function whenClause(thing = subject()) {
+  const { window, spec } = tripWindow(thing);
+  if (!window || window === windowsFor(data, thing)[0] || !spec.phrase) return '';
+  return ` ${spec.phrase}`;
+}
+
 /** Fare zones this traveller can afford for a trip to `service`.
  *  Null when no budget is set, which leaves every measure as it was. */
 function zonesFor(service) {
   if (state.budget == null || state.measure === 'score') return null;
   const meta = data.meta.fares;
   if (!meta || !meta.fares || !data.cost[service]) return null;
-  // A network names its own ways of paying, so fall back to the first one
-  // rather than assuming Auckland's card.
-  return affordableZones(meta, { ...state, hour: serviceHour(data.meta, service) });
+  const { hour, weekday } = tripWindow(service);
+  return affordableZones(meta, { ...state, hour, weekday });
 }
 
 function bestTimes(service, zones) {
@@ -294,11 +365,14 @@ function fareSurfaceModel() {
   const service = state.service;
   const standard = standardFor(service);
   const classes = cheapestFareClasses(data, service, standard);
-  const costs = fareClassCosts(data.meta.fares, state);
+  const { hour, weekday } = tripWindow(service);
+  const costs = fareClassCosts(data.meta.fares, state, hour, weekday);
   const trip = state.returnTrip ? 'return' : 'one way';
+  // Four zone classes fit on the map; a network with more puts the rest in the last.
+  const many = zoneCap(data.meta.fares) > 4;
   const legend = FARE.map((colour, k) => ({
     colour,
-    label: k === 0 ? 'Free' : k === 5 ? 'No way' : money(costs[k]),
+    label: k === 0 ? 'Free' : k === 5 ? 'No way' : `${money(costs[k])}${many && k === 4 ? '+' : ''}`,
   }));
   let free = 0;
   let paid = 0;
@@ -319,7 +393,8 @@ function fareSurfaceModel() {
       if (cls < 0) return ['Not routed'];
       if (cls === 0) return [`${SERVICE_SHORT[service]}: free, on foot or by bike within ${standard} min`];
       if (cls === 5) return [`${SERVICE_SHORT[service]}: no way to get there within ${standard} min`];
-      return [`${SERVICE_SHORT[service]}: ${money(costs[cls])} ${trip}`, `${cls} fare ${cls === 1 ? 'zone' : 'zones'} by public transport`];
+      const zonesText = many && cls === 4 ? '4 or more fare zones' : `${cls} fare ${cls === 1 ? 'zone' : 'zones'}`;
+      return [`${SERVICE_SHORT[service]}: ${money(costs[cls])}${many && cls === 4 ? '+' : ''} ${trip}`, `${zonesText} by public transport`];
     },
     panel: {
       noun: SERVICE_NOUN[service],
@@ -335,16 +410,6 @@ function fareSurfaceModel() {
         + 'so the map changes when the traveller does.',
     },
   };
-}
-
-/** The access score to judge the lean of, for the service being looked at. */
-function scoreForService(service) {
-  const key = service === 'jobs' ? 'jobs'
-    : ['primary_school', 'intermediate_school', 'secondary_school'].includes(service) ? 'education'
-      : 'everyday';
-  const modes = data.meta.access?.modes || [];
-  const mode = modes.includes(state.mode) ? state.mode : (modes.includes('pt') ? 'pt' : modes[0]);
-  return { values: data.access[mode]?.[key], mode, key };
 }
 
 function peopleModel() {
@@ -370,8 +435,10 @@ function peopleModel() {
   const unlimited = state.zonesNow != null ? bestTimes(service, null) : null;
   const split = unlimited ? pricedOut(shown, unlimited, weights, standard) : null;
 
-  const score = scoreForService(service);
-  const lean = score.values ? concentrationIndex(score.values, data.pop, data.nzdep) : NaN;
+  // Where the shortfall falls, ranked by deprivation, among the people being
+  // counted. It is worked out from the shortfall itself, so it answers for
+  // exactly what is on screen: this standard, mode, time and fare.
+  const lean = concentrationIndex(gaps, weights, data.nzdep);
 
   const flags = meetsFlags(shown, standard);
   const quintiles = byQuintile(data, flags, weights);
@@ -396,8 +463,8 @@ function peopleModel() {
       regionalRate: regional.rate,
       split,
       lean,
-      leanText: leaning(lean, { noun: `Access to ${SERVICE_NOUN[service]}`, groupNoun: 'more deprived areas' }),
-      leanMode: score.mode,
+      leanText: shortfallLeaning(lean),
+      rate: overall.rate,
       q1: quintiles[0].share,
       q5: quintiles[4].share,
       byQuintile: quintiles.map((q, k) => ({ label: labels[k], value: q.share, emphasis: k === 4 })),
@@ -406,7 +473,10 @@ function peopleModel() {
         label: row.label,
         value: row.rate,
         emphasis: row.key === state.group,
-        minutesShort: row.minutesShort,
+        detail: row.rate > 0 && Number.isFinite(row.minutesShort) ? `${Math.round(row.minutesShort)} min` : null,
+        title: Number.isFinite(row.minutesShort) && row.rate > 0
+          ? `${row.label}: those who miss out are ${Math.round(row.minutesShort)} minutes short on average`
+          : row.label,
       })),
       legend: [
         { colour: PEOPLE[0], label: 'least' },
@@ -522,6 +592,7 @@ function jobsModel() {
       priced: Boolean(priced),
       zones,
       fare: fareClause(),
+      when: choice.mode === 'pt' ? whenClause('jobs') : '',
       limit: priced ? (data.meta.fares.max_minutes || choice.limit) : choice.limit,
       median: weightedMedian(values, data.pop),
       legend,
@@ -559,6 +630,10 @@ function scoreModel() {
     : ['under 25', '25–50', '50–100', '100–200', '200–400', 'over 400'].map((label, k) => ({ colour: SCORE[k], label }));
   const quintileLabels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   const keyLabels = meta.keys || {};
+  // Which way the score leans with deprivation: the ordered measure, where a
+  // Palma ratio only says how spread out it is.
+  const lean = concentrationIndex(values, data.pop, data.nzdep);
+  const scoreNoun = { jobs: 'jobs', everyday: 'everyday services', education: 'schools', all: 'opportunities' }[choice.key] || 'opportunities';
   return {
     classes,
     colours: decile ? DECILE : SCORE,
@@ -571,11 +646,14 @@ function scoreModel() {
     panel: {
       key: choice.key,
       mode: choice.mode,
+      when: choice.mode === 'pt' ? whenClause() : '',
       display: choice.display,
       keys: choice.keys.map((k) => [k, keyLabels[k] || k]),
       modes: choice.available.map((m) => [m, (meta.beta_modes || []).includes(m) ? `${MODES[m].label} (beta)` : MODES[m].label]),
       median: weightedMedian(values, data.pop),
       palma: palma(values, data.pop),
+      lean,
+      leanText: leaning(lean, { noun: `Access to ${scoreNoun}`, groupNoun: 'more deprived areas' }),
       legend,
       byQuintile: [1, 2, 3, 4, 5].map((q, k) => ({
         label: quintileLabels[k],
@@ -597,10 +675,11 @@ function scoreAvailable() {
   return Boolean(choice.mode && choice.key && data.access[choice.mode]?.[choice.key]);
 }
 
-/** The fare clause for a sentence, or an empty string when no budget is set. */
+/** The fare and time clause for a sentence: empty when neither is set. */
 function fareClause() {
-  if (state.budget == null || state.measure === 'score') return '';
-  return ` for ${money(state.budget)}${state.returnTrip ? ' return' : ' one way'}`;
+  const when = whenClause();
+  if (state.budget == null || state.measure === 'score') return when;
+  return ` for ${money(state.budget)}${state.returnTrip ? ' return' : ' one way'}${when}`;
 }
 
 function compute() {
@@ -618,6 +697,29 @@ function compute() {
 }
 
 // ---------------------------------------------------------------- rendering
+
+function renderWhen() {
+  const field = $('when-field');
+  const windows = windowsFor(data, subject());
+  const specs = data.meta.windows || {};
+  // The time only changes public transport, so it stays out of the way
+  // whenever public transport is not on screen.
+  if (!transitShown() || !windows.length) {
+    field.hidden = true;
+    return;
+  }
+  field.hidden = false;
+  const { window, spec } = tripWindow();
+  $('when-value').textContent = window === USUAL ? 'each trip at its usual time' : (spec.when || '');
+  const picker = $('when-picker');
+  picker.hidden = windows.length < 2;
+  if (windows.length < 2) return;
+  // Chips come in the order the config lists windows, so they read the same
+  // way for every service that has them.
+  const ordered = [...(windows.includes(USUAL) ? [USUAL] : []), ...Object.keys(specs).filter((w) => windows.includes(w))];
+  const named = (w) => (w === USUAL ? ['Usual', 'each trip at its usual time'] : [specs[w].label || w, specs[w].when]);
+  renderWhenPicker(picker, ordered.map((w) => [w, ...named(w)]), window, set);
+}
 
 function renderStandard() {
   const field = $('standard-field');
@@ -656,13 +758,14 @@ function renderBudget() {
     : `${money(state.budget)} ${state.returnTrip ? 'return' : 'one way'}`;
   const reset = $('budget-reset');
   reset.hidden = state.budget == null;
-  $('budget-note').textContent = budgetSentence(meta, state, serviceHour(data.meta, state.service));
+  const { hour, weekday } = tripWindow(state.service);
+  $('budget-note').textContent = budgetSentence(meta, state, hour, weekday);
 
   // Ticks sit where each extra zone starts costing, and move when the
   // traveller changes, which is the clearest way to show that a concession
   // changes what money buys.
   const ticks = $('budget-ticks');
-  const steps = fareSteps(meta, { ...state, hour: serviceHour(data.meta, state.service) })
+  const steps = fareSteps(meta, { ...state, hour, weekday })
     .filter((step) => step.cost <= max);
   ticks.replaceChildren(
     ...steps.map((step) => {
@@ -679,17 +782,18 @@ function renderTravellerLine() {
   const hide = state.measure === 'score' || !fareAvailable();
   box.hidden = hide;
   if (hide) return;
-  const hour = serviceHour(data.meta, state.service);
-  $('traveller-summary').textContent = travellerSummary(data.meta.fares, state, hour);
-  const clock = Number.isFinite(hour) ? `${String(hour).padStart(2, '0')}:00` : 'the modelled window';
+  const { hour, spec } = tripWindow(state.service);
+  const clock = spec.date ? (spec.label || 'weekend') : hour;
+  $('traveller-summary').textContent = travellerSummary(data.meta.fares, state, clock);
+  const timed = spec.when || 'in the modelled window';
   renderTraveller($('traveller-body'), {
     profiles: data.meta.fares.profiles || [],
     payments: payments(data.meta.fares),
     profile: state.profile,
     payment: state.payment,
     returnTrip: state.returnTrip,
-    timeNote: `Trips to ${SERVICE_SHORT[state.service].toLowerCase()} are timed from ${clock} on a weekday, `
-      + 'which is when the timetable was routed. That is why a SuperGold fare is free for some trips and not others.',
+    timeNote: `Trips to ${SERVICE_SHORT[state.service].toLowerCase()} are timed ${timed}. `
+      + 'The time decides peak and off-peak fares, and whether a SuperGold trip is free.',
   }, set);
 }
 
@@ -729,14 +833,16 @@ function renderMini() {
     const choice = scoreChoice();
     const median = weightedMedian(data.access[choice.mode][choice.key], data.pop);
     const label = (data.meta.access.keys || {})[choice.key] || choice.key;
-    mini.textContent = `${label} by ${MODES[choice.mode].short} · typical score ${Math.round(median)} of 100`;
+    const when = choice.mode === 'pt' ? whenClause() : '';
+    mini.textContent = `${label} by ${MODES[choice.mode].short}${when} · typical score ${Math.round(median)} of 100`;
     return;
   }
   if (state.service === 'jobs') {
     const choice = jobsChoice();
     const median = weightedMedian(data.jobs[choice.mode][String(choice.limit)], data.pop);
     const figure = Number.isFinite(median) ? median.toFixed(median < 10 ? 1 : 0) : '–';
-    mini.textContent = `Jobs · typical resident reaches ${figure}% within ${choice.limit} min`;
+    const when = choice.mode === 'pt' ? whenClause('jobs') : '';
+    mini.textContent = `Jobs · typical resident reaches ${figure}% within ${choice.limit} min${when}`;
     return;
   }
   const standard = standardFor(state.service);
@@ -755,6 +861,7 @@ function update() {
     console.warn('The map is not ready to paint yet.', error);
   }
   const t2 = performance.now();
+  renderWhen();
   renderStandard();
   renderBudget();
   renderTravellerLine();
@@ -904,7 +1011,7 @@ function wireControls() {
       const names = { rail_ferry: 'Train or ferry stop', frequent: 'Frequent stop', other: 'Bus stop' };
       box.append(el('strong', null, names[properties.kind] || 'Stop'));
       const rate = Number(properties.per_hour);
-      const window = data.meta.jobs.window === 'am_peak' ? '7 to 9am' : '10am to midday';
+      const window = (data.meta.windows || {})[data.meta.jobs.window]?.when || 'in the modelled window';
       box.append(el('span', null, Number.isFinite(rate)
         ? `${rate.toFixed(rate < 10 ? 1 : 0)} departures an hour, ${window}`
         : 'Departures not counted'));
@@ -980,23 +1087,45 @@ async function start() {
 function wireCityPicker(index, current) {
   const picker = $('city');
   if (!picker) return;
-  picker.replaceChildren(
-    ...[el('option', null, current ? 'Change place' : 'Pick a place'), ...index.cities.map((city) => {
-      const option = el('option', null, city.place);
-      option.value = city.slug;
-      if (city.slug === current) option.selected = true;
-      return option;
-    })],
-  );
+  const options = [el('option', null, current ? 'Change place' : 'Pick a place'), ...index.cities.map((city) => {
+    const option = el('option', null, city.place);
+    option.value = city.slug;
+    if (city.slug === current) option.selected = true;
+    return option;
+  })];
+  if (current) {
+    const all = el('option', null, 'All places');
+    all.value = '*';
+    options.push(all);
+  }
+  picker.replaceChildren(...options);
   picker.firstChild.value = '';
   picker.disabled = false;
   picker.addEventListener('change', () => {
-    if (picker.value) goToCity(picker.value);
+    if (picker.value === '*') goToList();
+    else if (picker.value) goToCity(picker.value);
   });
 }
 
 async function init() {
   if (!CITY) {
+    // Someone who has been here before goes back to the place they last
+    // looked at, unless they asked for the list.
+    const last = WANTS_LIST ? null : rememberedCity();
+    if (last && window.location.hash.length <= 1) {
+      try {
+        const response = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' });
+        const index = response.ok ? await response.json() : null;
+        if (index && index.cities.some((city) => city.slug === last)) {
+          const url = new URL(window.location.href);
+          url.search = `?city=${last}`;
+          window.location.replace(url.toString());
+          return;
+        }
+      } catch {
+        // fall through to the front page
+      }
+    }
     // A link made before there was more than one city carries a hash and no
     // city. Those links should still land where they were pointed, so a hash
     // means the first city rather than the front page.
@@ -1023,6 +1152,7 @@ async function init() {
     }
     return;
   }
+  rememberCity(CITY);
   const at = readHash();
   map = createMap('map');
   // Exposed for browser tests and scripted tours.
@@ -1047,6 +1177,8 @@ async function init() {
   }
   setServices(data.meta);
   if (!SERVICE_ORDER.includes(state.service)) state.service = SERVICE_ORDER[0];
+  if (state.when && !(data.meta.windows || {})[state.when]) state.when = null;
+  setWindow(data, state.when);
 
   // A network names its own ways of paying, so start on one this one has
   // rather than on Auckland's card.

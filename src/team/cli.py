@@ -66,7 +66,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     settings = _settings(args)
     for dataset, mode_id, window in routing.plan(settings):
         tag = routing.run_tag(dataset, mode_id, window, window is not None)
-        done = settings.out("routing", f"{tag}.parquet").exists()
+        done = routing.is_current(settings, dataset, mode_id, window)
         print(f"{'done ' if done else 'to do'}  {tag}")
     return 0
 

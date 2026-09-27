@@ -59,13 +59,129 @@ function prepare(raw) {
     access: mapValues(c.access, (byKey) => mapValues(byKey, numeric)),
     cost: mapValues(c.cost, (byZone) => mapValues(byZone, numeric)),
     zone: c.zone || null,
+    // Public transport in the windows after each one's usual window. The
+    // usual window is what `t`, `jobs`, `cost` and `access` start out holding.
+    windowed: {
+      t: mapValues(c.tw, (byWindow) => mapValues(byWindow, numeric)),
+      jobs: mapValues(c.jobsw, (byLimit) => mapValues(byLimit, numeric)),
+      fair: mapValues(c.fairw, (byLimit) => mapValues(byLimit, numeric)),
+      access: mapValues(c.accessw, (byKey) => mapValues(byKey, numeric)),
+      cost: mapValues(c.costw, (byWindow) => mapValues(byWindow, (byZone) => mapValues(byZone, numeric))),
+    },
+    activeWindow: {},
   };
+  data.usual = {
+    t: mapValues(data.t, (byMode) => byMode.pt),
+    jobs: data.jobs.pt,
+    fair: data.fair.pt,
+    access: data.access.pt,
+    cost: { ...data.cost },
+  };
+  setWindow(data, null);
   data.quintile = Int8Array.from(data.nzdep, (v) => (Number.isFinite(v) ? Math.floor((v + 1) / 2) : 0));
   data.weights = { everyone: data.pop };
   for (const [group, share] of Object.entries(data.shares)) {
     data.weights[group] = Float32Array.from(data.pop, (p, i) => (Number.isFinite(share[i]) ? (p * share[i]) / 100 : 0));
   }
   return data;
+}
+
+/** Stands in for a window when each part of a score keeps its own usual time. */
+export const USUAL = 'usual';
+
+/** The public transport windows something was timed in, usual one first.
+ *
+ *  `thing` is a service, 'jobs', or 'score:<key>' for an access score. Old
+ *  data files name one window per service and nothing else, which reads as a
+ *  single window here.
+ */
+export function windowsFor(data, thing) {
+  const meta = data.meta;
+  if (thing === 'jobs') {
+    const usual = meta.jobs?.window;
+    return meta.jobs?.windows || (usual ? [usual] : []);
+  }
+  if (typeof thing === 'string' && thing.startsWith('score:')) {
+    // The build says which windows each score exists in. A usual window of
+    // null means its parts are each timed at their own usual time.
+    const key = thing.slice(6);
+    const listed = meta.access?.windows?.[key];
+    if (listed) return listed.map((w) => w ?? USUAL);
+    return [meta.jobs?.window].filter(Boolean);
+  }
+  const spec = meta.services?.[thing];
+  if (!spec) return [];
+  return spec.windows || (spec.window ? [spec.window] : []);
+}
+
+/** The window `thing` is shown in: the one asked for if it was timed then,
+ *  otherwise its usual one. A school run has no Saturday, so asking for
+ *  Saturday leaves schools on the weekday morning. */
+export function windowOf(data, thing, wanted) {
+  const windows = windowsFor(data, thing);
+  return windows.includes(wanted) ? wanted : windows[0] || null;
+}
+
+/** Point every public transport layer at the window asked for.
+ *
+ *  Everything else reads `data.t`, `data.jobs`, `data.cost` and `data.access`
+ *  as before, so the map, the panels, the place card and the diagnosis all
+ *  follow the window without each needing to know about it.
+ */
+export function setWindow(data, wanted) {
+  const w = data.windowed;
+  for (const service of Object.keys(data.t)) {
+    const window = windowOf(data, service, wanted);
+    data.activeWindow[service] = window;
+    const usual = windowsFor(data, service)[0];
+    const pt = window === usual ? data.usual.t[service] : w.t[service]?.[window];
+    if (pt) data.t[service].pt = pt;
+    else if (data.usual.t[service]) data.t[service].pt = data.usual.t[service];
+    if (data.usual.cost[service]) {
+      data.cost[service] = window === usual ? data.usual.cost[service] : (w.cost[service]?.[window] || data.usual.cost[service]);
+    }
+  }
+  const jobsWindow = windowOf(data, 'jobs', wanted);
+  const jobsUsual = windowsFor(data, 'jobs')[0];
+  data.activeWindow.jobs = jobsWindow;
+  if (data.usual.jobs) data.jobs.pt = jobsWindow === jobsUsual ? data.usual.jobs : (w.jobs[jobsWindow] || data.usual.jobs);
+  if (data.usual.fair) data.fair.pt = jobsWindow === jobsUsual ? data.usual.fair : (w.fair[jobsWindow] || data.usual.fair);
+  if (data.usual.cost.jobs) {
+    data.cost.jobs = jobsWindow === jobsUsual ? data.usual.cost.jobs : (w.cost.jobs?.[jobsWindow] || data.usual.cost.jobs);
+  }
+  if (data.usual.access) {
+    const scores = {};
+    for (const key of Object.keys(data.usual.access)) {
+      const window = windowOf(data, `score:${key}`, wanted);
+      data.activeWindow[`score:${key}`] = window;
+      scores[key] = w.access[window]?.[key] || data.usual.access[key];
+    }
+    data.access.pt = scores;
+  }
+}
+
+/** When a trip in this window happens, for pricing it: the hour it starts and
+ *  whether it is a weekday. */
+export function tripTime(data, window) {
+  const spec = (data.meta.windows || {})[window];
+  if (!spec) return { hour: null, weekday: true };
+  const hour = Number(String(spec.start).split(':')[0]);
+  const day = spec.date ? new Date(`${spec.date}T12:00:00`).getDay() : 2;
+  return { hour, weekday: day >= 1 && day <= 5 };
+}
+
+/** The priced public transport layer for a traveller who can afford `zones`.
+ *
+ *  Networks differ in how many zone steps they have: Auckland four,
+ *  Wellington fourteen, a flat fare one. A budget beyond the last step buys
+ *  the whole network, which is the last layer.
+ */
+export function costLayer(data, service, zones) {
+  const layers = data.cost[service];
+  if (!layers || !(zones > 0)) return null;
+  let steps = 0;
+  while (layers[`z${steps + 1}`]) steps += 1;
+  return steps ? layers[`z${Math.min(Math.floor(zones), steps)}`] : null;
 }
 
 /** Minutes to the nearest `service` by `mode`; `best` is the fastest counting mode.
@@ -79,7 +195,7 @@ export function times(data, service, mode, zones = null) {
   const forMode = (m) => {
     if (m !== 'pt' || zones == null) return byMode[m];
     if (zones <= 0) return null;
-    return (data.cost[service] || {})[`z${Math.min(zones, 4)}`] || null;
+    return costLayer(data, service, zones);
   };
   if (mode !== 'best') return forMode(mode) || new Float32Array(data.n).fill(NaN);
   const out = new Float32Array(data.n).fill(NaN);
@@ -100,7 +216,7 @@ export function bestMode(data, service, i, zones = null) {
   for (const m of data.meta.standard_modes) {
     let v;
     if (m === 'pt' && zones != null) {
-      v = zones <= 0 ? NaN : data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i];
+      v = zones <= 0 ? NaN : costLayer(data, service, zones)?.[i];
     } else {
       v = data.t[service]?.[m]?.[i];
     }
@@ -114,13 +230,13 @@ export function bestMode(data, service, i, zones = null) {
 
 export function cellInputs(data, service, i, best, zones = null) {
   const t = data.t[service] || {};
-  const window = data.meta.services[service]?.window;
+  const window = data.activeWindow?.[service] || data.meta.services[service]?.window;
   // Under a budget the diagnosis has to see the trip the traveller can
   // actually pay for, or a place priced off the bus would be reported as a
   // place the bus is too slow to reach.
   const pt = zones == null
     ? t.pt?.[i]
-    : (zones <= 0 ? undefined : data.cost[service]?.[`z${Math.min(zones, 4)}`]?.[i]);
+    : (zones <= 0 ? undefined : costLayer(data, service, zones)?.[i]);
   return {
     km: data.km[service]?.[i],
     walk: t.walk?.[i],

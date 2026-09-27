@@ -8,7 +8,6 @@ const LINKS = {
   lab: 'https://betterplaces.blogs.auckland.ac.nz',
 };
 
-const WINDOW_LABEL = { am_peak: 'weekday 7–9am', interpeak: 'weekday 10am–12pm' };
 
 function para(text) {
   return el('p', null, text);
@@ -38,7 +37,11 @@ export function renderAbout(root, meta) {
   const body = el('tbody');
   for (const service of Object.values(meta.services)) {
     const tr = el('tr');
-    tr.append(el('td', null, service.label), el('td', null, `${service.standard_minutes} min`), el('td', null, WINDOW_LABEL[service.window] || service.window));
+    // The usual time first; the others are what the When control offers.
+    const windows = service.windows || [service.window];
+    const when = (w) => (meta.windows || {})[w]?.when || w;
+    const times = windows.length > 1 ? `${when(windows[0])}; also ${windows.slice(1).map(when).join(', ')}` : when(windows[0]);
+    tr.append(el('td', null, service.label), el('td', null, `${service.standard_minutes} min`), el('td', null, times));
     body.append(tr);
   }
   table.append(head, body);
@@ -61,7 +64,7 @@ export function renderAbout(root, meta) {
     table,
     el('h3', null, 'How it is built'),
     list([
-      `Travel times come from R5 routing on OpenStreetMap streets and paths and the ${place.agency} timetable for ${date}. Public transport times are the median across the time window and include walking to the stop and waiting.`,
+      `Travel times come from R5 routing on OpenStreetMap streets and paths and the ${place.agency} timetable for ${date}. Public transport times are the median across the time window and include walking to the stop and waiting. The When control switches between the weekday peak, weekday off-peak and a Saturday.`,
       'Low-stress routes are paths, protected lanes and quiet streets: level 2 or below on R5’s traffic-stress scale.',
       `Each hexagon covers about 0.1 km². There are ${count(meta.totals.cells)} with residents, holding ${count(meta.totals.population)} people from the 2023 Census.`,
       `Jobs are Stats NZ business demography employee counts (2024), ${count(meta.jobs.total)} in total, placed by where people work.`,

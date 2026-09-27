@@ -181,23 +181,34 @@ def _weights(settings) -> dict[str, pd.Series]:
     return out
 
 
-def _pair_tags(settings, purpose: str, mode_id: str) -> list[str]:
-    """The routing runs holding the pairs for one purpose and mode."""
+def purpose_windows(settings, purpose: str) -> list[str]:
+    """Public transport windows this purpose was routed in, usual one first."""
+    from .routing import job_windows, service_windows
+
+    if purpose == "jobs":
+        return job_windows(settings)
+    return service_windows(settings.services[purpose])
+
+
+def _pair_tags(settings, purpose: str, mode_id: str, window: str | None = None) -> list[str]:
+    """The routing runs holding the pairs for one purpose and mode.
+
+    Public transport reads the usual window unless another is named.
+    """
     from .routing import run_tag
 
     transit = settings.modes[mode_id]["kind"] == "transit"
-    if purpose == "jobs":
-        window = settings.jobs["window"] if transit else None
-        return [run_tag("jobs", mode_id, window, transit)]
-    window = settings.services[purpose]["window"] if transit else None
-    return [run_tag("services", mode_id, window, transit)]
+    if transit and window is None:
+        window = purpose_windows(settings, purpose)[0]
+    dataset = "jobs" if purpose == "jobs" else "services"
+    return [run_tag(dataset, mode_id, window if transit else None, transit)]
 
 
-def _pairs(settings, purpose: str, mode_id: str, cap: float) -> pd.DataFrame | None:
+def _pairs(settings, purpose: str, mode_id: str, cap: float, window: str | None = None) -> pd.DataFrame | None:
     from .measures import load_pairs
 
     frames = []
-    for tag in _pair_tags(settings, purpose, mode_id):
+    for tag in _pair_tags(settings, purpose, mode_id, window):
         pairs = load_pairs(settings, tag)
         if pairs is None:
             continue
@@ -210,8 +221,21 @@ def _pairs(settings, purpose: str, mode_id: str, cap: float) -> pd.DataFrame | N
     return pairs[pairs["minutes"] <= cap]
 
 
+def mean_score(values: pd.Series, population: pd.Series) -> float:
+    """The population-weighted mean of a score, the 100 of its index."""
+    people = population.reindex(values.index).fillna(0.0)
+    total = float(people.sum())
+    return float((values.fillna(0.0) * people).sum() / total) if total > 0 else float("nan")
+
+
 def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFrame, dict]:
     """Gravity scores for every configured purpose and mode.
+
+    Public transport is scored in each window a purpose is routed in. The
+    usual window keeps the plain column names; another window adds its name,
+    as in `accessidx_gp_pt_saturday`. Every window is indexed against the
+    usual window's regional mean, so a thinner Saturday timetable shows as a
+    lower score rather than being rescaled back to 100.
 
     Returns the columns to join onto the cell table, and a record of the
     functions used, for the run manifest and the method page.
@@ -230,34 +254,89 @@ def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFram
             settings_for_mode = dict(purpose_spec.get(mode_id, {}))
             if not settings_for_mode:
                 continue
+            transit = settings.modes[mode_id]["kind"] == "transit"
+            windows = purpose_windows(settings, purpose) if transit else [None]
             horizon = cutoff_minutes(settings_for_mode, cap)
-            pairs = _pairs(settings, purpose, mode_id, horizon)
-            if pairs is None or pairs.empty:
-                continue
-            if settings_for_mode.get("function") == "log_logistic" and not settings_for_mode.get("median"):
-                settings_for_mode["median"] = routed_median(pairs)
-            values = score(pairs, weights.get(purpose, pd.Series(dtype="float64")), settings_for_mode)
-            values = values.reindex(index).fillna(0.0)
-            columns[f"access_{purpose}_{mode_id}"] = values.astype("float32")
-            columns[f"accessidx_{purpose}_{mode_id}"] = index_to_mean(values, population)
-            columns[f"accessdec_{purpose}_{mode_id}"] = deciles(values, population)
-            used[f"{purpose}_{mode_id}"] = {
-                **settings_for_mode,
-                "max_minutes": round(float(horizon), 1),
-                "pairs": int(len(pairs)),
-            }
+            usual_mean = None
+            for window in windows:
+                pairs = _pairs(settings, purpose, mode_id, horizon, window)
+                if pairs is None or pairs.empty:
+                    continue
+                if settings_for_mode.get("function") == "log_logistic" and not settings_for_mode.get("median"):
+                    settings_for_mode["median"] = routed_median(pairs)
+                values = score(pairs, weights.get(purpose, pd.Series(dtype="float64")), settings_for_mode)
+                values = values.reindex(index).fillna(0.0)
+                key = mode_id if window in (None, windows[0]) else f"{mode_id}_{window}"
+                if usual_mean is None:
+                    usual_mean = mean_score(values, population)
+                columns[f"access_{purpose}_{key}"] = values.astype("float32")
+                columns[f"accessidx_{purpose}_{key}"] = (
+                    (values / usual_mean * 100.0).astype("float32") if usual_mean and usual_mean > 0
+                    else pd.Series(np.nan, index=index, dtype="float32")
+                )
+                columns[f"accessdec_{purpose}_{key}"] = deciles(values, population)
+                if key == mode_id:
+                    used[f"{purpose}_{mode_id}"] = {
+                        **settings_for_mode,
+                        "max_minutes": round(float(horizon), 1),
+                        "pairs": int(len(pairs)),
+                    }
     table = pd.DataFrame(columns, index=index)
     # Group and overall figures average the indices, which share a scale;
     # the raw scores count different things and cannot be added together.
+    # The plain name has each member at its usual time. A window gets its own
+    # group figure only when every member was routed in it, so a Saturday
+    # "education" figure is never an average of nothing.
+    everything = {**groups, "all": list(spec["purposes"])}
     for mode_id in spec["modes"]:
-        for group, members in groups.items():
-            parts = [f"accessidx_{p}_{mode_id}" for p in members if f"accessidx_{p}_{mode_id}" in table]
-            if parts:
+        transit = settings.modes[mode_id]["kind"] == "transit"
+        for group, members in everything.items():
+            parts = [f"accessidx_{p}_{mode_id}" for p in members]
+            if all(part in table for part in parts):
                 table[f"accessidx_{group}_{mode_id}"] = table[parts].mean(axis=1).astype("float32")
                 table[f"accessdec_{group}_{mode_id}"] = deciles(table[f"accessidx_{group}_{mode_id}"], population)
-        parts = [c for c in table.columns if c.startswith("accessidx_") and c.endswith(f"_{mode_id}")
-                 and c.split("_")[1] in spec["purposes"]]
-        if parts:
-            table[f"accessidx_all_{mode_id}"] = table[parts].mean(axis=1).astype("float32")
-            table[f"accessdec_all_{mode_id}"] = deciles(table[f"accessidx_all_{mode_id}"], population)
+            if not transit:
+                continue
+            usual = {purpose_windows(settings, p)[0] for p in members}
+            for window in settings.routing["windows"]:
+                if usual == {window}:
+                    continue  # the same as the plain name
+                parts = [_window_column(table, p, mode_id, window, settings) for p in members]
+                if all(parts):
+                    name = f"{group}_{mode_id}_{window}"
+                    table[f"accessidx_{name}"] = table[parts].mean(axis=1).astype("float32")
+                    table[f"accessdec_{name}"] = deciles(table[f"accessidx_{name}"], population)
     return table, used
+
+
+def _window_column(table: pd.DataFrame, purpose: str, mode_id: str, window: str, settings) -> str | None:
+    """The index column for one purpose in one window, if it was routed then."""
+    windows = purpose_windows(settings, purpose)
+    if window not in windows:
+        return None
+    column = f"accessidx_{purpose}_{mode_id}" if window == windows[0] else f"accessidx_{purpose}_{mode_id}_{window}"
+    return column if column in table else None
+
+
+def score_windows(settings, key: str) -> list[str | None]:
+    """Public transport windows a headline score exists in, usual one first.
+
+    The usual one is None when the members of the score are usually made at
+    different times, as with all opportunities, which mixes the school run
+    and the weekday shop.
+    """
+    spec = settings.gravity or {}
+    purposes = spec.get("purposes", {})
+    if key == "all":
+        members = list(purposes)
+    else:
+        members = [p for p, s in purposes.items() if str(s.get("group", "all")) == key] or ([key] if key in purposes else [])
+    if not members:
+        return []
+    usual = {purpose_windows(settings, p)[0] for p in members}
+    first = next(iter(usual)) if len(usual) == 1 else None
+    extra = [
+        w for w in settings.routing["windows"]
+        if w != first and all(w in purpose_windows(settings, p) for p in members)
+    ]
+    return [first, *extra]
