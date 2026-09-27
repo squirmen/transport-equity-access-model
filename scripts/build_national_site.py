@@ -32,19 +32,40 @@ REPO_WEB = Path(__file__).resolve().parents[1] / "web"
 DATA_FILES = ("cells.json", "summary.json", "places.json", "destinations.json", "overlays.json")
 
 
-def headline(summary: dict) -> dict:
-    """The few figures the opening view shows for a city."""
+def weighted_median(values, weights) -> float | None:
+    import numpy as np
+
+    values = np.asarray(values, dtype="float64")
+    weights = np.asarray(weights, dtype="float64")
+    keep = np.isfinite(values) & (weights > 0)
+    if not keep.any():
+        return None
+    order = np.argsort(values[keep])
+    running = np.cumsum(weights[keep][order])
+    return float(values[keep][order][np.searchsorted(running, running[-1] / 2)])
+
+
+def headline(summary: dict, cells_path: Path) -> dict:
+    """The few figures the opening view shows for a city.
+
+    Each is one a visitor can find again inside the city: the share who reach
+    all three everyday services in time, and the jobs a typical resident
+    reaches by public transport. Jobs are a count, not a share of the city's
+    own jobs, because a share makes a small city look well served just for
+    having few jobs to divide by.
+    """
+    import pandas as pd
+
     meta = summary["meta"]
-    services = {row["service"]: row for row in summary.get("services", [])}
-    usual = (meta.get("jobs") or {}).get("window")
-    jobs = [
-        row for row in summary.get("jobs", [])
-        if row.get("mode") == "pt" and row.get("minutes") == 45 and row.get("window", usual) == usual
-    ]
-    everyday = [s for s in ("supermarket", "gp", "pharmacy") if s in services]
-    share = (
-        sum(services[s]["share_meeting"]["everyone"] for s in everyday) / len(everyday) if everyday else None
-    )
+    cells = pd.read_parquet(cells_path)
+    people = cells["population"].fillna(0.0)
+    everyday = [s for s in ("supermarket", "gp", "pharmacy") if f"meets_{s}" in cells]
+    all_three = None
+    if everyday:
+        meets = cells[[f"meets_{s}" for s in everyday]].fillna(False).all(axis=1)
+        all_three = float((people * meets).sum() / people.sum())
+    jobs = weighted_median(cells["jobs45_pt"], people) if "jobs45_pt" in cells else None
+    share = weighted_median(cells["jobshare45_pt"], people) if "jobshare45_pt" in cells else None
     return {
         "slug": meta["naming"]["slug"],
         "place": meta["naming"]["place"],
@@ -52,8 +73,9 @@ def headline(summary: dict) -> dict:
         "agency": meta["naming"].get("agency"),
         "population": meta["totals"]["population"],
         "cells": meta["totals"]["cells"],
-        "everyday_share": round(share, 4) if share is not None else None,
-        "jobs_pt_45": round(jobs[0]["mean_share"], 4) if jobs and jobs[0].get("mean_share") is not None else None,
+        "everyday_all_share": round(all_three, 4) if all_three is not None else None,
+        "jobs_pt_45_typical": round(jobs, -2) if jobs is not None else None,
+        "jobs_pt_45_share": round(share, 4) if share is not None else None,
         "fare_kind": (meta.get("fares") or {}).get("kind"),
         "fare_zones": len((meta.get("fares") or {}).get("zones") or []),
         "routing_date": meta.get("routing_date"),
@@ -82,7 +104,7 @@ def build(out: Path, builds: list[Path]) -> dict:
             log.warning("skipping %s: no summary.json, has it been built?", build_dir)
             continue
         summary = json.loads((source / "summary.json").read_text(encoding="utf-8"))
-        card = headline(summary)
+        card = headline(summary, build_dir / "team_cells.parquet")
         slug = card["slug"]
         target = data / slug
         target.mkdir(parents=True, exist_ok=True)
@@ -133,7 +155,7 @@ def main() -> None:
     parser.add_argument("--city", required=True, nargs="+", type=Path, help="one build directory per city")
     args = parser.parse_args()
     index = build(args.out.expanduser().resolve(), [p.expanduser().resolve() for p in args.city])
-    print(json.dumps([{k: c[k] for k in ("place", "population", "everyday_share", "jobs_pt_45")} for c in index["cities"]], indent=2))
+    print(json.dumps([{k: c[k] for k in ("place", "population", "everyday_all_share", "jobs_pt_45_typical")} for c in index["cities"]], indent=2))
 
 
 if __name__ == "__main__":

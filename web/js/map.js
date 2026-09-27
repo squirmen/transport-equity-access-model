@@ -42,9 +42,9 @@ export const OVERLAYS = {
     ],
   },
   cycling: {
-    label: 'Low-stress bike routes',
+    label: 'Cycleways and shared paths',
     layers: ['ov-cycling'],
-    key: [{ swatch: 'line', colour: '#1d5c3a', label: 'Path, protected lane or quiet street' }],
+    key: [{ swatch: 'line', colour: '#1d5c3a', label: 'Mapped cycleway or shared path' }],
   },
   destinations: {
     label: 'Places you are getting to',

@@ -32,6 +32,9 @@ REASONS = {
     3: ("pt_frequency", "No frequent public transport nearby", "More frequent bus or train service"),
     4: ("pt_trip", "Public transport is slow for this trip", "A more direct route or better connections"),
     5: ("distance", "Nothing within reach", "A service closer to home"),
+    # Assigned only in the browser, when a fare budget keeps someone off
+    # public transport that would otherwise get them there in time.
+    6: ("fare", "The fare is the barrier", "A concession, fare cap or cheaper fare"),
     9: ("no_data", "Could not be routed", ""),
 }
 

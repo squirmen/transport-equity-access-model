@@ -205,10 +205,13 @@ export function pricedLayer(data, service, zones) {
   if (!byService.has(service)) {
     let steps = 0;
     while (layers[`z${steps + 1}`]) steps += 1;
+    // A place whose budget buys the whole network has no fare constraint, so
+    // it reads the unpriced time, which is not cut off at 45 minutes.
+    const full = data.t[service]?.pt;
     const out = new Float32Array(data.n).fill(NaN);
     for (let i = 0; i < data.n; i += 1) {
-      const z = Math.min(zones[i], steps);
-      if (z > 0) out[i] = layers[`z${z}`][i];
+      if (zones[i] >= steps && full) out[i] = full[i];
+      else if (zones[i] > 0) out[i] = layers[`z${Math.min(zones[i], steps)}`][i];
     }
     byService.set(service, out);
   }
@@ -259,7 +262,7 @@ export function bestMode(data, service, i, zones = null) {
   return chosen;
 }
 
-export function cellInputs(data, service, i, best, zones = null) {
+export function cellInputs(data, service, i, best, zones = null, unpriced = NaN) {
   const t = data.t[service] || {};
   const window = data.activeWindow?.[service] || data.meta.services[service]?.window;
   // Under a budget the diagnosis has to see the trip the traveller can
@@ -277,12 +280,18 @@ export function cellInputs(data, service, i, best, zones = null) {
     car: t.car?.[i],
     best,
     freq: data.freq[window]?.[i],
+    unpriced,
   };
 }
 
-export function reasons(data, service, limit, best, zones = null) {
+/** The main reason each place misses the standard. With a fare budget,
+ *  `unpriced` is the best time at any price, so a place the fare keeps off
+ *  public transport is put down to the fare rather than to the network. */
+export function reasons(data, service, limit, best, zones = null, unpriced = null) {
   const out = new Int8Array(data.n);
-  for (let i = 0; i < data.n; i += 1) out[i] = diagnoseCell(cellInputs(data, service, i, best[i], zones), limit);
+  for (let i = 0; i < data.n; i += 1) {
+    out[i] = diagnoseCell(cellInputs(data, service, i, best[i], zones, zones != null && unpriced ? unpriced[i] : NaN), limit);
+  }
   return out;
 }
 
@@ -373,10 +382,20 @@ export function decileBands(values, weights) {
   order.sort((a, b) => values[a] - values[b]);
   const total = order.reduce((sum, i) => sum + weights[i], 0);
   const bands = new Int8Array(values.length).fill(-1);
+  // Equal scores share a band: the band of the middle of their group.
   let running = 0;
-  for (const i of order) {
-    running += weights[i];
-    bands[i] = Math.min(9, Math.floor((running / total) * 10 - 1e-9));
+  let start = 0;
+  while (start < order.length) {
+    let end = start;
+    let group = 0;
+    while (end < order.length && values[order[end]] === values[order[start]]) {
+      group += weights[order[end]];
+      end += 1;
+    }
+    const band = Math.min(9, Math.floor(((running + group / 2) / total) * 10 - 1e-9));
+    for (let k = start; k < end; k += 1) bands[order[k]] = Math.max(0, band);
+    running += group;
+    start = end;
   }
   return bands;
 }

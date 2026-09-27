@@ -162,12 +162,18 @@ export function budgetSentence(meta, state, hour, weekday = true) {
       ? `Free at ${clock}, so the whole network is within reach.`
       : 'Free at the weekend, so the whole network is within reach.';
   }
+  const flat = zoneCap(meta) <= 1;
   if (zones === 0) {
     const cheapest = fare(meta, 1, state.profile, paymentKey(meta, state.payment, hour, weekday)) * (state.returnTrip ? 2 : 1);
-    return `Not enough to board: the cheapest ${trip} trip is ${money(cheapest)}. Walking and cycling only.`;
+    return flat
+      ? `Not enough for the ${money(cheapest)} ${trip} fare. Walking and cycling only.`
+      : `Not enough to board: the cheapest ${trip} trip is ${money(cheapest)}. Walking and cycling only.`;
   }
   const column = paymentKey(meta, state.payment, hour, weekday);
   const paid = fare(meta, zones, state.profile, column) * (state.returnTrip ? 2 : 1);
+  if (paid === 0) return 'Free for this traveller at this time.';
+  // One fare covers any trip, so there are no zones to talk about.
+  if (flat) return `Covers the ${money(paid)} ${trip} fare.`;
   const next = zones < zoneCap(meta) ? fare(meta, zones + 1, state.profile, column) * (state.returnTrip ? 2 : 1) : null;
   const more = next ? ` ${money(next)} would buy ${zones + 1}.` : ' That covers the whole network.';
   return `Buys ${zones} ${zones === 1 ? 'zone' : 'zones'} ${trip}, at ${money(paid)}.${more}`;
@@ -188,49 +194,23 @@ export function travellerSummary(meta, state, when) {
   return `${label} · ${pay} · ${state.returnTrip ? 'return' : 'one way'} · ${clock}`;
 }
 
-/** The cheapest way to reach the nearest one inside the time standard.
- *
- *  Returns a class per cell: 0 when walking or cycling already does it, 1 to 4
+/** The cheapest way to reach the nearest one inside the time standard, as a
+ *  map class: 0 when walking or low-stress cycling already does it, 1 to 4
  *  for the number of zones that must be paid for, 5 when nothing reaches it
  *  inside the standard, and -1 where there is no route at all. A network with
  *  more than four zone steps puts four and over in class 4.
- *
- *  Walking and cycling are free, so they are checked first. Otherwise the
- *  answer is the smallest zone count whose journey is inside the standard,
- *  which is what the priced layers already hold.
  */
 export function cheapestFareClasses(data, service, standard) {
-  const cap = zoneCap(data.meta.fares);
-  const free = data.meta.standard_modes.filter((m) => m !== 'pt');
-  const priced = data.cost[service] || {};
-  const out = new Int8Array(data.n).fill(-1);
-  for (let i = 0; i < data.n; i += 1) {
-    let cls = -1;
-    for (const mode of free) {
-      const t = data.t[service]?.[mode]?.[i];
-      if (Number.isFinite(t)) {
-        cls = t <= standard ? 0 : 5;
-        break;
-      }
-    }
-    if (cls !== 0) {
-      for (let z = 1; z <= cap; z += 1) {
-        const t = priced[`z${z}`]?.[i];
-        if (Number.isFinite(t)) {
-          if (t <= standard) { cls = Math.min(z, 4); break; }
-          cls = 5;
-        }
-      }
-    }
-    out[i] = cls;
-  }
-  return out;
+  const zones = cheapestZones(data, service, standard);
+  return Int8Array.from(zones, (z) => (z === -1 ? -1 : z === -2 ? 5 : Math.min(z, 4)));
 }
 
 /** What each fare class costs this traveller, for the legend. Class 4 is the
- *  cost of four zones, which is the least a class of "four and over" costs. */
+ *  cost of four zones, which is the least a class of "four and over" costs.
+ *  A traveller who rides free at this time pays nothing in every class. */
 export function fareClassCosts(meta, state, hour = state.hour, weekday = true) {
   const trips = state.returnTrip ? 2 : 1;
+  if (freeTravel(meta, state.profile, hour, weekday)) return [0, 0, 0, 0, 0];
   const column = paymentKey(meta, state.payment, hour, weekday);
   return [0, 1, 2, 3, 4].map((z) => (z === 0 ? 0 : fare(meta, z, state.profile, column) * trips));
 }
@@ -272,38 +252,49 @@ export function incomeZones(meta, daily, share, state) {
   return out;
 }
 
-/** The fewest zones that reach the nearest one inside the standard: 0 when
- *  walking or low-stress cycling already does, -2 when nothing does, -1 when
- *  there is no route at all. Unlike cheapestFareClasses, this keeps the true
- *  count on networks with more than four zones.
+// A public transport trip may be a walk the whole way when the walk is short
+// enough, and then nobody pays for it. Routing allows up to 15 minutes of
+// walking, so a trip no faster than walking inside that limit is taken to be
+// a walk.
+const WALK_ONLY_MINUTES = 15.5;
+
+function walkOnly(walk, pt) {
+  return Number.isFinite(walk) && walk <= WALK_ONLY_MINUTES && Number.isFinite(pt) && pt >= walk - 0.5;
+}
+
+/** The fewest zones that reach the nearest one inside the standard: 0 when no
+ *  fare is needed, -2 when the place is routed but nothing gets there in time,
+ *  and -1 when there is no route at all. The true count is kept on networks
+ *  with more than four zones.
  *
- *  With `walkable` false it asks only about the bus: the fewest zones of a
- *  public transport trip that gets there in time, whether or not walking
- *  would do too. That is the fare a bus rider actually pays. */
+ *  By default walking and low-stress cycling count as free, so this is the
+ *  cheapest way to get there. With `walkable` false it asks about public
+ *  transport alone: the fewest zones of a trip that boards something and gets
+ *  there in time, whether or not the traveller could walk instead. A "public
+ *  transport" trip that is really a walk needs no fare, and is 0. */
 export function cheapestZones(data, service, standard, { walkable = true } = {}) {
   const cap = zoneCap(data.meta.fares);
+  const times = data.t[service] || {};
   const free = walkable ? data.meta.standard_modes.filter((m) => m !== 'pt') : [];
+  const every = Object.values(times);
   const priced = data.cost[service] || {};
   const out = new Int8Array(data.n).fill(-1);
   for (let i = 0; i < data.n; i += 1) {
-    let found = -1;
-    for (const mode of free) {
-      const t = data.t[service]?.[mode]?.[i];
-      if (Number.isFinite(t)) {
-        found = t <= standard ? 0 : -2;
-        break;
-      }
+    if (free.some((m) => times[m]?.[i] <= standard)) {
+      out[i] = 0;
+      continue;
     }
-    if (found !== 0) {
-      for (let z = 1; z <= cap; z += 1) {
-        const t = priced[`z${z}`]?.[i];
-        if (Number.isFinite(t)) {
-          if (t <= standard) { found = z; break; }
-          found = -2;
-        }
-      }
-      // Routed, but no bus gets there in time.
-      if (!walkable && found === -1 && data.t[service]?.walk && Number.isFinite(data.t[service].walk[i])) found = -2;
+    let found = -1;
+    for (let z = 1; z <= cap; z += 1) {
+      const t = priced[`z${z}`]?.[i];
+      if (!(t <= standard)) continue;
+      found = walkOnly(times.walk?.[i], t) ? 0 : z;
+      break;
+    }
+    if (found === -1) {
+      const routed = every.some((layer) => Number.isFinite(layer?.[i]))
+        || Object.values(priced).some((layer) => Number.isFinite(layer?.[i]));
+      found = routed ? -2 : -1;
     }
     out[i] = found;
   }

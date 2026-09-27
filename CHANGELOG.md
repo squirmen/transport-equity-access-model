@@ -4,6 +4,27 @@
 
 Latest changes:
 
+- An independent audit found real errors, now fixed. What it costs ignored
+  low-stress cycling, so it overstated who could not reach a service at any
+  price (229,000 against the right 167,000 for Auckland GPs). The fare burden
+  charged a fare for "public transport" trips that were walks the whole way.
+  The concentration index ordered tied NZDep deciles by map position. Places
+  with no route could count as meeting a 60-minute standard. The city list
+  used different statistics from the city pages. Job competition gave a few
+  people ratios in the hundreds. All opportunities was half schools.
+- What would help names the fare as a reason when a budget is what keeps
+  someone off public transport.
+- The panel leads with the answer: settings fold into one line saying what is
+  set, and the Access score moves below.
+- Who misses out has a table by suburb, and by local board in Auckland, for
+  whatever is on screen, sortable and downloadable as CSV.
+- Job access leads with a count of jobs, which compares across cities.
+- A note says how a time or budget compares with the usual case, including
+  when it changes nothing.
+- Keyboard focus stays on a choice after the panel redraws, the panel no
+  longer reads itself aloud on every change, and chip groups are labelled.
+- Use my location on the city list.
+
 - Time of day. Public transport is timed at the weekday peak, weekday off-peak
   and on a Saturday, and a When control switches every public transport figure
   between them: times, fares, job access and scores. School trips stay on the

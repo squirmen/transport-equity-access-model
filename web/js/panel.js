@@ -85,7 +85,21 @@ const REASON_SENTENCE = {
   1: 'a confident rider could get there in time on busy roads, but not on low-stress routes',
   2: 'public transport is too slow, usually because services are infrequent or indirect',
   3: 'the nearest one is too far away',
+  4: 'public transport would get them there in time, but not on this budget',
 };
+
+/** One chip button. `data-value` lets the app put keyboard focus back on the
+ *  same choice after the panel is redrawn. */
+function chip(value, text, current, onPick, title) {
+  const button = el('button', 'chip', text);
+  button.type = 'button';
+  button.setAttribute('role', 'radio');
+  button.setAttribute('aria-checked', String(value === current));
+  button.dataset.value = String(value);
+  if (title) button.title = title;
+  button.addEventListener('click', () => onPick(value));
+  return button;
+}
 
 function radios(label, options, current, onPick, { compact = false } = {}) {
   const field = el('div', 'field');
@@ -95,14 +109,8 @@ function radios(label, options, current, onPick, { compact = false } = {}) {
   const group = el('div', `chips${compact ? ' chips-compact' : ''}`);
   group.setAttribute('role', 'radiogroup');
   group.setAttribute('aria-labelledby', id);
-  for (const [value, text] of options) {
-    const button = el('button', 'chip', text);
-    button.type = 'button';
-    button.setAttribute('role', 'radio');
-    button.setAttribute('aria-checked', String(value === current));
-    button.addEventListener('click', () => onPick(value));
-    group.append(button);
-  }
+  group.dataset.group = id;
+  for (const [value, text] of options) group.append(chip(value, text, current, onPick));
   field.append(title, group);
   return field;
 }
@@ -165,17 +173,12 @@ export function groupOf(service) {
   return found ? found.key : (groupsPresent()[0] || { key: 'everyday' }).key;
 }
 
-function chipRow(options, current, onPick, extraClass = '') {
+function chipRow(options, current, onPick, extraClass = '', label = '') {
   const row = el('div', `chips${extraClass}`);
   row.setAttribute('role', 'radiogroup');
-  for (const [value, text] of options) {
-    const button = el('button', 'chip', text);
-    button.type = 'button';
-    button.setAttribute('role', 'radio');
-    button.setAttribute('aria-checked', String(value === current));
-    button.addEventListener('click', () => onPick(value));
-    row.append(button);
-  }
+  if (label) row.setAttribute('aria-label', label);
+  row.dataset.group = label || extraClass;
+  for (const [value, text] of options) row.append(chip(value, text, current, onPick));
   return row;
 }
 
@@ -188,16 +191,8 @@ export function renderWhenPicker(root, options, current, set) {
 
 /** A row of chips in an existing radio group: [value, text, title] each. */
 export function renderChips(root, options, current, onPick) {
-  const buttons = options.map(([value, text, title]) => {
-    const button = el('button', 'chip', text);
-    button.type = 'button';
-    button.setAttribute('role', 'radio');
-    button.setAttribute('aria-checked', String(value === current));
-    if (title) button.title = title;
-    button.addEventListener('click', () => onPick(value));
-    return button;
-  });
-  root.replaceChildren(...buttons);
+  root.dataset.group = root.id;
+  root.replaceChildren(...options.map(([value, text, title]) => chip(value, text, current, onPick, title)));
 }
 
 export function renderServicePicker(root, current, set) {
@@ -208,11 +203,11 @@ export function renderServicePicker(root, current, set) {
     chipRow(groups.map((g) => [g.key, g.label]), active, (key) => {
       const group = groups.find((g) => g.key === key);
       if (group && !group.members.includes(current)) set({ service: group.members[0] });
-    }),
+    }, '', 'Kind'),
   ];
   // One destination in a kind needs no second row to choose from.
   if (inGroup.length > 1) {
-    rows.push(chipRow(inGroup.map((id) => [id, SERVICE_SHORT[id]]), current, (id) => set({ service: id }), ' chips-sub'));
+    rows.push(chipRow(inGroup.map((id) => [id, SERVICE_SHORT[id]]), current, (id) => set({ service: id }), ' chips-sub', 'Destination'));
   }
   root.replaceChildren(...rows);
 }
@@ -258,11 +253,11 @@ function modePicker(current, set, standardModes) {
   const compare = Object.keys(MODES).filter((m) => !counts.includes(m));
   const field = el('div', 'field');
   const title = el('span', 'field-label', 'Travel by');
-  field.append(title, chipRow(counts.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact'));
+  field.append(title, chipRow(counts.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact', 'Travel by'));
   if (compare.length) {
     const row = el('div', 'compare-row');
     row.append(el('span', 'compare-label', 'Compare with'));
-    row.append(chipRow(compare.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact chips-quiet'));
+    row.append(chipRow(compare.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact chips-quiet', 'Compare with'));
     field.append(row);
   }
   return field;
@@ -271,7 +266,7 @@ function modePicker(current, set, standardModes) {
 function showSwitch(current, set, available, burden = false) {
   if (!available) return null;
   const options = [['minutes', 'Minutes'], ['fare', 'What it costs']];
-  if (burden) options.push(['burden', 'Share of income']);
+  if (burden) options.push(['burden', 'Fare burden']);
   return radios('Show', options, current, (show) => set({ show }), { compact: true });
 }
 
@@ -279,6 +274,7 @@ export function renderAccess(root, model, set) {
   root.replaceChildren(
     ...[
       hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
+      model.compare ? el('p', 'note is-fare', model.compare) : null,
       fareLine(model),
       showSwitch('minutes', set, model.canShowFare, model.canShowBurden),
       modePicker(model.mode, set, model.standardModes),
@@ -306,6 +302,47 @@ export function renderFareSurface(root, model, set) {
   );
 }
 
+/** Who misses out, area by area, sortable, and downloadable as a table. */
+function areaSection(model, set) {
+  const a = model.areas;
+  const box = el('div', 'field areas');
+  if (!a || !a.total) return box;
+  box.append(el('span', 'field-label', 'By area'));
+  if (a.levels.length > 1) {
+    box.append(chipRow(a.levels, a.level, (areaLevel) => set({ areaLevel, areaAll: false }), ' chips-compact', 'Areas'));
+  }
+  box.append(chipRow([['missing', 'Most people'], ['share', 'Highest share']], a.sort, (areaSort) => set({ areaSort }), ' chips-compact chips-quiet', 'Sort by'));
+  const list = el('ol', 'rank-list');
+  for (const row of a.rows) {
+    const item = el('li');
+    const button = el('button', 'rank-row');
+    button.type = 'button';
+    const short = Number.isFinite(row.minutesShort) ? ` · ${Math.round(row.minutesShort)} min short` : '';
+    button.append(
+      el('span', 'rank-name', row.name),
+      el('span', 'rank-meta', `${count(row.missing)} · ${percent(row.share)}`),
+      el('span', 'rank-reason', `of ${count(row.people)} ${phrase(model.group)}${short}`),
+    );
+    button.addEventListener('click', () => set(a.level === 'board' ? { zoomBoard: row.area } : { zoomTo: row.area }));
+    item.append(button);
+    list.append(item);
+  }
+  box.append(list);
+  const actions = el('div', 'area-actions');
+  if (a.total > 10) {
+    const more = el('button', 'text-button', a.showAll ? 'Show fewer' : `Show all ${a.total}`);
+    more.type = 'button';
+    more.addEventListener('click', () => set({ areaAll: !a.showAll }));
+    actions.append(more);
+  }
+  const csv = el('button', 'text-button', 'Download as CSV');
+  csv.type = 'button';
+  csv.addEventListener('click', () => set({ download: true }));
+  actions.append(csv);
+  box.append(actions);
+  return box;
+}
+
 /** The measures behind the tab, as numbers, for anyone who wants to cite them. */
 function figures(model) {
   const bits = [];
@@ -328,20 +365,23 @@ export function renderBurden(root, model, set) {
   const share = (v) => (Number.isFinite(v) ? `${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%` : '–');
   const ratio = model.least > 0 ? model.most / model.least : NaN;
   let figure = '–';
-  let text = `No bus reaches ${model.noun} within ${model.standard} minutes here.`;
+  let text = `Nobody here needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
     text = ratio >= 1.05
-      ? `as much of a day's income goes on the bus fare to ${model.noun} in the most deprived areas as in the least deprived.`
+      ? `as much of a day's income goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
       : ratio <= 0.95
-        ? `the share of a day's income the bus fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
-        : `The bus fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
+        ? `the share of a day's income the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
+        : `The fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
   } else if (model.paying > 0) {
-    figure = share(model.most || model.least);
-    text = `of a day's income goes on a ${model.trip} bus fare to ${model.noun}.`;
+    // A city with no areas in one end of the deprivation scale has no ratio.
+    figure = share(model.overall);
+    text = `of a day's income goes on a ${model.trip} fare to ${model.noun}, on average.`;
   }
-  const sub = Number.isFinite(ratio)
-    ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least, for the ${count(model.paying)} people with a bus there within ${model.standard} minutes.`
+  const sub = model.paying > 0
+    ? (Number.isFinite(ratio)
+      ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least. `
+      : '') + `Counted for the ${count(model.paying)} people who would ride public transport there within ${model.standard} minutes.`
     : null;
   const chartQ = el('div', 'chart');
   bars(chartQ, model.byQuintile, {
@@ -354,22 +394,24 @@ export function renderBurden(root, model, set) {
   bars(chartG, [...model.byGroup].sort((a, b) => (b.value || 0) - (a.value || 0)), {
     format: share,
     max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
-    caption: 'By group',
+    caption: 'By group, at their own concession where one applies',
     label: 'Fare burden by group',
   });
   const meta = model.meta || {};
   root.replaceChildren(
     hero(figure, text, sub),
     showSwitch('burden', set, true, true),
-    legend(`Bus fare to ${model.noun}, within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
+    legend(`Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
     el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of a day's income on the ${model.trip} fare.`),
     chartQ,
     chartG,
     method(
       'How this is worked out',
-      "Burden is the fare for the cheapest bus trip that reaches the nearest one inside the standard, divided by a "
-        + "day's income where the traveller lives. It is counted whether or not the traveller could walk instead. The "
-        + 'fare follows the traveller, payment and time chosen above.',
+      "Burden is the fare for the cheapest public transport trip that reaches the nearest one inside the standard, "
+        + "divided by a day's income where the traveller lives. It counts whether or not the traveller could walk "
+        + 'instead, but a trip short enough to be a walk the whole way needs no fare and is left out. The fare follows '
+        + 'the traveller, payment and time chosen above; children and people 65 and over are priced at their own '
+        + 'concession where the network has one.',
       "Income is the 2023 Census median household income of the area, divided by the square root of its average "
         + 'household size so a large household on the same income counts as less well off, and raised by '
         + `${((meta.uplift || 1) - 1) * 100 > 0 ? (((meta.uplift || 1) - 1) * 100).toFixed(1) : '0'}% for wage growth since `
@@ -395,13 +437,13 @@ export function renderPeople(root, model, set) {
   });
   bars(chartQ, model.byQuintile, {
     format: (v) => percent(v),
-    caption: 'Share meeting the standard, by neighbourhood deprivation',
-    label: 'Share meeting the standard by NZDep',
+    caption: `Share missing the standard, by neighbourhood deprivation${model.group !== 'everyone' ? `, ${phrase(model.group)}` : ''}`,
+    label: 'Share missing the standard by NZDep',
   });
 
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
   const depth = Number.isFinite(model.minutesShort)
-    ? `On average they are ${Math.round(model.minutesShort)} minutes short of it.`
+    ? `Those who miss out are ${Math.round(model.minutesShort)} minutes over it, on average.`
     : null;
 
   const parts = [
@@ -411,6 +453,8 @@ export function renderPeople(root, model, set) {
       depth,
     ),
   ];
+
+  if (model.modeNote) parts.push(el('p', 'note', model.modeNote));
 
   // The split no other tool can make: near enough, but priced out of it.
   if (model.split && (model.split.priced > 0 || model.split.distance > 0)) {
@@ -431,10 +475,11 @@ export function renderPeople(root, model, set) {
   }
 
   parts.push(
-    radios('Count', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
-    legend('Where the shortfall piles up: how many people, and how far short', model.legend),
+    radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
+    legend('People missing out × minutes short, per hexagon', model.legend),
     chartG,
     chartQ,
+    areaSection(model, set),
     method(
       'How this is worked out',
       'A headcount cannot tell a place three minutes over the standard from one forty minutes over, so the '
@@ -458,20 +503,20 @@ export function renderFixes(root, model, set) {
   const sub = top && top.people > 0 && model.below > 0
     ? `For ${count(top.people)} of them (${percent(top.people / model.below)}), ${REASON_SENTENCE[top.cls]}.`
     : null;
-  const list = el('div', 'reason-list');
-  list.setAttribute('role', 'list');
+  const list = el('ul', 'reason-list');
   for (const reason of model.reasons) {
+    const item = el('li');
     const row = el('button', `reason-row${model.focus === reason.cls ? ' is-focus' : ''}`);
     row.type = 'button';
-    row.setAttribute('role', 'listitem');
     row.setAttribute('aria-pressed', String(model.focus === reason.cls));
+    item.append(row);
     const swatch = el('span', 'reason-swatch');
     swatch.style.background = reason.colour;
     const text = el('span', 'reason-text');
     text.append(el('strong', null, reason.label), el('span', 'reason-fix', reason.fix));
     row.append(swatch, text, el('span', 'reason-count', count(reason.people)));
     row.addEventListener('click', () => set({ reason: model.focus === reason.cls ? null : reason.cls }));
-    list.append(row);
+    list.append(item);
   }
   const ranked = el('ol', 'rank-list');
   for (const place of model.ranked) {
@@ -491,7 +536,7 @@ export function renderFixes(root, model, set) {
   }
   root.replaceChildren(
     hero(count(model.below), `${phrase(model.group)} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
-    radios('Count', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
+    radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     el('span', 'field-label', 'Main reason, and what would help'),
     list,
     el('p', 'note', 'Screening rules, not a verdict: they show which kind of fix to look at first. Pick a reason to show only those places.'),
@@ -503,12 +548,15 @@ export function renderFixes(root, model, set) {
 export function renderJobsAccess(root, model, set) {
   const modeOptions = [['pt', 'Public transport'], ['bike_low_stress', 'Low-stress cycling'], ['bike', 'Any bike route'], ['walk', 'Walking'], ['car', 'Car']]
     .filter(([m]) => model.modes.includes(m));
-  const figure = model.fair ? `${model.median.toFixed(2)}×` : percent(model.median / 100, model.median < 10 ? 1 : 0);
-  const text = model.priced
-    ? `of ${place.possessive} jobs are within ${model.limit} minutes by public transport for a typical resident${model.fare}.`
-    : model.fair
-      ? `the regional average: job access for a typical resident by ${MODES[model.mode].short}, within ${model.limit} minutes, allowing for other workers who can reach the same jobs.`
-      : `of ${place.possessive} jobs are within ${model.limit} minutes by ${MODES[model.mode].short}${model.when || ''} for a typical resident.`;
+  // Jobs lead with a count, which compares across cities; the share of the
+  // city's own jobs follows.
+  const jobsCount = Number.isFinite(model.median) && model.total ? Math.round((model.median / 100) * model.total) : NaN;
+  const shareText = percent(model.median / 100, model.median < 10 ? 1 : 0);
+  const byMode = model.priced ? 'public transport' : MODES[model.mode].short;
+  const figure = model.fair ? `${model.median.toFixed(2)}×` : Number.isFinite(jobsCount) ? count(jobsCount) : shareText;
+  const text = model.fair
+    ? `the average: job access for a typical resident by ${byMode} within ${model.limit} minutes${model.when || ''}, allowing for everyone else who could reach the same jobs.`
+    : `jobs within ${model.limit} minutes by ${byMode}${model.priced ? model.fare : model.when || ''}, for a typical resident. That is ${shareText} of ${place.possessive} jobs.`;
   const toggle = el('label', 'check');
   const box = document.createElement('input');
   box.type = 'checkbox';
@@ -520,18 +568,18 @@ export function renderJobsAccess(root, model, set) {
     ...[
       hero(figure, text),
       model.priced
-        ? el('p', 'note is-fare', model.fareNote ? `Counted over ${model.limit} minutes. ${model.fareNote}` : model.zones === 0
+        ? el('p', 'note is-fare', model.fareNote ? `With a fare budget, jobs are counted within ${model.limit} minutes. ${model.fareNote}` : model.zones === 0
           ? 'On this budget no fare is affordable, so no job is reachable by public transport.'
-          : `Counted over ${model.limit} minutes, the cap the priced layer is built at, and only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`)
+          : `With a fare budget, jobs are counted within ${model.limit} minutes, on trips inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`)
         : null,
       radios('Travel by', modeOptions, model.mode, (jobsMode) => set({ jobsMode }), { compact: true }),
     ].filter(Boolean),
     ...(model.priced ? [] : [radios('Within', model.limits.map((l) => [String(l), `${l} min`]), String(model.limit), (jobsLimit) => set({ jobsLimit }), { compact: true })]),
     ...(model.priced ? [] : [toggle]),
-    legend(model.fair ? 'Job access against the regional average' : `Share of ${place.possessive} jobs within reach`, model.legend, {
+    legend(model.fair ? `Job access against the ${place.name} average by ${MODES[model.mode].short}` : `Share of ${place.possessive} jobs within reach`, model.legend, {
       note: model.fair
-        ? 'Divides the jobs at each place by the working-age people who can reach them, then adds up what each home can reach. '
-          + `1.0 is the ${place.name} average.`
+        ? 'Divides the jobs at each place by the working-age people who could get there in time by car or by this mode, '
+          + `then adds up what each home can reach. 1.0 is the ${place.name} average by this mode.`
         : 'Jobs counted from Stats NZ business demography (2024), by where people work.',
     }),
   );
@@ -543,17 +591,24 @@ export function renderJobsPeople(root, model) {
   const format = (v) => (Number.isFinite(v) ? `${v.toFixed(v < 10 ? 1 : 0)}%` : '–');
   bars(chartQ, model.byQuintile, { format, max: model.max, caption: `Typical share of jobs within ${model.limit} min by ${MODES[model.mode].short}, by deprivation` });
   bars(chartG, model.byGroup, { format, max: model.max, caption: 'By group' });
-  root.replaceChildren(
-    hero(`${model.palma.toFixed(1)}×`, `The best-served tenth of residents can reach ${model.palma.toFixed(1)} times as many jobs as the least-served 40%.`, `By ${MODES[model.mode].short}, within ${model.limit} minutes.`),
-    chartQ,
-    chartG,
-  );
+  const how = `By ${MODES[model.mode].short}, within ${model.limit} minutes${model.fare || model.when || ''}.`;
+  // The least-served 40% can reach nothing at all on a tight budget, and then
+  // there is no ratio to give.
+  const heroBox = Number.isFinite(model.palma)
+    ? hero(`${model.palma.toFixed(1)}×`, `as many jobs for the best-served tenth of residents as for the least-served 40%.`, how)
+    : hero('0', `jobs within reach for the least-served 40% of residents.`, how);
+  let lean = null;
+  if (model.leanText) {
+    lean = el('p', 'lean');
+    lean.append(el('span', `lean-dot ${model.lean < -0.02 ? 'is-toward' : model.lean > 0.02 ? 'is-away' : 'is-even'}`), el('span', null, model.leanText));
+  }
+  root.replaceChildren(...[heroBox, lean, chartQ, chartG].filter(Boolean));
 }
 
 export function renderJobsFixes(root) {
   root.replaceChildren(
     el('p', 'hero-text', 'Jobs have no single standard, so there is no reason map for them.'),
-    el('p', 'note', 'Use Access to see where job access is lowest, and Who misses out to see how it differs by deprivation and group. The reason maps cover the six everyday services.'),
+    el('p', 'note', 'Use Access to see where job access is lowest, and Who misses out to see how it differs by deprivation and group. Reasons are mapped for every destination with a time standard.'),
   );
 }
 
@@ -571,8 +626,8 @@ export function renderScore(root, model, set) {
   const modeLabel = MODES[mode] ? MODES[mode].short : mode;
   const figure = Number.isFinite(median) ? String(Math.round(median)) : '–';
   const text = model.when
-    ? `is the typical ${place.name} score for ${noun} by ${modeLabel}${model.when}, where 100 is the regional average at the usual time.`
-    : `is the typical ${place.name} score for ${noun} by ${modeLabel}, where 100 is the regional average.`;
+    ? `is the typical score for ${noun} by ${modeLabel}${model.when}, where 100 is the ${place.name} average at the usual time.`
+    : `is the typical score for ${noun} by ${modeLabel}, where 100 is the ${place.name} average.`;
   const sub = Number.isFinite(palma)
     ? `The best-served tenth of residents score ${palma.toFixed(1)} times the least-served 40%.`
     : null;
@@ -594,7 +649,7 @@ export function renderScore(root, model, set) {
     radios('Show', [['index', 'Score'], ['decile', 'Decile']], display, (value) => set({ scoreDisplay: value }), { compact: true }),
     legend(display === 'decile' ? 'Decile: 1 is the tenth of residents with the least access' : `Score, where 100 is the ${place.name} average`, model.legend),
     chart,
-    el('p', 'note', note),
+    method('How this is worked out', note),
   );
 }
 
@@ -613,8 +668,8 @@ export function renderTraveller(root, model, set) {
       (value) => set({ returnTrip: value === 'return' }), { compact: true }),
   ];
   const ages = (model.profiles || []).find((p) => p.key === model.profile);
-  if (ages && ages.ages && ages.ages !== 'any') {
-    fields.push(el('p', 'note', `Fares for ${ages.label.toLowerCase()} apply to ages ${ages.ages}.`));
+  if (ages && ages.ages && !String(ages.ages).startsWith('any')) {
+    fields.push(el('p', 'note', `${ages.label} fares: ages ${ages.ages}.`));
   }
   fields.push(el('p', 'note', model.timeNote));
   root.replaceChildren(...fields);

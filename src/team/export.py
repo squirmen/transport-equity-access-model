@@ -367,7 +367,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         },
         "groups": {k: GROUPS[k][0] for k in equity.available_groups(table)},
         "group_note": "Shares describe the census block around a cell. Ethnicity is a multiple "
-                      "response, so those groups overlap and do not add to the population.",
+                      "response, so those groups overlap and do not add to the population. No car and lower "
+                      "income are shares of households applied to residents; households without a car are "
+                      "smaller than average, so those two overstate the number of people somewhat.",
         "access": {
             "modes": list(settings.gravity.get("modes", [])),
             "beta_modes": list(settings.gravity.get("beta_modes", [])),

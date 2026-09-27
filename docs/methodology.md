@@ -1,6 +1,7 @@
 # TEAM method
 
-TEAM answers three questions for every populated part of Auckland:
+TEAM answers three questions for every populated part of fourteen New Zealand
+urban areas:
 
 1. How long does it take to reach everyday services and jobs without a car?
 2. Who lives where that takes too long?
@@ -11,9 +12,11 @@ jobs within a set time, and the number of people on either side of a stated
 standard. There is no composite index. Each figure can be traced back to a
 travel time, a destination list and a census count.
 
-This document describes version 0.1 for Auckland. Parameter values are in
-[`configs/auckland.yml`](../configs/auckland.yml); definitions of every output
-field are in [`indicators.md`](indicators.md).
+Each urban area has its own configuration in [`configs/`](../configs/), with the
+same method and parameters; they differ only in their inputs and fares.
+Auckland, Wellington and Christchurch cover their council areas; the other
+eleven cover the Stats NZ 2023 urban areas their buses serve. Definitions of
+every output field are in [`indicators.md`](indicators.md).
 
 ## 1. Places and people
 
@@ -57,8 +60,9 @@ same rule.
 A service mapped twice in OpenStreetMap, once as a point and once as a
 building, is kept once when the two lie within 40 m. OpenStreetMap services are
 taken from the whole extract, which reaches beyond the council boundary, so
-people near the edge are not cut off from services across it. Schools and jobs
-cover the Auckland region only.
+people near the edge are not cut off from services across it. Schools, early
+childhood services and GPs come from national or regional lists and are kept
+within about 8 km of the area; jobs cover the area's own statistical areas.
 
 Jobs are summed to H3 resolution 8 (about 0.74 km²) before routing. This keeps
 public transport routing to a manageable size; the jobs data is published by
@@ -158,13 +162,20 @@ people can reach the same jobs. TEAM also reports a two-step floating catchment
 measure (Shen, 1998; Luo & Wang, 2003):
 
 1. For each job location *j*, divide its jobs *S_j* by the working-age
-   residents who can reach it within *T* minutes:
-   *R_j = S_j / Σ_k P_k*, over origins *k* with *t_kj ≤ T*.
+   residents who could get there within *T* minutes by car or by the mode being
+   measured: *R_j = S_j / Σ_k P_k*, over origins *k* that can reach *j* in time.
 2. For each home location *k*, add up *R_j* over the job locations it can reach
-   within *T*: *A_k = Σ_j R_j*.
+   within *T* by the mode being measured: *A_k = Σ_j R_j*.
 
-*A_k* is divided by the regional ratio of jobs to working-age residents, so 1.0
-is the Auckland average. Working-age residents are those aged 15 to 64.
+Competition counts everyone who could reach a job, however they travel.
+Counting only people who can reach it by the same mode leaves jobs that public
+transport barely serves with a handful of competitors, and gives the few
+residents who can reach them ratios in the hundreds. *A_k* is divided by its
+average over working-age residents, so 1.0 is the area's average for that mode.
+Working-age residents are those aged 15 to 64.
+
+Job access is shown as a count first, because a share of each area's own jobs
+makes a small city look well served just for having few jobs to divide by.
 
 **Inequality.** For each mode and time, TEAM reports the Palma ratio of job
 access: the average of the best-served 10% of residents over the average of
@@ -237,29 +248,28 @@ get cycled, not about what a nearby destination is worth, so the curve is held
 flat below its peak: everything inside the easiest riding distance counts in
 full, and beyond it the weight falls as the PCT says cycling does. The
 gradient terms are evaluated at the PCT's reference gradient, so the curve is
-flat-terrain; Auckland's hills are in the routed times, not in the decay. The
-same curve is used for every purpose, which a local survey would improve on.
+flat-terrain. The routed times are flat-terrain too, because no elevation
+model is loaded, so hills are in neither. The same curve is used for every purpose, which a local survey would improve on.
 The cycling score is labelled beta in the interface for these reasons.
 
-Those parameters describe Sydney travel, not Auckland travel. They are a
-starting point, chosen so the two measures can be compared directly, and they
-are settings in `configs/auckland.yml` rather than constants in the code. The
-log-logistic median is not transferable at all, so it is the median routed
-journey for that purpose and mode in this run. A New Zealand travel survey
-would be the better source, and replacing these functions is a configuration
-change, not a code change.
+The parameters are settings in each city's configuration rather than constants
+in the code, so a local calibration is a configuration change. Report 512
+fitted them to Main Urban Areas, so they fit the smaller towns, such as
+Queenstown, less well.
 
 **Reporting.** Each score is published three ways: the raw score, an index
-where the population-weighted regional mean is 100, and a population-weighted
+where the population-weighted mean of the area is 100, and a population-weighted
 decile from 1 to 10. The deciles put a tenth of residents in each band, so a
-decile names people rather than a tenth of the map. Group and overall figures
-average the indices of their members, because the raw scores count different
-things and cannot be added together.
+decile names people rather than a tenth of the map. Group figures average the
+indices of their members, because the raw scores count different things and
+cannot be added together. All opportunities is the mean of the three groups
+(jobs, everyday services and education), so each counts a third.
 
 **What a decile cannot say.** A decile is a ranking within one region at one
 time. It cannot say whether access anywhere is adequate, it does not move when
 access improves everywhere at once, and it cannot be compared between regions
-or between runs. The score and the index can do all three. TEAM publishes
+or between runs. The raw score can, because it counts opportunities; the index
+cannot, because each area's is scaled to its own mean. TEAM publishes
 deciles because they are the unit TAI-PT uses and the comparison is useful, not
 because a ranking answers the question.
 
@@ -360,7 +370,7 @@ price.
 Results are also broken down by NZDep quintile (deciles 1–2 through 9–10),
 giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
-Figures are summarised for each SA2 and each of Auckland's 21 local boards.
+Figures are summarised for each SA2 and, in Auckland, each of the 21 local boards.
 
 ## 9. Why a place misses a standard
 

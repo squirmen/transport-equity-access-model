@@ -109,20 +109,39 @@ def add_straight_distances(table: pd.DataFrame, origin_xy: np.ndarray, destinati
 
 
 def competition_adjusted(
-    pairs: pd.DataFrame, jobs: pd.Series, demand: pd.Series, limit: int
+    pairs: pd.DataFrame, jobs: pd.Series, demand: pd.Series, limit: int, catchment: pd.DataFrame | None = None
 ) -> pd.Series:
     """Two-step floating catchment: jobs per competing resident within `limit` minutes.
 
     Step one divides the jobs at each destination by the working-age residents
-    who can reach it. Step two sums those ratios over the destinations each
-    origin can reach. The result is scaled so 1 is the regional average.
+    who could reach it in time. Step two sums those ratios over the
+    destinations each origin can reach by the mode being measured. The result
+    is scaled so 1 is the average working-age resident's figure for this mode.
+
+    Competition is counted over `catchment` when given: everyone who could get
+    there in time by car or by this mode. Counting only people who can reach a
+    job by the same mode leaves jobs that public transport barely serves with
+    a handful of competitors, and gives the few who can reach them ratios in
+    the hundreds. Anyone who can get to a job competes for it, however they
+    travel (Shen, 1998).
     """
     within = pairs[pairs["minutes"] <= limit]
-    competing = within["origin"].map(demand).fillna(0.0).groupby(within["destination"]).sum()
+    pool = within if catchment is None else catchment[catchment["minutes"] <= limit]
+    competing = pool["origin"].map(demand).fillna(0.0).groupby(pool["destination"]).sum()
     per_resident = (jobs.reindex(competing.index) / competing.replace(0.0, np.nan)).fillna(0.0)
     access = within["destination"].map(per_resident).fillna(0.0).groupby(within["origin"]).sum()
-    regional = jobs.sum() / demand.sum() if demand.sum() > 0 else np.nan
-    return access / regional
+    weights = demand.reindex(access.index).fillna(0.0)
+    # Averaged over everyone, including those who reach no jobs this way.
+    average = float((access * weights).sum() / demand.sum()) if demand.sum() > 0 else np.nan
+    return access / average if average and average > 0 else access * np.nan
+
+
+def _catchment(pairs: pd.DataFrame, car: pd.DataFrame | None) -> pd.DataFrame:
+    """Every origin-destination pair reachable by this mode or by car, at the faster time."""
+    if car is None:
+        return pairs
+    both = pd.concat([pairs[["origin", "destination", "minutes"]], car[["origin", "destination", "minutes"]]], ignore_index=True)
+    return both.groupby(["origin", "destination"], as_index=False)["minutes"].min()
 
 
 def load_pairs(settings: Settings, tag: str) -> pd.DataFrame | None:
@@ -139,6 +158,7 @@ def job_table(settings: Settings, origins: pd.Index, demand: pd.Series) -> pd.Da
     columns: dict[str, pd.Series] = {}
     thresholds = [int(t) for t in settings.jobs["thresholds"]]
     windows = job_windows(settings)
+    car_pairs = None
     for mode_id in settings.jobs["modes"]:
         transit = settings.modes[mode_id]["kind"] == "transit"
         for window in windows if transit else [None]:
@@ -155,7 +175,10 @@ def job_table(settings: Settings, origins: pd.Index, demand: pd.Series) -> pd.Da
             if mode_id in ("pt", "bike_low_stress"):
                 pairs = load_pairs(settings, tag)
                 if pairs is not None:
+                    if car_pairs is None and "car" in settings.modes:
+                        car_pairs = load_pairs(settings, run_tag("jobs", "car", None, False))
+                    pool = _catchment(pairs, car_pairs)
                     for limit in thresholds:
-                        fair = competition_adjusted(pairs, jobs, demand, limit)
+                        fair = competition_adjusted(pairs, jobs, demand, limit, pool)
                         columns[f"jobsfair{limit}_{key}"] = fair.reindex(origins).fillna(0.0).astype("float32")
     return pd.DataFrame(columns, index=origins)

@@ -77,6 +77,11 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
       car: data.t[service].car?.[i],
       best,
       freq: data.freq[data.activeWindow?.[service] || data.meta.services[service].window]?.[i],
+      // With a budget, the best time at any price, so a fare barrier is named.
+      unpriced: zones != null ? Math.min(...data.meta.standard_modes.map((m) => {
+        const t = timeFor(data, service, m, i, null);
+        return Number.isFinite(t) ? t : Infinity;
+      })) : NaN,
     },
     standard,
   );
@@ -143,7 +148,7 @@ export function renderPlace(root, data, i, state) {
   const jobs = [];
   const windows = data.meta.windows || {};
   const jobsWindow = data.activeWindow?.jobs;
-  const jobsWhen = jobsWindow && jobsWindow !== data.meta.jobs.window ? `, ${(windows[jobsWindow]?.label || jobsWindow).toLowerCase()}` : '';
+  const jobsWhen = jobsWindow && jobsWindow !== data.meta.jobs.window ? `, ${windows[jobsWindow]?.label || jobsWindow}` : '';
   const jobsLayer = zones != null && zones > 0 ? costLayer(data, 'jobs', zones) : null;
   for (const [mode, label] of [['pt', 'Public transport'], ['bike_low_stress', 'Low-stress cycling'], ['walk', 'Walking']]) {
     const priced = mode === 'pt' && zones != null;
@@ -155,16 +160,16 @@ export function renderPlace(root, data, i, state) {
     }
   }
   const fair = data.fair.pt?.['45']?.[i];
-  if (Number.isFinite(fair)) jobs.push(row('Allowing for competition', `${fair.toFixed(2)}× the ${placeNames.name} average`));
+  if (Number.isFinite(fair)) jobs.push(row('Allowing for competition', `${fair.toFixed(2)}× the ${placeNames.name} average by public transport`));
 
+  // One row for the busiest nearby stop in every window, rather than one each.
+  const timed = Object.keys(data.freq).filter((w) => windows[w]);
   const around = [
-    row('Frequent stop', metres(data.mStop[i])),
-    ...Object.keys(data.freq).filter((w) => windows[w]).map((w) => row(
-      `Busiest stop within 800 m, ${windows[w].when || w}`,
-      `${Math.round(data.freq[w][i] || 0)} departures an hour`,
-    )),
+    row('Stop with 4+ departures an hour', metres(data.mStop[i])),
+    row(`Busiest stop within 800 m, departures an hour (${timed.map((w) => windows[w].label || w).join(' / ')})`,
+      timed.map((w) => Math.round(data.freq[w][i] || 0)).join(' / ')),
     row('Train or ferry', metres(data.mRail[i])),
-    row('Low-stress bike route', metres(data.mBike[i])),
+    row('Nearest cycleway or shared path', metres(data.mBike[i])),
   ];
 
   // A share of a small hexagon is hard to picture, so say how many people
@@ -185,6 +190,7 @@ export function renderPlace(root, data, i, state) {
     group('low_income', labels.low_income || 'Households under $70,000'),
     group('maori', labels.maori || 'Māori'),
     group('pacific', labels.pacific || 'Pacific peoples'),
+    group('asian', labels.asian || 'Asian'),
     group('disabled', labels.disabled || 'Disabled people'),
   ].filter(Boolean);
   if (Number.isFinite(data.drive[i])) people.push(row('Drove to work (this SA2, 2023)', `${data.drive[i]}%`));
@@ -217,7 +223,7 @@ export function renderPlace(root, data, i, state) {
     const freeCount = cheapest.filter((z) => z === 0).length;
     const payable = cheapest.filter((z) => z && z > 0).length;
     const never = cheapest.filter((z) => z === null).length;
-    standing.push(row('Everyday services reachable', `${freeCount} free on foot or by bike, ${payable} for a fare, ${never} not at all`));
+    standing.push(row('Services within the standard', `${freeCount} free on foot or by bike, ${payable} for a fare, ${never} not at all`));
   }
   // What the cheapest fare means here, against what people here earn.
   const income = data.income?.[i];
@@ -230,20 +236,22 @@ export function renderPlace(root, data, i, state) {
     standing.push(row('Income per person, after household size', `about $${Math.round(income / 1000)}k a year`));
     if (Number.isFinite(cost)) {
       const pct = (cost / (income / 365)) * 100;
-      standing.push(row(`A ${state.returnTrip ? 'return' : 'one-way'} fare of ${money(cost)}`, `${pct.toFixed(pct < 10 ? 1 : 0)}% of a day's income here`));
+      const oneZone = (meta.kind || 'zones') !== 'flat' ? '1-zone ' : '';
+      standing.push(row(`A ${oneZone}${state.returnTrip ? 'return' : 'one-way'} fare of ${money(cost)}`, `${pct.toFixed(pct < 10 ? 1 : 0)}% of a day's income here`));
     }
   }
 
   let heading = viewMode === 'best'
-    ? 'Everyday services, fastest without a car'
-    : `Everyday services by ${MODES[viewMode].short}`;
+    ? 'Services, fastest without a car'
+    : `Services by ${MODES[viewMode].short}`;
   // A time only applies to what was timed then; the rest keep their usual time.
   let untimed = null;
   if (state.when && windows[state.when] && ['best', 'pt'].includes(viewMode)) {
-    heading += `, ${(windows[state.when].label || state.when).toLowerCase()}`;
+    heading += `, ${windows[state.when].label || state.when}`;
     const others = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s] && data.activeWindow?.[s] !== state.when);
     if (others.length) {
-      const names = others.map((s) => SERVICE_SHORT[s].toLowerCase());
+      // Lower-case the name inside a sentence, but not an initialism like GP.
+      const names = others.map((s) => SERVICE_SHORT[s]).map((n) => (/^[A-Z]{2}/.test(n) ? n : n[0].toLowerCase() + n.slice(1)));
       const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
       untimed = el('p', 'note', `${list[0].toUpperCase()}${list.slice(1)} ${others.length > 1 ? 'are' : 'is'} shown at the usual time.`);
     }

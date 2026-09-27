@@ -82,3 +82,22 @@ test('groups come back worst first', () => {
   close(rows[0].rate, 1);
   close(rows[1].rate, 0);
 });
+
+test('tied deprivation ranks share one fractional rank', async () => {
+  const { concentrationIndex } = await import('../../web/js/equity.js');
+  // Two places at each decile; their order within a tie must not matter.
+  const values = Float32Array.from([1, 3, 2, 2]);
+  const weights = Float32Array.from([1, 1, 1, 1]);
+  const a = concentrationIndex(values, weights, Float32Array.from([10, 10, 1, 1]));
+  const b = concentrationIndex(Float32Array.from([3, 1, 2, 2]), weights, Float32Array.from([10, 10, 1, 1]));
+  assert.ok(Math.abs(a - b) < 1e-9);
+  // Deprived mean 2, better-off mean 2: no lean at all.
+  assert.ok(Math.abs(a) < 1e-9);
+});
+
+test('a place with no route misses even a standard at the routing limit', async () => {
+  const { fgt } = await import('../../web/js/equity.js');
+  const out = fgt(Float32Array.from([NaN, 30]), Float32Array.from([1, 1]), 60, 60);
+  assert.equal(out.rate, 0.5);
+  assert.ok(out.depth > 0);
+});

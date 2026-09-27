@@ -47,7 +47,8 @@ export function renderAbout(root, meta) {
   table.append(head, body);
 
   const links = el('p', 'about-links');
-  links.append(link('Method', LINKS.method), document.createTextNode(' · '), link('Download the data', 'downloads/'), document.createTextNode(' · '), link('Code', LINKS.code));
+  const slug = (meta.naming || {}).slug;
+  links.append(link('Method', LINKS.method), document.createTextNode(' · '), link('Download the data', slug ? `downloads/${slug}/` : 'downloads/'), document.createTextNode(' · '), link('Code', LINKS.code));
 
   root.replaceChildren(
     el('p', 'eyebrow', 'Better Places Lab'),
@@ -56,9 +57,15 @@ export function renderAbout(root, meta) {
     el('h3', null, 'Reading the map'),
     list([
       'Access: minutes to the nearest service. Blue is within the standard, orange is beyond it.',
-      'Who misses out: where the people beyond the standard live, and how that differs by deprivation, car ownership and age.',
-      'What would help: the main reason each place misses the standard, and the kind of fix that points to.',
+      'What it costs: the cheapest fare to the nearest one in time, for the traveller you set.',
+      "Fare burden: that fare as a share of a day's income where people live.",
+      'Who misses out: where the people beyond the standard live, how far short they are, and how that differs by deprivation, income, age, car ownership, ethnicity and disability.',
+      'What would help: the main reason each place misses the standard, and the kind of fix that points to. With a fare budget, the fare itself can be the reason.',
+      'Jobs: how many jobs are within 30 or 45 minutes, for a typical resident and by deprivation.',
+      'Access score: every destination counted, with nearer ones counting for more. 100 is the city average.',
     ]),
+    el('h3', null, 'Settings'),
+    para('When picks the weekday peak, weekday off-peak or a Saturday for public transport. A fare budget counts public transport only when the trip fits the budget, in dollars or as a share of local income. Traveller sets who is paying and how.'),
     el('h3', null, 'Standards'),
     para('A place meets a standard when walking, cycling on low-stress routes or public transport gets there in time. Car times and cycling on busy roads are shown for comparison but never count. The slider changes the standard.'),
     table,
@@ -76,7 +83,8 @@ export function renderAbout(root, meta) {
       'The nearest service is not always one you can use: school zones, GP enrolment, opening hours and store size are not modelled.',
       'Times come from timetables, not real-world reliability or crowding.',
       'Walking and cycling times ignore hills, lighting and footpath condition.',
-      'Census shares describe small areas, not individual households.',
+      'Census shares describe small areas, not individual households. No car and lower income are shares of households, applied to residents.',
+      'Incomes are area medians before tax, adjusted for household size and raised to 2026 by wage growth.',
     ]),
     el('h3', null, 'Credit'),
     para('Built by the Better Places Lab, Te Pare School of Architecture, Planning and Design, Waipapa Taumata Rau | University of Auckland.'),

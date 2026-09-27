@@ -37,9 +37,11 @@ test('per-area budgets read each hexagon its own priced layer', () => {
     t: { gp: { walk: f32([40, 40, 40]), pt: f32([10, 10, 10]) } },
     cost: { gp: { z1: f32([30, 30, 30]), z2: f32([18, 18, 18]) } },
   };
+  // No zones, one zone, and the whole network, which is no constraint at all
+  // and so reads the unpriced time.
   const zones = Int8Array.from([0, 1, 2]);
-  assert.deepEqual(Array.from(pricedLayer(data, 'gp', zones)).map((v) => (Number.isNaN(v) ? null : v)), [null, 30, 18]);
-  assert.deepEqual(Array.from(times(data, 'gp', 'best', zones)), [40, 30, 18]);
+  assert.deepEqual(Array.from(pricedLayer(data, 'gp', zones)).map((v) => (Number.isNaN(v) ? null : v)), [null, 30, 10]);
+  assert.deepEqual(Array.from(times(data, 'gp', 'best', zones)), [40, 30, 10]);
 });
 
 test('the cheapest way counts walking as free and keeps the true zone count', () => {
@@ -56,12 +58,26 @@ test('burden bands break at 2.5, 5 and 10 percent', () => {
   assert.deepEqual([0, 0.02, 0.025, 0.049, 0.05, 0.1, 0.3].map(burdenClass), [0, 1, 2, 2, 3, 4, 4]);
 });
 
-test('the bus-only count ignores walking and says when no bus is in time', () => {
+test('the bus-only count needs no fare where the trip is really a walk', () => {
+  const data = {
+    n: 4,
+    meta: { standard_modes: ['walk', 'pt'], fares: { kind: 'zones', zone_cap: 2 } },
+    // A 12-minute walk beats the 15-minute trip, so nobody pays. A 25-minute
+    // walk is too far to be the public transport trip, so that one boards.
+    t: { gp: { walk: f32([12, 50, 25, 50]) } },
+    cost: { gp: { z1: f32([15, 40, 18, null]), z2: f32([15, 18, 18, null]) } },
+  };
+  assert.deepEqual(Array.from(cheapestZones(data, 'gp', 20, { walkable: false })), [0, 2, 1, -2]);
+});
+
+test('cycling counts as free even when walking is too slow', async () => {
+  const { cheapestFareClasses } = await import('../../web/js/fares.js');
   const data = {
     n: 3,
-    meta: { standard_modes: ['walk', 'pt'], fares: { kind: 'zones', zone_cap: 2 } },
-    t: { gp: { walk: f32([12, 50, 50]) } },
-    cost: { gp: { z1: f32([15, 40, null]), z2: f32([15, 18, null]) } },
+    meta: { standard_modes: ['walk', 'bike_low_stress', 'pt'], fares: { kind: 'zones', zone_cap: 4 } },
+    t: { gp: { walk: f32([30, 30, null]), bike_low_stress: f32([10, 25, null]), car: f32([5, 5, null]) } },
+    cost: { gp: { z1: f32([12, 40, null]) } },
   };
-  assert.deepEqual(Array.from(cheapestZones(data, 'gp', 20, { walkable: false })), [1, 2, -2]);
+  // Cycles in time; nothing in time but routed; no route at all.
+  assert.deepEqual(Array.from(cheapestFareClasses(data, 'gp', 20)), [0, 5, -1]);
 });

@@ -64,9 +64,19 @@ button { cursor: pointer; touch-action: manipulation; }
 .brand h1 { margin: 0; color: var(--navy); font-size: 22px; font-weight: 800; letter-spacing: 0.08em; line-height: 1; }
 .brand p { margin: 3px 0 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagline { color: var(--muted); }
-.mini { display: none; color: var(--navy); font-weight: 600; }
+/* The one-line answer when the panel is folded: allowed two lines, so the
+   fare and time, which are what changed, are not cut off. */
+.brand .mini {
+  display: none;
+  color: var(--navy);
+  font-weight: 600;
+  white-space: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 body[data-panel="collapsed"] .tagline { display: none; }
-body[data-panel="collapsed"] .mini { display: block; }
+body[data-panel="collapsed"] .brand .mini { display: -webkit-box; }
 .text-button { padding: 6px 4px; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
 .text-button:hover { color: var(--navy); text-decoration: underline; }
 .icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); }
@@ -124,7 +134,7 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .bar-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bar-detail { color: var(--muted); font-weight: 400; }
 
-.reason-list { display: flex; flex-direction: column; gap: 4px; }
+.reason-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .reason-row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left; }
 .reason-row:hover { border-color: var(--navy); }
 .reason-row.is-focus { border-color: var(--navy); box-shadow: inset 0 0 0 1px var(--navy); }
@@ -141,6 +151,8 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .rank-row:hover { background: var(--wash); }
 .rank-name { grid-area: name; font-weight: 600; }
 .rank-meta { grid-area: meta; color: var(--ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.areas .rank-reason { color: var(--muted); font-size: 12px; }
+.area-actions { display: flex; gap: 14px; justify-content: space-between; }
 .rank-reason { grid-area: reason; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .reason-dot { width: 8px; height: 8px; border-radius: 50%; }
 
@@ -303,6 +315,54 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
   color: var(--ink-soft);
 }
 
+/* Settings fold into one line that says what is set ------------------- */
+
+.settings {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.settings > summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings > summary::-webkit-details-marker { display: none; }
+
+.settings-summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings-change {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings[open] .settings-change { visibility: hidden; }
+.settings[open] > summary { border-bottom: 1px solid var(--line); }
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+}
+
+.measure-field {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
 .traveller {
   padding: 10px 0 2px;
   border-top: 1px solid var(--line);
@@ -429,6 +489,7 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .start-head h1 { margin: 0; color: var(--navy); font-size: 26px; letter-spacing: -0.01em; }
 .start-lede { margin: 14px 0 4px; color: var(--ink-soft); font-size: 15px; line-height: 1.5; }
 
+.start-locate { margin: 6px 0 0; }
 .start-list { margin: 10px 0 0; padding: 0; list-style: none; }
 
 .start-city {
@@ -538,6 +599,7 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 
 .chips-quiet .chip[aria-checked="true"] {
   border-style: solid;
+  color: #fff;
 }
 
 

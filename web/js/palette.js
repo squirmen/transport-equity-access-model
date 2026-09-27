@@ -21,15 +21,17 @@ export const FAIR_BREAKS = [0.5, 0.8, 1.25, 2];
 // before neighbours become hard to tell apart, so the transport fixes take the
 // three hues and "nothing within reach" takes a neutral grey. The last entry is
 // the faded colour used when one reason is picked out.
-export const REASON_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#8f8c85', '#dedcd5'];
-export const FADED = 4;
+export const REASON_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#8f8c85', '#7a5195', '#dedcd5'];
+export const FADED = 5;
 export const REASON_GROUPS = [
   { cls: 0, codes: [1], label: 'The walking route is indirect', fix: 'A new walking link or crossing' },
   { cls: 1, codes: [2], label: 'No low-stress bike route', fix: 'A safe cycling connection' },
   { cls: 2, codes: [3, 4], label: 'Public transport is too slow', fix: 'More frequent or more direct service' },
   { cls: 3, codes: [5], label: 'Nothing within reach', fix: 'A service closer to home' },
+  // Only arises with a fare budget set.
+  { cls: 4, codes: [6], label: 'The fare is the barrier', fix: 'A concession, fare cap or cheaper fare', budgetOnly: true },
 ];
-export const REASON_CLASS = { 1: 0, 2: 1, 3: 2, 4: 2, 5: 3 };
+export const REASON_CLASS = { 1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4 };
 
 /** Class edges for minutes, relative to the standard T: T/2, 3T/4, T, 1.5T, 2.25T.
  *  Times stop at 60 minutes, so once 2.25T passes 60 the two upper edges share

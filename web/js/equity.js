@@ -14,15 +14,18 @@
 
 /** How far past the standard each place is, as a share of the standard.
  *
- *  Zero for anywhere that meets it. Somewhere with no route at all is counted
- *  at `unreachable` minutes rather than left out, because dropping it would
- *  flatter the result in exactly the places that are worst off.
+ *  Zero for anywhere that meets it. Somewhere with no route within the
+ *  routing limit is counted at `unreachable` minutes rather than left out,
+ *  because dropping it would flatter the result in exactly the places that are
+ *  worst off. Its true time is longer still, so it always misses the
+ *  standard, by at least a minute even when the standard is the limit itself.
  */
 export function shortfalls(times, standard, unreachable = 60) {
   const out = new Float32Array(times.length);
   for (let i = 0; i < times.length; i += 1) {
-    const t = Number.isFinite(times[i]) ? times[i] : unreachable;
-    out[i] = t > standard ? (t - standard) / standard : 0;
+    const t = times[i];
+    if (Number.isFinite(t)) out[i] = t > standard ? (t - standard) / standard : 0;
+    else out[i] = Math.max(unreachable - standard, 1) / standard;
   }
   return out;
 }
@@ -113,13 +116,26 @@ export function concentrationIndex(values, weights, rank) {
   if (!(total > 0)) return NaN;
   const mean = rows.reduce((sum, i) => sum + values[i] * weights[i], 0) / total;
   if (!(Math.abs(mean) > 0)) return NaN;
+  // NZDep is a decile, so a tenth of people share each rank. Everyone in a tie
+  // takes the midpoint of the group's cumulative share; giving each place its
+  // own rank would order ties by map position and bias the index.
   let running = 0;
   let index = 0;
-  for (const i of rows) {
-    const share = weights[i] / total;
-    const fractional = running + share / 2;
-    running += share;
-    index += 2 * (fractional - 0.5) * (values[i] - mean) * share;
+  let start = 0;
+  while (start < rows.length) {
+    let end = start;
+    let group = 0;
+    while (end < rows.length && rank[rows[end]] === rank[rows[start]]) {
+      group += weights[rows[end]] / total;
+      end += 1;
+    }
+    const fractional = running + group / 2;
+    for (let k = start; k < end; k += 1) {
+      const i = rows[k];
+      index += 2 * (fractional - 0.5) * (values[i] - mean) * (weights[i] / total);
+    }
+    running += group;
+    start = end;
   }
   return index / mean;
 }

@@ -107,8 +107,8 @@ def _pct_decay(minutes: np.ndarray, spec: dict) -> np.ndarray:
     full, and beyond it the weight falls the way the PCT says cycling does.
 
     Gradient terms are evaluated at the PCT's reference gradient, so this is a
-    flat-terrain curve. Auckland is not flat, and the routed times already
-    carry the hills; the decay does not.
+    flat-terrain curve. The routed times are flat-terrain too, because no
+    elevation model is loaded.
     """
     speed = float(spec.get("speed_kmh", 15.0))
     if speed <= 0:
@@ -282,30 +282,44 @@ def build(settings, index: pd.Index, population: pd.Series) -> tuple[pd.DataFram
                         "pairs": int(len(pairs)),
                     }
     table = pd.DataFrame(columns, index=index)
-    # Group and overall figures average the indices, which share a scale;
-    # the raw scores count different things and cannot be added together.
-    # The plain name has each member at its usual time. A window gets its own
-    # group figure only when every member was routed in it, so a Saturday
+    # Group figures average the indices of their members, which share a
+    # scale; the raw scores count different things and cannot be added. The
+    # plain name has each member at its usual time. A window gets its own
+    # figure only when every member was routed in it, so a Saturday
     # "education" figure is never an average of nothing.
-    everything = {**groups, "all": list(spec["purposes"])}
+    #
+    # "All opportunities" is the mean of the groups, not of the purposes:
+    # jobs, everyday services and education count a third each, where a mean
+    # of eight purposes would be half schools.
     for mode_id in spec["modes"]:
         transit = settings.modes[mode_id]["kind"] == "transit"
-        for group, members in everything.items():
-            parts = [f"accessidx_{p}_{mode_id}" for p in members]
-            if all(part in table for part in parts):
-                table[f"accessidx_{group}_{mode_id}"] = table[parts].mean(axis=1).astype("float32")
-                table[f"accessdec_{group}_{mode_id}"] = deciles(table[f"accessidx_{group}_{mode_id}"], population)
-            if not transit:
-                continue
-            usual = {purpose_windows(settings, p)[0] for p in members}
-            for window in settings.routing["windows"]:
-                if usual == {window}:
-                    continue  # the same as the plain name
-                parts = [_window_column(table, p, mode_id, window, settings) for p in members]
-                if all(parts):
-                    name = f"{group}_{mode_id}_{window}"
+        windows = [None, *(settings.routing["windows"] if transit else [])]
+        for window in windows:
+            group_columns = []
+            for group, members in groups.items():
+                if window is None:
+                    parts = [f"accessidx_{p}_{mode_id}" for p in members]
+                    name = f"{group}_{mode_id}"
+                else:
+                    usual = {purpose_windows(settings, p)[0] for p in members}
+                    parts = [_window_column(table, p, mode_id, window, settings) for p in members]
+                    name = f"{group}_{mode_id}" if usual == {window} else f"{group}_{mode_id}_{window}"
+                if not all(part and part in table for part in parts):
+                    continue
+                if name not in table:
                     table[f"accessidx_{name}"] = table[parts].mean(axis=1).astype("float32")
                     table[f"accessdec_{name}"] = deciles(table[f"accessidx_{name}"], population)
+                group_columns.append(f"accessidx_{name}")
+            if len(group_columns) == len(groups) and group_columns:
+                name = f"all_{mode_id}" if window is None else f"all_{mode_id}_{window}"
+                if f"accessidx_{name}" in table:
+                    continue
+                # The usual-time figure mixes each group's usual time; a named
+                # window is only made when it differs from that.
+                if window is not None and group_columns == [c for c in group_columns if not c.endswith(f"_{window}")]:
+                    continue
+                table[f"accessidx_{name}"] = table[group_columns].mean(axis=1).astype("float32")
+                table[f"accessdec_{name}"] = deciles(table[f"accessidx_{name}"], population)
     return table, used
 
 

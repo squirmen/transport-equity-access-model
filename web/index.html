@@ -33,55 +33,57 @@
     </header>
 
     <div id="panel-body" class="panel-body">
-      <div class="field">
-        <span class="field-label" id="measure-label">Measure</span>
-        <div class="chips chips-compact" id="measure-picker" role="radiogroup" aria-labelledby="measure-label">
-          <button class="chip" type="button" role="radio" data-measure="standards" aria-checked="true">Minutes and standards</button>
-          <button class="chip" type="button" role="radio" data-measure="score" aria-checked="false">Access score</button>
-        </div>
-      </div>
-
       <div class="field" id="service-field">
         <span class="field-label" id="service-label">Getting to</span>
-        <div class="chips" id="service-picker" role="radiogroup" aria-labelledby="service-label"></div>
+        <div id="service-picker"></div>
       </div>
 
-      <div class="field" id="when-field" hidden>
-        <div class="field-head">
-          <span class="field-label" id="when-label">When</span>
-          <span class="field-value" id="when-value"></span>
-        </div>
-        <div class="chips chips-compact" id="when-picker" role="radiogroup" aria-labelledby="when-label"></div>
-      </div>
-
-      <div class="field" id="standard-field">
-        <div class="field-head">
-          <label class="field-label" for="standard">Standard</label>
-          <span class="field-value" id="standard-value"></span>
-          <button class="text-button" id="standard-reset" type="button" hidden>Reset</button>
-        </div>
-        <input type="range" id="standard" min="5" max="60" step="5" value="20">
-      </div>
-
-      <div class="field" id="budget-field">
-        <div class="field-head">
-          <label class="field-label" for="budget">Fare budget</label>
-          <span class="field-value" id="budget-value"></span>
-          <button class="text-button" id="budget-reset" type="button" hidden>Any fare</button>
-        </div>
-        <div class="chips chips-compact chips-quiet" id="budget-unit" role="radiogroup" aria-label="Budget as" hidden></div>
-        <input type="range" id="budget" min="0" max="20" step="0.5" value="20"
-               aria-describedby="budget-note">
-        <div class="ticks" id="budget-ticks" aria-hidden="true"></div>
-        <p class="note" id="budget-note"></p>
-      </div>
-
-      <details class="traveller" id="traveller">
+      <!-- The settings fold into one line, so the answer sits near the top.
+           The line says what is set, so nothing is hidden by folding it. -->
+      <details class="settings" id="settings">
         <summary>
-          <span class="field-label">Traveller</span>
-          <span class="traveller-summary" id="traveller-summary"></span>
+          <span class="settings-summary" id="settings-summary"></span>
+          <span class="settings-change" aria-hidden="true">Change</span>
         </summary>
-        <div class="traveller-body" id="traveller-body"></div>
+        <div class="settings-body">
+          <div class="field" id="when-field" hidden>
+            <div class="field-head">
+              <span class="field-label" id="when-label">When</span>
+              <span class="field-value" id="when-value"></span>
+            </div>
+            <div class="chips chips-compact" id="when-picker" role="radiogroup" aria-labelledby="when-label"></div>
+          </div>
+
+          <div class="field" id="standard-field">
+            <div class="field-head">
+              <label class="field-label" for="standard">Standard</label>
+              <span class="field-value" id="standard-value"></span>
+              <button class="text-button" id="standard-reset" type="button" hidden>Reset</button>
+            </div>
+            <input type="range" id="standard" min="5" max="60" step="5" value="20">
+          </div>
+
+          <details class="traveller" id="traveller">
+            <summary>
+              <span class="field-label">Traveller</span>
+              <span class="traveller-summary" id="traveller-summary"></span>
+            </summary>
+            <div class="traveller-body" id="traveller-body"></div>
+          </details>
+
+          <div class="field" id="budget-field">
+            <div class="field-head">
+              <label class="field-label" for="budget">Fare budget</label>
+              <span class="field-value" id="budget-value"></span>
+              <button class="text-button" id="budget-reset" type="button" hidden>Any fare</button>
+            </div>
+            <div class="chips chips-compact chips-quiet" id="budget-unit" role="radiogroup" aria-label="Budget in" hidden></div>
+            <input type="range" id="budget" min="0" max="20" step="0.5" value="20"
+                   aria-describedby="budget-note">
+            <div class="ticks" id="budget-ticks" aria-hidden="true"></div>
+            <p class="note" id="budget-note"></p>
+          </div>
+        </div>
       </details>
 
       <div class="tabs" role="tablist" aria-label="View" id="tabs">
@@ -90,8 +92,18 @@
         <button role="tab" type="button" id="tab-fixes" data-view="fixes" aria-selected="false" aria-controls="view">What would help</button>
       </div>
 
-      <section id="view" class="view" role="tabpanel" aria-live="polite"></section>
+      <section id="view" class="view" role="tabpanel" aria-labelledby="tab-access"></section>
+
+      <div class="field measure-field">
+        <span class="field-label" id="measure-label">Measure</span>
+        <div class="chips chips-compact" id="measure-picker" role="radiogroup" aria-labelledby="measure-label">
+          <button class="chip" type="button" role="radio" data-measure="standards" aria-checked="true">Minutes and standards</button>
+          <button class="chip" type="button" role="radio" data-measure="score" aria-checked="false">Access score</button>
+        </div>
+      </div>
     </div>
+    <!-- Read out a short summary after the panel settles, instead of the whole panel on every change. -->
+    <p class="visually-hidden" id="announce" aria-live="polite"></p>
 
     <footer class="panel-foot">
       <a class="lab-link" href="https://betterplaces.blogs.auckland.ac.nz" rel="noopener">
@@ -143,6 +155,7 @@
         </div>
       </header>
       <p class="start-lede" id="start-lede"></p>
+      <p class="start-locate"><button class="text-button" id="start-locate" type="button">Use my location</button> <span class="note" id="start-locate-note" role="status"></span></p>
       <ul class="start-list" id="start-list"></ul>
       <p class="note" id="start-note"></p>
     </div>

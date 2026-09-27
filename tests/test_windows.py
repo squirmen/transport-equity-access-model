@@ -106,3 +106,23 @@ def test_equivalised_income_divides_by_the_root_of_household_size():
     # A $7.30 return against $36,500 a year is 7.3% of a day's income.
     assert abs(float(affordability.burden(7.30, 36_500.0)) - 0.073) < 1e-9
     assert abs(affordability.INCOME_UPLIFT - 44.62 / 38.93) < 1e-12
+
+
+def test_competition_counts_everyone_who_could_get_to_the_job():
+    from team.measures import competition_adjusted
+
+    jobs = pd.Series({"d": 100.0})
+    demand = pd.Series({"a": 10.0, "b": 90.0})
+    bus = pd.DataFrame({"origin": ["a"], "destination": ["d"], "minutes": [20]})
+    car = pd.DataFrame({"origin": ["a", "b"], "destination": ["d", "d"], "minutes": [10, 15]})
+    bus = pd.concat([bus, pd.DataFrame({"origin": ["c"], "destination": ["e"], "minutes": [20]})], ignore_index=True)
+    jobs = pd.Series({"d": 100.0, "e": 100.0})
+    demand = pd.Series({"a": 10.0, "b": 90.0, "c": 100.0})
+    car = pd.concat([car, pd.DataFrame({"origin": ["c"], "destination": ["e"], "minutes": [5]})], ignore_index=True)
+    alone = competition_adjusted(bus, jobs, demand, 30)
+    shared = competition_adjusted(bus, jobs, demand, 30, car)
+    # By bus alone, a has job cell d to itself: 10 jobs a head against c's 1,
+    # so a looks far better off. Counting b, who can drive to d, a and c each
+    # share 1 job a head, and are equal.
+    assert alone["a"] > 5 * alone["c"]
+    assert abs(shared["a"] - shared["c"]) < 1e-9

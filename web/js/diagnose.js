@@ -2,7 +2,7 @@
 // map can update when the standard is changed. Rules are checked in order; the
 // first that applies is the reason.
 
-export const REASON = { MEETS: 0, WALK_LINK: 1, SAFE_BIKE: 2, PT_FREQUENCY: 3, PT_TRIP: 4, DISTANCE: 5, NO_DATA: 9 };
+export const REASON = { MEETS: 0, WALK_LINK: 1, SAFE_BIKE: 2, PT_FREQUENCY: 3, PT_TRIP: 4, DISTANCE: 5, FARE: 6, NO_DATA: 9 };
 
 export const RULES = {
   walkKmh: 4.8,
@@ -14,10 +14,12 @@ export const RULES = {
 const within = (value, limit) => Number.isFinite(value) && value <= limit;
 
 export function diagnoseCell(cell, limit, rules = RULES) {
-  const { km, walk, bikeLow, bike, pt, car, best, freq } = cell;
-  const routed = [walk, bikeLow, bike, pt, car].some(Number.isFinite);
+  const { km, walk, bikeLow, bike, pt, car, best, freq, unpriced } = cell;
+  const routed = [walk, bikeLow, bike, pt, car, unpriced].some(Number.isFinite);
   if (!routed) return REASON.NO_DATA;
   if (within(best, limit)) return REASON.MEETS;
+  // Under a fare budget: close enough at some price, but not at this one.
+  if (within(unpriced, limit)) return REASON.FARE;
   const straightWalk = Number.isFinite(km) ? (km / rules.walkKmh) * 60 * rules.circuity : Infinity;
   if (straightWalk <= limit && !within(walk, limit)) return REASON.WALK_LINK;
   if (within(bike, limit) && !within(bikeLow, limit)) return REASON.SAFE_BIKE;

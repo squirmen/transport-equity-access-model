@@ -22,3 +22,10 @@ for (const [name, cell, expected] of cases) {
     assert.equal(diagnoseCell({ ...cell, best: Number.isFinite(best) ? best : NaN }, 20), expected);
   });
 }
+
+test('a place the fare keeps off public transport is put down to the fare', async () => {
+  const { diagnoseCell, REASON } = await import('../../web/js/diagnose.js');
+  const cell = { km: 3, walk: 40, bikeLow: 30, bike: 25, pt: NaN, car: 8, best: 30, freq: 6, unpriced: 18 };
+  assert.equal(diagnoseCell(cell, 20), REASON.FARE);
+  assert.notEqual(diagnoseCell({ ...cell, unpriced: NaN }, 20), REASON.FARE);
+});
