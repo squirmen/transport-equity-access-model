@@ -4,6 +4,15 @@
 
 Latest changes:
 
+- Gisborne, Blenheim and Invercargill, from timetables their councils publish
+  only on the web or in print, written out as GTFS. Seventeen urban areas.
+- How robust is this? under each Access figure: whether it holds at every time
+  of day, by more than one way of travelling, and as the standard moves.
+- Choice: how many of a service are within the standard, not only the nearest.
+- Urban areas only, to leave rural land out of the figures.
+- Fare caps: the fare burden can count a week of daily trips after daily and
+  weekly caps.
+
 - An independent audit found real errors, now fixed. What it costs ignored
   low-stress cycling, so it overstated who could not reach a service at any
   price (229,000 against the right 167,000 for Auckland GPs). The fare burden

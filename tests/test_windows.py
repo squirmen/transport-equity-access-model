@@ -126,3 +126,13 @@ def test_competition_counts_everyone_who_could_get_to_the_job():
     # share 1 job a head, and are equal.
     assert alone["a"] > 5 * alone["c"]
     assert abs(shared["a"] - shared["c"]) < 1e-9
+
+
+def test_urban_means_an_urban_area_of_a_thousand_people():
+    from team.people import urban_flag
+
+    table = pd.DataFrame({
+        "urban_rural": ["Auckland", "Auckland", "Other rural Auckland", "Stillwater", None],
+        "population": [800.0, 700.0, 900.0, 466.0, 10.0],
+    })
+    assert urban_flag(table).tolist() == [True, True, False, False, False]

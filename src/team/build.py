@@ -35,6 +35,7 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, di
 
     log.info("people")
     table = table.join(people.build(settings, origins))
+    table["urban"] = people.urban_flag(table)
     log.info("network context")
     table = table.join(context.build(settings, origins))
 

@@ -56,7 +56,8 @@ export function renderAbout(root, meta) {
     para(`TEAM shows how long it takes to reach everyday services and jobs from each part of ${place.name} without a car, who lives where that is too long, and what kind of change would shorten it.`),
     el('h3', null, 'Reading the map'),
     list([
-      'Access: minutes to the nearest service. Blue is within the standard, orange is beyond it.',
+      'Access: minutes to the nearest service. Blue is within the standard, orange is beyond it. How robust is this? shows whether it holds at other times, by more than one way, and as the standard moves.',
+      'Choice: how many are within the standard, not only the nearest.',
       'What it costs: the cheapest fare to the nearest one in time, for the traveller you set.',
       "Fare burden: that fare as a share of a day's income where people live.",
       'Who misses out: where the people beyond the standard live, how far short they are, and how that differs by deprivation, income, age, car ownership, ethnicity and disability.',
@@ -65,7 +66,7 @@ export function renderAbout(root, meta) {
       'Access score: every destination counted, with nearer ones counting for more. 100 is the city average.',
     ]),
     el('h3', null, 'Settings'),
-    para('When picks the weekday peak, weekday off-peak or a Saturday for public transport. A fare budget counts public transport only when the trip fits the budget, in dollars or as a share of local income. Traveller sets who is paying and how.'),
+    para('Who is counted can leave out rural land. When picks the weekday peak, weekday off-peak or a Saturday for public transport. A fare budget counts public transport only when the trip fits the budget, in dollars or as a share of local income. Traveller sets who is paying and how, and the fare burden can count a week of daily trips after fare caps.'),
     el('h3', null, 'Standards'),
     para('A place meets a standard when walking, cycling on low-stress routes or public transport gets there in time. Car times and cycling on busy roads are shown for comparison but never count. The slider changes the standard.'),
     table,

@@ -89,3 +89,31 @@ test('a concession with no cash price pays the adult cash price', async () => {
   assert.equal(fare(meta, 1, 'tertiary_student', 'cash'), 3.5);
   assert.equal(fare(meta, 1, 'tertiary_student', 'card'), 1.1);
 });
+
+test('a week of daily return trips stops at the weekly cap', async () => {
+  const { weekCost } = await import('../../web/js/fares.js');
+  const meta = {
+    kind: 'zones', zone_cap: 4,
+    fares: { adult: { hop: { 1: 3.0, 2: 4.9, 3: 6.5, 4: 7.9 } }, child_5_15: { hop: { 1: 1.5, 2: 2.45, 3: 3.25, 4: 3.95 } } },
+    free: { supergold: { free_from: '09:00' } },
+    caps: { payments: ['hop'], weekly: { adult: 50 } },
+  };
+  // Two zones: $9.80 a day, $68.60 a week, capped at $50.
+  assert.equal(weekCost(meta, 2, { profile: 'adult', payment: 'hop', hour: 10 }), 50);
+  // One zone: $6 a day, $42 a week, under the cap.
+  assert.equal(weekCost(meta, 1, { profile: 'adult', payment: 'hop', hour: 10 }), 42);
+  // A child pays less than the adult fare, so the adult cap is not theirs.
+  assert.equal(weekCost(meta, 4, { profile: 'child_5_15', payment: 'hop', hour: 10 }), 3.95 * 2 * 7);
+  assert.equal(weekCost(meta, 2, { profile: 'supergold', payment: 'hop', hour: 10 }), 0);
+});
+
+test('caps that vary by zones and daily caps both apply', async () => {
+  const { weekCost } = await import('../../web/js/fares.js');
+  const meta = {
+    kind: 'flat', zone_cap: 1,
+    fares: { adult: { card: { 1: 3.0 }, cash: { 1: 4.0 } } },
+    caps: { payments: ['card'], daily: { adult: 5 }, weekly: { adult: { 1: 30 } } },
+  };
+  assert.equal(weekCost(meta, 1, { payment: 'card' }), 30);
+  assert.equal(weekCost(meta, 1, { payment: 'cash' }), 56, 'cash pays every fare');
+});

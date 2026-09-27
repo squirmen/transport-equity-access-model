@@ -1,6 +1,6 @@
 # TEAM method
 
-TEAM answers three questions for every populated part of fourteen New Zealand
+TEAM answers three questions for every populated part of seventeen New Zealand
 urban areas:
 
 1. How long does it take to reach everyday services and jobs without a car?
@@ -15,7 +15,16 @@ travel time, a destination list and a census count.
 Each urban area has its own configuration in [`configs/`](../configs/), with the
 same method and parameters; they differ only in their inputs and fares.
 Auckland, Wellington and Christchurch cover their council areas; the other
-eleven cover the Stats NZ 2023 urban areas their buses serve. Definitions of
+fourteen cover the Stats NZ 2023 urban areas their buses serve.
+
+**Timetables without a feed.** Gisborne, Blenheim and Invercargill publish no
+GTFS. Gisborne's and Invercargill's councils show their timetables through Ride
+Guide, which serves every stop's position and every trip's times; TEAM reads
+those for the two days it routes and writes them out as GTFS
+(`scripts/build_rideguide_gtfs.py`), leaving out school-only routes. Blenheim's
+times come from the council's printed timetable, placed on Ride Guide's stop
+positions (`scripts/build_blenheim_gtfs.py`). A council's own GTFS, if one is
+published, should replace these. Definitions of
 every output field are in [`indicators.md`](indicators.md).
 
 ## 1. Places and people
@@ -334,7 +343,37 @@ well-off area is counted at the area's income. Cells with no published income
 take the city's median when they need a budget, and are left off the burden
 map.
 
-## 8. Who misses out
+**Fare caps.** Several networks cap what a card pays in a day or a week.
+The fare burden can count one return trip, or a return trip every day for a
+week after the daily and weekly caps the traveller's way of paying qualifies
+for, set against a week's income. Auckland caps AT HOP at $50 a week;
+Christchurch, Gisborne, Hamilton and the Horizons towns publish their own.
+Wellington has no cap, only passes, which a traveller must choose to buy and
+TEAM does not assume.
+
+## 8. How robust an answer is
+
+Three checks sit behind each Access figure. **Every time of day:** the share
+who meet the standard in every window a service is timed in, not only the one
+on screen. **More than one way:** the share who could get there in time by two
+or more of walking, low-stress cycling and public transport; someone with only
+one way is one route or service change from missing out. **As the standard
+moves:** the share meeting the standard at every standard from 5 to 60
+minutes, for everyone and for the most and least deprived fifths of areas, so
+a result that depends on the exact standard chosen shows it.
+
+**Choice.** A standard asks about the nearest service. Where a GP's books are
+closed or a supermarket is small, the number within reach matters too, so TEAM
+counts every one within 10, 15, 20 and 30 minutes by walking, low-stress
+cycling or public transport, taking whichever reaches the most, and reports the
+share of people with two or more.
+
+**Urban areas only.** Auckland, Wellington and Christchurch take in rural land,
+where the question of access without a car is a different one. The figures can
+be limited to hexagons in Stats NZ urban areas of 1,000 people or more, the
+line Stats NZ draws between an urban area and a rural settlement.
+
+## 9. Who misses out
 
 For each service and standard, TEAM counts the people living in hexagons that
 miss it, overall and for groups: people in households without a car, children
@@ -372,7 +411,7 @@ giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
 Figures are summarised for each SA2 and, in Auckland, each of the 21 local boards.
 
-## 9. Why a place misses a standard
+## 10. Why a place misses a standard
 
 For every hexagon that misses a standard, TEAM records the first of these
 rules that applies. Each rule points to a different kind of fix.
@@ -389,7 +428,7 @@ The parameters (1.3, 12 km/h, four departures an hour) are in the
 configuration. These are screening rules: they say which kind of fix to look at
 first. A local study is still needed to design one.
 
-## 10. Checks
+## 11. Checks
 
 - Unit tests with known answers cover the standards, the reason rules, the
   competition adjustment and the equity statistics
@@ -404,7 +443,7 @@ first. A local study is still needed to design one.
 - Every routing run writes a manifest with its inputs, settings, date and row
   counts, including any empty tables left out of the timetable feed.
 
-## 11. What TEAM does not do
+## 12. What TEAM does not do
 
 - It uses the nearest service. School zones, GP enrolment, opening hours and
   store size are not modelled, so the nearest service may not be one a person

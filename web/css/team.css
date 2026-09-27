@@ -644,3 +644,17 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
   .map-key { max-width: 170px; padding: 7px 9px; }
   .key-label { font-size: 11px; }
 }
+
+/* Line charts: a few series read against each other ----------------------- */
+.line-chart { width: 100%; height: auto; overflow: visible; }
+.line-chart .grid { stroke: var(--line); stroke-width: 1; }
+.line-chart .marker { stroke: var(--navy); stroke-width: 1; stroke-dasharray: 3 3; }
+.line-chart .axis { fill: var(--muted); font-size: 9px; }
+.line-chart .series { fill: none; stroke-width: 1.6; opacity: 0.8; }
+.line-chart .series.is-emphasis { stroke-width: 2.4; opacity: 1; }
+.line-chart .series-label { font-size: 9.5px; font-weight: 600; }
+.robust { border-top: 1px solid var(--line); padding-top: 8px; }
+.robust > summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
+.robust-body { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.robust-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: baseline; font-size: 13px; }
+.robust-row strong { color: var(--navy); font-size: 17px; font-variant-numeric: tabular-nums; }

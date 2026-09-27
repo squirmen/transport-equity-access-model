@@ -312,3 +312,49 @@ export function burdenClass(value) {
   for (const edge of BURDEN_BREAKS) if (value >= edge) k += 1;
   return k;
 }
+
+// ------------------------------------------------------------ fare caps
+//
+// Several networks cap what a card pays in a day or a week, so someone who
+// travels every day pays less than every fare added up. `meta.caps` holds
+// them as {payments, daily, weekly}: a cap per traveller, either one figure
+// or one per number of zones travelled.
+
+/** The cap for this traveller and trip length, or Infinity if none applies.
+ *  A traveller with no cap of their own pays the adult fare, and so gets the
+ *  adult cap, but only where their fare is the adult fare. */
+export function capValue(table, meta, profile, zones, column) {
+  if (!table) return Infinity;
+  let cap = table[profile];
+  if (cap == null && table.adult != null) {
+    const own = fare(meta, zones, profile, column);
+    const adult = fare(meta, zones, 'adult', column);
+    if (Number.isFinite(own) && own === adult) cap = table.adult;
+  }
+  if (cap == null) return Infinity;
+  if (typeof cap === 'number') return cap;
+  const steps = Object.keys(cap).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!steps.length) return Infinity;
+  const step = steps.find((s) => s >= zones) ?? steps[steps.length - 1];
+  return Number(cap[String(step)]);
+}
+
+/** What a return trip every day for a week costs this traveller, after any
+ *  daily and weekly caps their way of paying qualifies for. */
+export function weekCost(meta, zones, { profile = 'adult', payment = 'hop', hour, weekday = true } = {}) {
+  if (!(zones > 0)) return 0;
+  if (freeTravel(meta, profile, hour, weekday)) return 0;
+  const column = paymentKey(meta, payment, hour, weekday);
+  const single = fare(meta, zones, profile, column);
+  if (!Number.isFinite(single)) return NaN;
+  const caps = meta.caps || {};
+  const applies = !caps.payments || caps.payments.includes(payment);
+  const day = Math.min(single * 2, applies ? capValue(caps.daily, meta, profile, zones, column) : Infinity);
+  return Math.min(day * 7, applies ? capValue(caps.weekly, meta, profile, zones, column) : Infinity);
+}
+
+/** Whether this network caps anything, so a week can cost less than seven days. */
+export function hasCaps(meta) {
+  const caps = (meta && meta.caps) || {};
+  return Boolean(caps.daily || caps.weekly);
+}

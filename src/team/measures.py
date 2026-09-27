@@ -77,6 +77,11 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
                 columns[f"t_{name}"] = by_origin["minutes"].reindex(origins).astype("float32")
                 columns[f"n_{name}"] = by_origin[counted].reindex(origins).fillna(0).astype("int32")
                 columns[f"id_{name}"] = by_origin["nearest_id"].reindex(origins)
+                # Counts at every step, for how much choice a place has at
+                # whatever standard is chosen; the usual time only.
+                if not suffix and mode_id in settings.standard_modes:
+                    for limit in COUNT_MINUTES:
+                        columns[f"n{limit}_{name}"] = by_origin[f"n{limit}"].reindex(origins).fillna(0).astype("int16")
     return pd.DataFrame(columns, index=origins)
 
 

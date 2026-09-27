@@ -140,6 +140,24 @@ def household_shares(settings: Settings) -> pd.DataFrame:
     return out
 
 
+URBAN_MINIMUM = 1000  # Stats NZ's line between an urban area and a rural settlement
+RURAL_NAME = r"^(?:Other rural|Rural other|Inland water|Oceanic)"
+
+
+def urban_flag(table: pd.DataFrame) -> pd.Series:
+    """Whether each hexagon is in an urban area of 1,000 people or more.
+
+    Stats NZ's urban rural classification names rural land "Other rural ...",
+    and counts a named place of fewer than 1,000 residents as a rural
+    settlement. Population is summed from the hexagons in this build, which
+    for the council-area builds covers each urban area whole.
+    """
+    names = table["urban_rural"].astype("string")
+    size = table.groupby(names)["population"].transform("sum")
+    rural = names.str.contains(RURAL_NAME, regex=True, na=True)
+    return (~rural & (size >= URBAN_MINIMUM)).fillna(False).astype(bool)
+
+
 def assign_areas(points, areas, field: str, max_distance: float = COAST_METRES) -> pd.Series:
     """The `field` value of the area each point falls in, indexed by point id.
 

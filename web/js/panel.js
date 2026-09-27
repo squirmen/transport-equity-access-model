@@ -2,7 +2,7 @@
 // Every function here renders from a model built in app.js; none of them
 // computes figures.
 
-import { bars } from './charts.js';
+import { bars, lines } from './charts.js';
 import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.js';
 
 // Everyday errands first, then education in the order a child meets it, then
@@ -263,11 +263,70 @@ function modePicker(current, set, standardModes) {
   return field;
 }
 
-function showSwitch(current, set, available, burden = false) {
-  if (!available) return null;
-  const options = [['minutes', 'Minutes'], ['fare', 'What it costs']];
-  if (burden) options.push(['burden', 'Fare burden']);
+function showSwitch(current, set, available, burden = false, choice = true) {
+  const options = [['minutes', 'Minutes']];
+  if (choice) options.push(['choice', 'Choice']);
+  if (available) options.push(['fare', 'What it costs']);
+  if (available && burden) options.push(['burden', 'Fare burden']);
+  if (options.length < 2) return null;
   return radios('Show', options, current, (show) => set({ show }), { compact: true });
+}
+
+/** Whether the answer holds at other times, by more than one way, and as the
+ *  standard moves. Folded away: it is for anyone who wants to lean on the
+ *  number, not for a first look. */
+function robustSection(model) {
+  const r = model.robust;
+  if (!r) return null;
+  const box = el('details', 'robust');
+  box.append(el('summary', null, 'How robust is this?'));
+  const body = el('div', 'robust-body');
+  const row = (figure, text) => {
+    const line = el('p', 'robust-row');
+    line.append(el('strong', null, figure), el('span', null, text));
+    return line;
+  };
+  if (r.everyTime != null) {
+    body.append(row(percent(r.everyTime), `meet the standard at every time of day this is timed for, against ${percent(r.now)} now.`));
+  }
+  body.append(row(percent(r.twoOrMore), 'could get there in time more than one way: walking, low-stress cycling or public transport.'));
+  body.append(row(percent(r.onlyOne), 'have only one way, so one route or service change would put them out of reach.'));
+  const chart = el('div', 'chart');
+  lines(chart, r.series, {
+    xs: r.xs,
+    marker: r.standard,
+    format: (v) => (Number.isFinite(v) ? `${Math.round(v * 100)}%` : '–'),
+    caption: 'Share meeting the standard as the standard changes (minutes)',
+    label: 'Share meeting the standard at each standard from 5 to 60 minutes, for everyone and the most and least deprived areas',
+  });
+  body.append(chart);
+  box.append(body);
+  return box;
+}
+
+/** How many of a service are within the standard, not only whether one is. */
+export function renderChoice(root, model, set) {
+  const chart = el('div', 'chart');
+  bars(chart, model.byQuintile, {
+    format: (v) => percent(v),
+    caption: `Share with two or more ${model.plural} in time, by neighbourhood deprivation`,
+    label: 'Share with two or more in time, by NZDep',
+  });
+  const step = model.minutes < model.standard
+    ? el('p', 'note', `Counted within ${model.minutes} minutes, the nearest step at or under the ${model.standard}-minute standard.`)
+    : null;
+  root.replaceChildren(...[
+    hero(percent(model.twoOrMore), `of ${place.residents} have two or more ${model.plural} within ${model.minutes} minutes without a car.`,
+      `${percent(model.none)} have none. A choice matters where a practice's books are closed or the nearest one is small.`),
+    step,
+    showSwitch('choice', set, model.canShowFare, model.canShowBurden),
+    legend(`${model.plural[0].toUpperCase()}${model.plural.slice(1)} within ${model.minutes} min without a car`, model.legend, { divider: 2 }),
+    chart,
+    method('How this is worked out',
+      'Counts every one reachable within the time by walking, low-stress cycling or public transport, taking whichever of the '
+        + 'three reaches the most. Public transport is at its usual time with no fare limit. Counts are kept at 10, 15, 20 and '
+        + '30 minutes, so another standard uses the nearest step below it.'),
+  ].filter(Boolean));
 }
 
 export function renderAccess(root, model, set) {
@@ -276,9 +335,10 @@ export function renderAccess(root, model, set) {
       hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
       model.compare ? el('p', 'note is-fare', model.compare) : null,
       fareLine(model),
-      showSwitch('minutes', set, model.canShowFare, model.canShowBurden),
+      showSwitch('minutes', set, model.canShowFare, model.canShowBurden, model.canShowChoice),
       modePicker(model.mode, set, model.standardModes),
       legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
+      robustSection(model),
     ].filter(Boolean),
   );
 }
@@ -296,7 +356,7 @@ export function renderFareSurface(root, model, set) {
       `of ${place.residents} can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
       model.paid > 0 ? `${count(model.paid)} more can, but only by paying.` : null,
     ),
-    showSwitch('fare', set, true, model.canShowBurden),
+    showSwitch('fare', set, true, model.canShowBurden, true),
     legend(`Cheapest way to reach ${model.noun}, ${model.trip}`, model.legend, { divider: 1, note: model.note }),
     el('p', 'note', `${count(model.none)} people cannot reach ${model.noun} within ${model.standard} minutes at any price without a car.`),
   );
@@ -364,30 +424,33 @@ function figures(model) {
 export function renderBurden(root, model, set) {
   const share = (v) => (Number.isFinite(v) ? `${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%` : '–');
   const ratio = model.least > 0 ? model.most / model.least : NaN;
+  // Per trip against a day's income, or per week against a week's.
+  const period = model.week ? "a week's income" : "a day's income";
+  const what = model.week ? 'a week of daily return trips' : `a ${model.trip} fare`;
   let figure = '–';
   let text = `Nobody here needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
     text = ratio >= 1.05
-      ? `as much of a day's income goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
+      ? `as much of ${period} goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
       : ratio <= 0.95
-        ? `the share of a day's income the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
-        : `The fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
+        ? `the share of ${period} the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
+        : `The fare to ${model.noun} takes about the same share of ${period} in more and less deprived areas.`;
   } else if (model.paying > 0) {
     // A city with no areas in one end of the deprivation scale has no ratio.
     figure = share(model.overall);
-    text = `of a day's income goes on a ${model.trip} fare to ${model.noun}, on average.`;
+    text = `of ${period} goes on ${what} to ${model.noun}, on average.`;
   }
   const sub = model.paying > 0
     ? (Number.isFinite(ratio)
-      ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least. `
+      ? `${what[0].toUpperCase()}${what.slice(1)} takes ${share(model.most)} of ${period} in the most deprived fifth of areas and ${share(model.least)} in the least. `
       : '') + `Counted for the ${count(model.paying)} people who would ride public transport there within ${model.standard} minutes.`
     : null;
   const chartQ = el('div', 'chart');
   bars(chartQ, model.byQuintile, {
     format: share,
     max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
-    caption: "Share of a day's income, by neighbourhood deprivation",
+    caption: `Share of ${period}, by neighbourhood deprivation`,
     label: 'Fare burden by NZDep quintile',
   });
   const chartG = el('div', 'chart');
@@ -398,11 +461,19 @@ export function renderBurden(root, model, set) {
     label: 'Fare burden by group',
   });
   const meta = model.meta || {};
-  root.replaceChildren(
+  root.replaceChildren(...[
     hero(figure, text, sub),
-    showSwitch('burden', set, true, true),
-    legend(`Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
-    el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of a day's income on the ${model.trip} fare.`),
+    showSwitch('burden', set, true, true, true),
+    model.canWeek
+      ? radios('Counting', [['trip', 'One return trip'], ['week', 'Every day for a week']], model.basket, (basket) => set({ basket }), { compact: true })
+      : null,
+    legend(`Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of ${period}`, model.legend, { divider: 1 }),
+    el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of ${period} on ${what}.`),
+    model.week
+      ? el('p', 'note', model.capped > 0
+        ? `A fare cap lowers the week's cost for ${count(model.capped)} of them.`
+        : 'No cap applies: a week of these trips stays under the cap, or this way of paying has none.')
+      : null,
     chartQ,
     chartG,
     method(
@@ -419,11 +490,12 @@ export function renderBurden(root, model, set) {
         + 'burden would be higher. Areas the census publishes above $200,000 are held at that figure.',
       'A trip that takes a share of a day\'s income, made every day, takes that share of income over a month. That is '
         + 'the 60-trip month the World Bank uses to judge whether public transport is affordable (Carruthers, Dick and '
-        + 'Saurkar, 2005). Weekly fare caps would lower the cost of travelling that often, and are not applied here.',
+        + 'Saurkar, 2005). Every day for a week counts a return trip each day after the network\'s daily and weekly '
+        + 'caps, where it has them and the way of paying qualifies, and sets it against a week\'s income.',
       'Incomes describe an area, not a household, so a low-income household in a well-off area is counted at the '
         + "area's income.",
     ),
-  );
+  ].filter(Boolean));
 }
 
 export function renderPeople(root, model, set) {

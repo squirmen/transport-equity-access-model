@@ -62,6 +62,11 @@ function prepare(raw) {
     access: mapValues(c.access, (byKey) => mapValues(byKey, numeric)),
     cost: mapValues(c.cost, (byZone) => mapValues(byZone, numeric)),
     zone: c.zone || null,
+    // How many of each service are within 10, 15, 20 and 30 minutes.
+    choice: mapValues(c.choice, (byLimit) => mapValues(byLimit, numeric)),
+    // 1 where a hexagon is in an urban area of 1,000 people or more; absent
+    // when every hexagon is.
+    urban: c.urban ? Uint8Array.from(c.urban) : null,
     // Public transport in the windows after each one's usual window. The
     // usual window is what `t`, `jobs`, `cost` and `access` start out holding.
     windowed: {
@@ -86,6 +91,7 @@ function prepare(raw) {
   for (const [group, share] of Object.entries(data.shares)) {
     data.weights[group] = Float32Array.from(data.pop, (p, i) => (Number.isFinite(share[i]) ? (p * share[i]) / 100 : 0));
   }
+  data.everywhere = { pop: data.pop, weights: data.weights };
   return data;
 }
 
@@ -161,6 +167,36 @@ export function setWindow(data, wanted) {
     }
     data.access.pt = scores;
   }
+}
+
+/** Count only people in urban areas, or everyone again.
+ *
+ *  Every figure reads `data.pop` and `data.weights`, so swapping them for
+ *  copies with rural hexagons at zero changes every figure at once. */
+export function setUrban(data, on) {
+  if (!data.urban) return;
+  if (!on) {
+    data.pop = data.everywhere.pop;
+    data.weights = data.everywhere.weights;
+    return;
+  }
+  if (!data.urbanOnly) {
+    const mask = (w) => Float32Array.from(w, (v, i) => (data.urban[i] ? v : 0));
+    data.urbanOnly = {
+      pop: mask(data.everywhere.pop),
+      weights: Object.fromEntries(Object.entries(data.everywhere.weights).map(([k, w]) => [k, mask(w)])),
+    };
+  }
+  data.pop = data.urbanOnly.pop;
+  data.weights = data.urbanOnly.weights;
+}
+
+/** How many of a service are within the standard: the count for the largest
+ *  step (10, 15, 20 or 30 minutes) that fits inside it. */
+export function choiceWithin(data, service, standard) {
+  const steps = Object.keys(data.choice[service] || {}).map(Number).filter((m) => m <= standard);
+  if (!steps.length) return null;
+  return { minutes: Math.max(...steps), counts: data.choice[service][String(Math.max(...steps))] };
 }
 
 /** When a trip in this window happens, for pricing it: the hour it starts and

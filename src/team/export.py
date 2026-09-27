@@ -176,6 +176,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "m_rail": _ints(table["m_rail_ferry"]),
         "m_bike": _ints(table["m_low_stress_route"]),
         "t": {s: {m: _ints(table[f"t_{s}_{m}"]) for m in WEB_MODES if f"t_{s}_{m}" in table} for s in services},
+        "choice": choice_payload(settings, table),
+        # Whether each hexagon is in an urban area, sent only where some are not.
+        "urban": [int(v) for v in table["urban"]] if "urban" in table and not table["urban"].all() else None,
         "tw": by_window,
         "km": {s: _floats(table[f"km_{s}"], 2) for s in services},
         "nearest": nearest,
@@ -192,6 +195,24 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
 
 
 ACCESS_WEB_KEYS = ("jobs", "everyday", "education", "all")
+
+
+def choice_payload(settings: Settings, table: pd.DataFrame) -> dict:
+    """How many of each service are within 10, 15, 20 and 30 minutes, by the
+    counting mode that reaches most of them. Public transport is at its usual
+    time and with no fare limit."""
+    from .measures import COUNT_MINUTES
+
+    out: dict[str, dict] = {}
+    for service in settings.services:
+        block = {}
+        for limit in COUNT_MINUTES:
+            parts = [f"n{limit}_{service}_{m}" for m in settings.standard_modes if f"n{limit}_{service}_{m}" in table]
+            if parts:
+                block[str(limit)] = _ints(table[parts].max(axis=1))
+        if block:
+            out[service] = block
+    return out
 
 
 def cost_payload(settings: Settings, table: pd.DataFrame, by_window: bool = False) -> dict:
@@ -292,7 +313,9 @@ def fare_meta(settings: Settings, summary: dict) -> dict:
         "adjacency": record.get("adjacency", {}),
         "fares": table.get("fares", {}),
         "free": table.get("free", {}),
-        "caps": (table.get("rules", {}) or {}).get("caps", {}),
+        # Daily and weekly caps in one shape: {payments, daily, weekly}, each
+        # cap by traveller, and by zones travelled where the network varies it.
+        "caps": table.get("caps_normalised", {}),
         "source_url": table.get("source_url"),
         "read_on": table.get("read_on"),
         "zone_source_url": record.get("zone_source"),
@@ -421,6 +444,11 @@ FIELD_NOTES = {
     "accessidx_": "The gravity score as an index where the population-weighted regional mean is 100.",
     "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
     "costzone": "Public transport fare zone the cell sits in.",
+    "urban": "True when the cell is in a Stats NZ urban area of 1,000 or more residents.",
+    "n10_": "Destinations of this type within 10 minutes by this mode (n15, n20 and n30 likewise).",
+    "n15_": "Destinations of this type within 15 minutes by this mode.",
+    "n20_": "Destinations of this type within 20 minutes by this mode.",
+    "n30_": "Destinations of this type within 30 minutes by this mode.",
     "household_size": "Mean usual residents per household in the SA1, 2023 Census.",
     "income_equivalised": "Median household income divided by the square root of household size, raised to 2026 by "
                           "the growth in average hourly earnings; used for the fare burden.",

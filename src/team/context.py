@@ -72,7 +72,11 @@ def timetable(settings: Settings):
     with zipfile.ZipFile(settings.data("gtfs")) as zf:
         running = {day: set(active_services(zf, day)) for day in {date, *dated.values()}}
         routes = _read(zf, "routes.txt", usecols=["route_id", "route_type"])
-        all_trips = _read(zf, "trips.txt", usecols=["trip_id", "route_id", "service_id", "shape_id"])
+        # shape_id is optional in GTFS; a feed written from a printed timetable has none.
+        all_trips = _read(zf, "trips.txt")
+        if "shape_id" not in all_trips:
+            all_trips["shape_id"] = pd.NA
+        all_trips = all_trips[["trip_id", "route_id", "service_id", "shape_id"]]
         all_trips = all_trips.merge(routes, on="route_id", how="left")
         all_trips["route_type"] = pd.to_numeric(all_trips["route_type"], errors="coerce")
         times = _read(zf, "stop_times.txt", usecols=["trip_id", "departure_time", "stop_id"])
@@ -168,6 +172,14 @@ def overlays(settings: Settings) -> dict[str, dict]:
     import geopandas as gpd
 
     stops, trips, times = timetable(settings)
+    # A feed with no shapes still has stops in order, so each trip pattern is
+    # drawn as a line through its stops.
+    shapeless = trips["shape_id"].isna()
+    if shapeless.any():
+        ordered = times[times["trip_id"].isin(set(trips.loc[shapeless, "trip_id"]))].sort_values(["trip_id", "t"])
+        patterns = ordered.groupby("trip_id")["stop_id"].agg(tuple)
+        trips = trips.copy()
+        trips.loc[shapeless, "shape_id"] = trips.loc[shapeless, "trip_id"].map(lambda t: f"stops:{hash(patterns.get(t, ()))}")
     window = settings.routing["windows"][settings.jobs["window"]]
     hour, minute = (int(p) for p in str(window["start"]).split(":"))
     start, length = hour * 3600 + minute * 60, int(window["minutes"]) * 60
@@ -192,7 +204,18 @@ def overlays(settings: Settings) -> dict[str, dict]:
     import shapely
 
     with zipfile.ZipFile(settings.data("gtfs")) as zf:
-        shapes = _read(zf, "shapes.txt")
+        shapes = _read(zf, "shapes.txt") if "shapes.txt" in zf.namelist() else pd.DataFrame(
+            columns=["shape_id", "shape_pt_sequence", "shape_pt_lon", "shape_pt_lat"])
+    if shapeless.any():
+        coords = stops.set_index("stop_id")[["stop_lon", "stop_lat"]]
+        drawn = []
+        for shape_id, trip_id in trips.loc[shapeless].drop_duplicates("shape_id")[["shape_id", "trip_id"]].itertuples(index=False):
+            sequence = ordered[ordered["trip_id"] == trip_id]["stop_id"]
+            for k, stop in enumerate(sequence):
+                if stop in coords.index:
+                    drawn.append({"shape_id": shape_id, "shape_pt_sequence": k,
+                                  "shape_pt_lon": coords.at[stop, "stop_lon"], "shape_pt_lat": coords.at[stop, "stop_lat"]})
+        shapes = pd.concat([shapes, pd.DataFrame(drawn)], ignore_index=True)
     shapes = shapes[shapes["shape_id"].isin(best.index)].copy()
     shapes["seq"] = shapes["shape_pt_sequence"].astype(int)
     shapes[["lon", "lat"]] = shapes[["shape_pt_lon", "shape_pt_lat"]].astype(float)
@@ -222,8 +245,10 @@ def overlays(settings: Settings) -> dict[str, dict]:
     # Where you can actually board. A route line says a bus passes; a stop says
     # you can get on, which is the thing that decides whether a place has
     # public transport or merely has it going past.
-    window = settings.jobs["window"]
-    per_hour = stops.get(f"per_hour_{window}", pd.Series(0.0, index=stops.index))
+    # Each stop at its busiest time, so a network that starts after the
+    # morning peak still shows its stops.
+    rates = [f"per_hour_{w}" for w in settings.routing["windows"] if f"per_hour_{w}" in stops]
+    per_hour = stops[rates].max(axis=1) if rates else pd.Series(0.0, index=stops.index)
     kinds = np.where(
         stops["rail_or_ferry"], "rail_ferry",
         np.where(per_hour >= FREQUENT_PER_HOUR, "frequent", "other"),
