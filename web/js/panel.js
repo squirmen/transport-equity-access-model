@@ -328,47 +328,48 @@ export function renderBurden(root, model, set) {
   const share = (v) => (Number.isFinite(v) ? `${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%` : '–');
   const ratio = model.least > 0 ? model.most / model.least : NaN;
   let figure = '–';
-  let text = `Nobody here has to pay to reach ${model.noun} within ${model.standard} minutes.`;
+  let text = `No bus reaches ${model.noun} within ${model.standard} minutes here.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
     text = ratio >= 1.05
-      ? `as much of a day's income goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
+      ? `as much of a day's income goes on the bus fare to ${model.noun} in the most deprived areas as in the least deprived.`
       : ratio <= 0.95
-        ? `the share of a day's income the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
-        : `The fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
+        ? `the share of a day's income the bus fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
+        : `The bus fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
   } else if (model.paying > 0) {
     figure = share(model.most || model.least);
-    text = `of a day's income goes on a ${model.trip} fare to ${model.noun}, for the people who have to pay.`;
+    text = `of a day's income goes on a ${model.trip} bus fare to ${model.noun}.`;
   }
   const sub = Number.isFinite(ratio)
-    ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least, for the ${count(model.paying)} people who have to pay to get there in time.`
+    ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least, for the ${count(model.paying)} people with a bus there within ${model.standard} minutes.`
     : null;
   const chartQ = el('div', 'chart');
   bars(chartQ, model.byQuintile, {
     format: share,
     max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
-    caption: "Share of a day's income, for those who pay, by neighbourhood deprivation",
+    caption: "Share of a day's income, by neighbourhood deprivation",
     label: 'Fare burden by NZDep quintile',
   });
   const chartG = el('div', 'chart');
   bars(chartG, [...model.byGroup].sort((a, b) => (b.value || 0) - (a.value || 0)), {
     format: share,
     max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
-    caption: 'By group, for those who pay',
+    caption: 'By group',
     label: 'Fare burden by group',
   });
   const meta = model.meta || {};
   root.replaceChildren(
     hero(figure, text, sub),
     showSwitch('burden', set, true, true),
-    legend(`Cheapest way to reach ${model.noun} within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
+    legend(`Bus fare to ${model.noun}, within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
     el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of a day's income on the ${model.trip} fare.`),
     chartQ,
     chartG,
     method(
       'How this is worked out',
-      "Burden is the fare for the cheapest way to reach the nearest one inside the standard, divided by a day's "
-        + 'income where the traveller lives. The fare follows the traveller, payment and time chosen above.',
+      "Burden is the fare for the cheapest bus trip that reaches the nearest one inside the standard, divided by a "
+        + "day's income where the traveller lives. It is counted whether or not the traveller could walk instead. The "
+        + 'fare follows the traveller, payment and time chosen above.',
       "Income is the 2023 Census median household income of the area, divided by the square root of its average "
         + 'household size so a large household on the same income counts as less well off, and raised by '
         + `${((meta.uplift || 1) - 1) * 100 > 0 ? (((meta.uplift || 1) - 1) * 100).toFixed(1) : '0'}% for wage growth since `

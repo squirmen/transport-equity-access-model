@@ -55,3 +55,13 @@ test('the cheapest way counts walking as free and keeps the true zone count', ()
 test('burden bands break at 2.5, 5 and 10 percent', () => {
   assert.deepEqual([0, 0.02, 0.025, 0.049, 0.05, 0.1, 0.3].map(burdenClass), [0, 1, 2, 2, 3, 4, 4]);
 });
+
+test('the bus-only count ignores walking and says when no bus is in time', () => {
+  const data = {
+    n: 3,
+    meta: { standard_modes: ['walk', 'pt'], fares: { kind: 'zones', zone_cap: 2 } },
+    t: { gp: { walk: f32([12, 50, 50]) } },
+    cost: { gp: { z1: f32([15, 40, null]), z2: f32([15, 18, null]) } },
+  };
+  assert.deepEqual(Array.from(cheapestZones(data, 'gp', 20, { walkable: false })), [1, 2, -2]);
+});

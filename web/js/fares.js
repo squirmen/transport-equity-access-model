@@ -275,10 +275,14 @@ export function incomeZones(meta, daily, share, state) {
 /** The fewest zones that reach the nearest one inside the standard: 0 when
  *  walking or low-stress cycling already does, -2 when nothing does, -1 when
  *  there is no route at all. Unlike cheapestFareClasses, this keeps the true
- *  count on networks with more than four zones. */
-export function cheapestZones(data, service, standard) {
+ *  count on networks with more than four zones.
+ *
+ *  With `walkable` false it asks only about the bus: the fewest zones of a
+ *  public transport trip that gets there in time, whether or not walking
+ *  would do too. That is the fare a bus rider actually pays. */
+export function cheapestZones(data, service, standard, { walkable = true } = {}) {
   const cap = zoneCap(data.meta.fares);
-  const free = data.meta.standard_modes.filter((m) => m !== 'pt');
+  const free = walkable ? data.meta.standard_modes.filter((m) => m !== 'pt') : [];
   const priced = data.cost[service] || {};
   const out = new Int8Array(data.n).fill(-1);
   for (let i = 0; i < data.n; i += 1) {
@@ -298,6 +302,8 @@ export function cheapestZones(data, service, standard) {
           found = -2;
         }
       }
+      // Routed, but no bus gets there in time.
+      if (!walkable && found === -1 && data.t[service]?.walk && Number.isFinite(data.t[service].walk[i])) found = -2;
     }
     out[i] = found;
   }

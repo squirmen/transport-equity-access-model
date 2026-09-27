@@ -468,19 +468,20 @@ function fareSurfaceModel() {
   };
 }
 
-/** What the cheapest way to the nearest one costs, against local income.
+/** What the bus fare to the nearest one means against local income.
  *
  *  The same fare is a different burden in different places, so this maps the
- *  fare as a share of a day's income where each person lives. Walking and
- *  low-stress cycling count as free. The panel compares the most and least
- *  deprived areas, which is the question a flat fare map cannot answer.
+ *  fare for the cheapest bus trip that gets there in time as a share of a
+ *  day's income where each person lives. It asks about the bus whether or not
+ *  someone could walk instead, because plenty of people cannot. The panel
+ *  compares the most and least deprived areas, which a dollar map cannot.
  */
 function burdenModel() {
   const service = state.service;
   const standard = standardFor(service);
   const meta = data.meta.fares;
   const { hour, weekday } = tripWindow(service);
-  const zones = cheapestZones(data, service, standard);
+  const zones = cheapestZones(data, service, standard, { walkable: false });
   const trips = state.returnTrip ? 2 : 1;
   const trip = state.returnTrip ? 'return' : 'one way';
   const column = paymentKey(meta, state.payment, hour, weekday);
@@ -497,16 +498,15 @@ function burdenModel() {
     burden[i] = costOf(z) / (income / 365);
     classes[i] = burdenClass(burden[i]);
   }
-  // Average burden among the people who have to pay to get there in time.
-  // Counting everyone who can walk as paying nothing would bury the question
-  // under the places where it does not arise.
+  // Average burden for everyone with a bus there in time. A free fare counts
+  // as nothing, because for that traveller it is nothing.
   const meanBurden = (weights, mask) => {
     let total = 0;
     let sum = 0;
     for (let i = 0; i < data.n; i += 1) {
       if (mask && !mask[i]) continue;
       const w = weights[i];
-      if (!(w > 0) || !(burden[i] > 0)) continue;
+      if (!(w > 0) || !Number.isFinite(burden[i])) continue;
       total += w;
       sum += w * burden[i];
     }
@@ -523,7 +523,7 @@ function burdenModel() {
   let heavy = 0;
   let paying = 0;
   for (let i = 0; i < data.n; i += 1) {
-    if (!(weights[i] > 0) || !(burden[i] > 0)) continue;
+    if (!(weights[i] > 0) || !Number.isFinite(burden[i])) continue;
     paying += weights[i];
     if (burden[i] >= 0.05) heavy += weights[i];
   }
@@ -531,9 +531,9 @@ function burdenModel() {
     classes,
     colours: FARE,
     tooltip: (i) => {
-      if (classes[i] === 5) return [`${SERVICE_SHORT[service]}: no way to get there within ${standard} min`];
+      if (classes[i] === 5) return [`${SERVICE_SHORT[service]}: no bus gets there within ${standard} min`];
       if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
-      if (burden[i] === 0) return [`${SERVICE_SHORT[service]}: free, on foot, by bike or on a free fare`];
+      if (burden[i] === 0) return [`${SERVICE_SHORT[service]}: free fare for this traveller`];
       const perYear = Math.round(data.income[i] / 1000);
       return [
         `${SERVICE_SHORT[service]}: ${money(costOf(zones[i]))} ${trip}, ${percentOf(burden[i])} of a day's income here`,
@@ -556,7 +556,7 @@ function burdenModel() {
       canShowFare: true,
       canShowBurden: true,
       meta: data.meta.affordability,
-      legend: ['Free', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', 'No way'].map((label, k) => ({ colour: FARE[k], label })),
+      legend: ['Free fare', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', 'No bus in time'].map((label, k) => ({ colour: FARE[k], label })),
     },
   };
 }

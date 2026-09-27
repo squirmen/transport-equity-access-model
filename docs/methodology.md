@@ -306,12 +306,12 @@ Saurkar (2005) use for the World Bank's public transport affordability index,
 so the burden of a daily return trip reads directly against it. Weekly fare
 caps, which lower the cost of travelling that often, are not applied.
 
-The site uses the burden two ways. Its map shows the cheapest way to reach the
-nearest destination inside the standard, as a share of a day's income:
-walking or low-stress cycling is free, and otherwise it is the fare for the
-fewest zones that get there in time. Its panel compares the average burden in
-the most and least deprived fifths of areas, for the people who have to pay
-to get there in time. And a fare budget can be set as a share of a day's
+The site uses the burden two ways. Its map shows the fare for the cheapest bus
+trip that reaches the nearest destination inside the standard, as a share of a
+day's income. It is counted whether or not the traveller could walk or cycle
+instead, because plenty of people cannot. Its panel compares the average
+burden in the most and least deprived fifths of areas, for everyone with a bus
+there in time. And a fare budget can be set as a share of a day's
 income instead of in dollars, which gives every area its own budget, so the
 same share buys fewer zones where incomes are lower; every access and equity
 figure then follows. This follows Guzman and Oviedo (2018), who judged a
