@@ -1,13 +1,15 @@
 cff-version: 1.2.0
 message: "If you use TEAM, please cite it as below."
 title: "TEAM: Transport Equity and Access Model"
-version: 0.1.0
+version: 0.5.0
 abstract: >-
-  Travel times from every populated part of Auckland to everyday services and
-  jobs by walking, low-stress cycling and public transport; the people beyond
-  stated access standards by deprivation, car ownership and age; and screening
-  reasons that point to the kind of change that would bring each place within
-  reach.
+  Travel times from every populated part of seventeen New Zealand urban areas
+  to everyday services and jobs by walking, low-stress cycling and public
+  transport, at three times of day and under a fare budget; the people beyond
+  stated access standards, how far short they are and how that falls by
+  deprivation, income, age, car ownership, ethnicity and disability; fares
+  against local income; and screening reasons that point to the kind of change
+  that would bring each place within reach.
 authors:
   - family-names: Welch
     given-names: Timothy F.

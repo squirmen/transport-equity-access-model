@@ -1657,34 +1657,71 @@ async function start() {
   // keyboard and screen readers out of them.
   $('panel').inert = true;
   $('panel').setAttribute('aria-hidden', 'true');
-  $('start-lede').textContent = `Everyday services and jobs within reach without a car, for ${count(index.totals.population)} `
-    + `people across ${index.totals.cities} urban ${index.totals.cities === 1 ? 'area' : 'areas'}.`;
-  const list = $('start-list');
-  list.replaceChildren(...index.cities.map((city) => {
+  $('start-lede').textContent = `How much people can reach without a car: everyday services and jobs for `
+    + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand urban areas.`;
+  const everyday = (city) => (Number.isFinite(city.everyday_all_share) ? `${Math.round(city.everyday_all_share * 100)}%` : '–');
+  const jobs = (city) => (Number.isFinite(city.jobs_pt_45_typical) ? count(city.jobs_pt_45_typical) : '–');
+
+  // The three largest places lead, each with a map drawn from its own data.
+  const featured = index.cities.slice(0, 3);
+  $('start-featured').replaceChildren(...featured.map((city) => {
     const item = el('li');
-    const button = el('button', 'start-city');
+    const button = el('button', 'start-feature');
     button.type = 'button';
-    const figures = [];
-    if (Number.isFinite(city.everyday_all_share)) {
-      figures.push(`${Math.round(city.everyday_all_share * 100)}% reach a supermarket, GP and pharmacy without a car`);
-    }
-    if (Number.isFinite(city.jobs_pt_45_typical)) {
-      figures.push(`typical resident reaches ${count(city.jobs_pt_45_typical)} jobs by public transport in 45 min`);
-    }
-    button.append(
-      el('span', 'start-city-name', city.place),
-      el('span', 'start-city-people', `${count(city.population)} people`),
-      el('span', 'start-city-figures', figures.join(' · ')),
+    const thumb = el('img', 'start-thumb');
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.src = `${DATA_BASE}${city.thumb}`;
+    const stats = el('span', 'start-stats');
+    const stat = (figure, text) => {
+      const box = el('span', 'start-stat');
+      box.append(el('strong', null, figure), el('span', null, text));
+      return box;
+    };
+    stats.append(
+      stat(everyday(city), 'reach a supermarket, GP and pharmacy without a car'),
+      stat(jobs(city), 'jobs by public transport in 45 min, for a typical resident'),
     );
+    const head = el('span', 'start-feature-head');
+    head.append(el('span', 'start-city-name', city.place), el('span', 'start-city-people', `${count(city.population)} people`));
+    button.append(thumb, head, stats);
     button.addEventListener('click', () => goToCity(city.slug));
     item.append(button);
     return item;
   }));
+
+  // The rest as rows that compare at a glance, with bars on a shared scale.
+  const others = index.cities.slice(3);
+  const mostJobs = Math.max(...index.cities.map((c) => c.jobs_pt_45_typical || 0)) || 1;
+  // The label shows only on narrow screens, where the column heads are hidden.
+  const bar = (value, share, label) => {
+    const cell = el('span', 'start-bar');
+    const fill = el('span', 'start-bar-fill');
+    fill.style.width = `${Math.max(0, Math.min(1, share)) * 100}%`;
+    cell.append(el('span', 'start-bar-value', value), fill, el('span', 'start-bar-label', label));
+    return cell;
+  };
+  const list = $('start-list');
+  list.replaceChildren(...others.map((city) => {
+    const button = el('button', 'start-row');
+    button.type = 'button';
+    button.setAttribute('role', 'listitem');
+    button.append(
+      el('span', 'start-city-name', city.place),
+      el('span', 'start-city-people', count(city.population)),
+      bar(everyday(city), city.everyday_all_share || 0, 'all three services'),
+      bar(jobs(city), (city.jobs_pt_45_typical || 0) / mostJobs, 'jobs, 45 min'),
+    );
+    button.setAttribute('aria-label', `${city.place}, ${count(city.population)} people, ${everyday(city)} reach all three everyday services, `
+      + `${jobs(city)} jobs by public transport in 45 minutes`);
+    button.addEventListener('click', () => goToCity(city.slug));
+    return button;
+  }));
   const built = new Date(`${index.built}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-  $('start-note').textContent = `Built ${built}. Pick a place to begin.`;
+  $('start-note').textContent = `Timetables from September 2026, 2023 Census. Built ${built}. Version ${index.version}.`;
   wireCityPicker(index, null);
   wireLocate(index);
-  list.querySelector('.start-city')?.focus();
+  $('start-featured').querySelector('.start-feature')?.focus();
 }
 
 /** Ask where the visitor is only when they ask to be located. */
@@ -1713,23 +1750,34 @@ function wireLocate(index) {
 function wireCityPicker(index, current) {
   const picker = $('city');
   if (!picker) return;
-  const options = [el('option', null, current ? 'Change place' : 'Pick a place'), ...index.cities.map((city) => {
+  // The picker shows the place on screen. Picking another goes there; the
+  // last entry goes back to the list that compares them all.
+  const options = [];
+  if (!current) {
+    const prompt = el('option', null, 'Pick a place');
+    prompt.value = '';
+    prompt.disabled = true;
+    prompt.selected = true;
+    options.push(prompt);
+  }
+  for (const city of index.cities) {
     const option = el('option', null, city.place);
     option.value = city.slug;
     if (city.slug === current) option.selected = true;
-    return option;
-  })];
+    options.push(option);
+  }
   if (current) {
-    const all = el('option', null, 'All places');
-    all.value = '*';
-    options.push(all);
+    const rule = el('option', null, '──────────');
+    rule.disabled = true;
+    const list = el('option', null, 'Compare all places');
+    list.value = '*';
+    options.push(rule, list);
   }
   picker.replaceChildren(...options);
-  picker.firstChild.value = '';
   picker.disabled = false;
   picker.addEventListener('change', () => {
     if (picker.value === '*') goToList();
-    else if (picker.value) goToCity(picker.value);
+    else if (picker.value && picker.value !== current) goToCity(picker.value);
   });
 }
 
@@ -1852,9 +1900,11 @@ async function init() {
   }
   wireControls();
   // The weekday and any other day a window was timed on, such as a Saturday.
-  const days = [...new Set([data.meta.routing_date, ...Object.values(data.meta.windows || {}).map((w) => w.date).filter(Boolean)])];
-  const date = days.map((d) => new Date(`${d}T12:00:00`).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })).join(' and ');
-  $('build-note').textContent = `Timetables ${date} ${String(data.meta.routing_date).slice(0, 4)} · Census 2023 · v${data.meta.version}`;
+  const days = [...new Set([data.meta.routing_date, ...Object.values(data.meta.windows || {}).map((w) => w.date).filter(Boolean)])].sort();
+  const last = new Date(`${days[days.length - 1]}T12:00:00`);
+  const dayList = days.map((d) => new Date(`${d}T12:00:00`).getDate()).join(' and ');
+  const month = last.toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' });
+  $('build-note').textContent = `Timetables ${dayList} ${month} · Census 2023 · v${data.meta.version}`;
   const phone = window.matchMedia('(max-width: 760px)').matches;
   if (phone) {
     // Phones open on the map, with the controls folded into one bar.

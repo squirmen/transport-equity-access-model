@@ -136,7 +136,7 @@
 
   <div class="map-tools">
     <div class="city-picker">
-      <label class="visually-hidden" for="city">Urban area</label>
+      <label class="visually-hidden" for="city">Place</label>
       <select id="city"></select>
     </div>
     <div class="segmented basemaps" id="basemaps" role="group" aria-label="Basemap"></div>
@@ -153,16 +153,33 @@
   <section id="start" class="start" hidden aria-labelledby="start-title">
     <div class="start-card">
       <header class="start-head">
-        <img class="brand-mark" src="assets/team-mark.svg" alt="" width="44" height="44">
-        <div>
+        <img class="start-mark" src="assets/team-mark.svg" alt="" width="46" height="46">
+        <div class="start-titles">
           <h1 id="start-title">TEAM</h1>
-          <p class="tagline">Transport Equity and Access Model</p>
+          <p class="start-tagline">Transport Equity and Access Model</p>
         </div>
+        <a class="start-lab" href="https://betterplaces.blogs.auckland.ac.nz" rel="noopener">
+          <img src="assets/bpl-mark.svg" alt="" width="16" height="16"><span>Better Places Lab</span>
+        </a>
       </header>
       <p class="start-lede" id="start-lede"></p>
-      <p class="start-locate"><button class="text-button" id="start-locate" type="button">Use my location</button> <span class="note" id="start-locate-note" role="status"></span></p>
-      <ul class="start-list" id="start-list"></ul>
-      <p class="note" id="start-note"></p>
+      <div class="start-actions">
+        <button class="start-button" id="start-locate" type="button">Use my location</button>
+        <span class="note" id="start-locate-note" role="status"></span>
+      </div>
+      <ul class="start-featured" id="start-featured" aria-label="The three largest places"></ul>
+      <p class="start-key">
+        <span><span class="key-dot is-met"></span>A supermarket, GP and pharmacy all within reach without a car</span>
+        <span><span class="key-dot is-missed"></span>Not all three</span>
+      </p>
+      <h2 class="start-sub" id="start-others-title">More places</h2>
+      <div class="start-table" role="list" aria-labelledby="start-others-title">
+        <div class="start-row start-row-head" aria-hidden="true">
+          <span>Place</span><span>People</span><span>Reach all three everyday services</span><span>Jobs by public transport, 45 min</span>
+        </div>
+        <div id="start-list"></div>
+      </div>
+      <p class="note start-note" id="start-note"></p>
     </div>
   </section>
 

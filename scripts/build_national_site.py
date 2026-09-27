@@ -82,6 +82,72 @@ def headline(summary: dict, cells_path: Path) -> dict:
     }
 
 
+THUMB_WIDTH, THUMB_HEIGHT = 640, 400
+MET, MISSED, UNROUTED = "#2a78d6", "#eb6834", "#c9cdd0"
+
+
+def thumbnail(cells_path: Path, out: Path) -> None:
+    """A small map of the city for the opening view: every populated hexagon,
+    blue where a supermarket, GP and pharmacy are all within their standards
+    without a car, orange where not. Drawn from the city's own data, so the
+    picture is the finding rather than decoration. It is framed on the urban
+    area, so a region's farmland does not shrink the city to a speck."""
+    import h3
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    from matplotlib.collections import PolyCollection
+
+    cells = pd.read_parquet(cells_path)
+    everyday = [c for c in ("meets_supermarket", "meets_gp", "meets_pharmacy") if c in cells]
+    met = cells[everyday].fillna(False).all(axis=1).to_numpy() if everyday else np.zeros(len(cells), bool)
+    routed = cells[[c for c in cells.columns if c.startswith("best_")]].notna().any(axis=1).to_numpy()
+    centres = np.array([h3.cell_to_latlng(c) for c in cells.index])
+    lat0 = float(np.median(centres[:, 0]))
+    scale = np.cos(np.radians(lat0))
+
+    # Frame the middle 98% of urban residents, or of everyone if all are urban.
+    focus = cells["urban"].to_numpy(bool) if "urban" in cells else np.ones(len(cells), bool)
+    people = cells["population"].fillna(0).to_numpy() * focus
+
+    def trimmed(values):
+        order = np.argsort(values)
+        share = np.cumsum(people[order]) / people.sum()
+        return values[order][np.searchsorted(share, 0.01)], values[order][np.searchsorted(share, 0.99)]
+
+    x_all = centres[:, 1] * scale
+    y_all = centres[:, 0]
+    (x0, x1), (y0, y1) = trimmed(x_all), trimmed(y_all)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    span = max((x1 - x0) / THUMB_WIDTH, (y1 - y0) / THUMB_HEIGHT) * 1.22
+    half_w, half_h = span * THUMB_WIDTH / 2, span * THUMB_HEIGHT / 2
+    inside = (np.abs(x_all - cx) < half_w * 1.1) & (np.abs(y_all - cy) < half_h * 1.1)
+
+    polygons = [
+        [(lng * scale, lat) for lat, lng in h3.cell_to_boundary(cell)]
+        for cell in cells.index[inside]
+    ]
+    colours = np.where(met, MET, np.where(routed, MISSED, UNROUTED))[inside]
+    fig = plt.figure(figsize=(THUMB_WIDTH / 100, THUMB_HEIGHT / 100), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.add_collection(PolyCollection(polygons, facecolors=colours, edgecolors=colours, linewidths=0.2))
+    ax.set_xlim(cx - half_w, cx + half_w)
+    ax.set_ylim(cy - half_h, cy + half_h)
+    ax.set_axis_off()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, transparent=True)
+    plt.close(fig)
+    # Three colours and a background need no more than a small palette, which
+    # takes the file from over 100 KB to a few tens.
+    from PIL import Image
+
+    image = Image.open(out).convert("RGBA")
+    image.quantize(colors=16, method=Image.Quantize.FASTOCTREE).save(out, optimize=True)
+
+
 def extent(places: list[dict]) -> list[float] | None:
     """Where the people are, as a bounding box, trimmed at both ends."""
     lons = sorted(p["lon"] for p in places if p.get("lon") is not None)
@@ -116,6 +182,8 @@ def build(out: Path, builds: list[Path]) -> dict:
         places = json.loads((source / "places.json").read_text(encoding="utf-8"))
         card["bbox"] = extent(places)
         card["places"] = len(places)
+        thumbnail(build_dir / "team_cells.parquet", target / "thumb.png")
+        card["thumb"] = f"{slug}/thumb.png"
         cities.append(card)
         log.info("%s: %s residents, %s places", card["place"], f"{card['population']:,}", len(places))
 

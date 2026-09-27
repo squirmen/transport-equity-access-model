@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
-
-Latest changes:
+## 0.5.0 (28 September 2026)
 
 - Gisborne, Blenheim and Invercargill, from timetables their councils publish
   only on the web or in print, written out as GTFS. Seventeen urban areas.
@@ -32,7 +30,11 @@ Latest changes:
   when it changes nothing.
 - Keyboard focus stays on a choice after the panel redraws, the panel no
   longer reads itself aloud on every change, and chip groups are labelled.
-- Use my location on the city list.
+- A new opening page: the three largest places, each with a map and two
+  figures, then every other place compared on the same figures. Use my
+  location finds the nearest place.
+- The place menu lists places only; Compare all places returns to the opening
+  page.
 
 - Time of day. Public transport is timed at the weekday peak, weekday off-peak
   and on a Saturday, and a When control switches every public transport figure
@@ -55,6 +57,8 @@ Latest changes:
   which dropped schools and early childhood services from it.
 - Fixed: Auckland's job pairs were kept only to 45 minutes, which cut the
   public transport and cycling job scores short of their horizon.
+
+## 0.1.0
 
 First release.
 
