@@ -45,3 +45,11 @@ test('a mode with no route within the hour misses', () => {
   assert.equal(walk.counts, true);
   assert.equal(walk.meets, false);
 });
+
+test('a place nothing reaches misses the standard rather than not counting', () => {
+  const none = { meta: { standard_modes: ['walk', 'pt'] }, t: { gp: { walk: [NaN], pt: [NaN] } } };
+  const verdict = serviceVerdict(none, 0, 'gp', 20, 'best');
+  assert.equal(verdict.mode, null);
+  assert.equal(verdict.counts, true);
+  assert.equal(verdict.meets, false);
+});

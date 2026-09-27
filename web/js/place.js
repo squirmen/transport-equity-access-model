@@ -58,7 +58,9 @@ export function serviceVerdict(data, i, service, standard, viewMode, zones = nul
   const best = fastest ? timeFor(data, service, fastest, i, zones) : NaN;
   const mode = viewMode && viewMode !== 'best' ? viewMode : fastest;
   const shown = mode ? timeFor(data, service, mode, i, zones) : NaN;
-  const counts = mode ? data.meta.standard_modes.includes(mode) : false;
+  // With no route at all within the routing limit, the place misses the
+  // standard; it is not a mode that "doesn't count".
+  const counts = mode ? data.meta.standard_modes.includes(mode) : true;
   const meets = counts && Number.isFinite(shown) && shown <= standard;
   const pricedOut = mode === 'pt' && zones != null
     && Number.isFinite(data.t[service]?.pt?.[i]) && !Number.isFinite(shown);
@@ -105,7 +107,7 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
     const full = data.t[service].pt[i];
     details.append(el('p', 'service-reason', `Reachable by public transport in ${minutes(full)}, but not on this fare budget.`));
   }
-  if (!counts) {
+  if (!counts && mode) {
     details.append(el('p', 'service-reason', `Shown for comparison. A standard is met on foot, on a low-stress bike route or by public transport, so ${MODES[mode].short} never counts towards one.`));
   }
   if (counts && !meets && code in REASON_CLASS) {
@@ -129,11 +131,9 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
 export function renderPlace(root, data, i, state) {
   const placeIndex = data.place[i];
   const place = placeIndex != null ? data.places[placeIndex] : null;
-  root.title.textContent = place ? place.name : 'Unnamed area';
   const bits = [];
   if (Number.isFinite(data.pop[i])) bits.push(`about ${count(data.pop[i])} residents in this hexagon`);
   if (place && place.board) bits.push(place.board);
-  root.sub.textContent = bits.join(' · ');
 
   const viewMode = state.measure === 'score' ? 'best' : state.mode;
   // A budget set as a share of income gives each hexagon its own limit; the
@@ -257,6 +257,10 @@ export function renderPlace(root, data, i, state) {
     }
   }
   if (zones != null) heading += zones <= 0 ? ', no fare affordable' : `, within ${zones} fare ${zones === 1 ? 'zone' : 'zones'}`;
+  // The title goes on with the body, never before it, so a card can never
+  // show one place's name over another place's figures.
+  root.title.textContent = place ? place.name : 'Unnamed area';
+  root.sub.textContent = bits.join(' · ');
   root.body.replaceChildren(
     ...[
       section(heading, ...services, ...(untimed ? [untimed] : [])),

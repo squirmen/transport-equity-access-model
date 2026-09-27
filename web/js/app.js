@@ -1463,7 +1463,15 @@ function update() {
 function showPlace(i) {
   $('place').hidden = false;
   document.body.dataset.place = 'open';
-  renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
+  try {
+    renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
+  } catch (error) {
+    // Better an honest gap than the last place's figures under a new name.
+    $('place-title').textContent = placeName(i);
+    $('place-sub').textContent = '';
+    $('place-body').replaceChildren(el('p', 'note', 'The details for this place could not be shown.'));
+    console.error('Place card failed', i, error);
+  }
 }
 
 function closePlace() {
