@@ -1658,7 +1658,8 @@ async function start() {
   $('panel').inert = true;
   $('panel').setAttribute('aria-hidden', 'true');
   $('start-lede').textContent = `How much people can reach without a car: everyday services and jobs for `
-    + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand urban areas.`;
+    + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand urban areas. `
+    + 'Pick a place to open its map.';
   const everyday = (city) => (Number.isFinite(city.everyday_all_share) ? `${Math.round(city.everyday_all_share * 100)}%` : '–');
   const jobs = (city) => (Number.isFinite(city.jobs_pt_45_typical) ? count(city.jobs_pt_45_typical) : '–');
 
@@ -1684,7 +1685,9 @@ async function start() {
     );
     const head = el('span', 'start-feature-head');
     head.append(el('span', 'start-city-name', city.place), el('span', 'start-city-people', `${count(city.population)} people`));
-    button.append(thumb, head, stats);
+    const open = el('span', 'start-open', 'Open the map');
+    open.setAttribute('aria-hidden', 'true');
+    button.append(thumb, head, stats, open);
     button.addEventListener('click', () => goToCity(city.slug));
     item.append(button);
     return item;
@@ -1711,6 +1714,7 @@ async function start() {
       el('span', 'start-city-people', count(city.population)),
       bar(everyday(city), city.everyday_all_share || 0, 'all three services'),
       bar(jobs(city), (city.jobs_pt_45_typical || 0) / mostJobs, 'jobs, 45 min'),
+      el('span', 'start-go', '›'),
     );
     button.setAttribute('aria-label', `${city.place}, ${count(city.population)} people, ${everyday(city)} reach all three everyday services, `
       + `${jobs(city)} jobs by public transport in 45 minutes`);
@@ -1846,18 +1850,26 @@ async function init() {
     data = await load(`${DATA_BASE}${CITY}/`);
   } catch (error) {
     // A mistyped place gets the list, not a message about file access.
-    const known = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' })
+    const index = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' })
       .then((response) => (response.ok ? response.json() : null))
-      .then((index) => index && index.cities.some((city) => city.slug === CITY))
       .catch(() => null);
+    const city = index && index.cities.find((c) => c.slug === CITY);
     const box = $('loading');
-    if (known === false) {
+    if (index && !city) {
       const link = el('a', null, 'See the places TEAM covers');
       link.href = '?places';
       box.replaceChildren(document.createTextNode(`TEAM has no place called "${CITY}". `), link);
+    } else if (window.location.protocol === 'file:') {
+      box.textContent = 'The data could not be loaded. Serve the folder over HTTP rather than opening the file.';
     } else {
-      box.textContent = 'The data could not be loaded. If you opened this file directly, serve the folder over HTTP instead.';
+      // Most often a connection that dropped part way through the download.
+      const again = el('button', 'text-button', 'Try again');
+      again.type = 'button';
+      again.addEventListener('click', () => window.location.reload());
+      box.replaceChildren(document.createTextNode(`The map data for ${city ? city.place : 'this place'} did not finish loading. `), again);
     }
+    // The picker still works, so another place is one step away.
+    if (index) wireCityPicker(index, CITY);
     throw error;
   }
   rememberCity(CITY);

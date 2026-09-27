@@ -35,6 +35,8 @@
   location finds the nearest place.
 - The place menu lists places only; Compare all places returns to the opening
   page.
+- A data download that drops part way is tried again before giving up, and
+  the message that follows offers to try again instead of blaming file access.
 
 - Time of day. Public transport is timed at the weekday peak, weekday off-peak
   and on a Saturday, and a When control switches every public transport figure

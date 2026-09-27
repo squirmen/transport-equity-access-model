@@ -7,10 +7,25 @@ import { setPlace } from './format.js';
 const FILES = ['cells', 'summary', 'places', 'destinations'];
 const numeric = (values) => Float32Array.from(values || [], (v) => (v == null ? NaN : v));
 
-async function fetchJson(base, name) {
-  const response = await fetch(`${base}${name}.json`);
-  if (!response.ok) throw new Error(`Could not load ${name}.json (${response.status})`);
-  return response.json();
+const RETRY_STATUS = (status) => status >= 500 || status === 408 || status === 429;
+
+/** One data file, parsed. A dropped connection or a busy server is worth
+ *  another try, since the largest cities send a couple of megabytes; a
+ *  missing file is not. */
+export async function fetchJson(base, name, { attempts = 3, pause = 600 } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    let response = null;
+    try {
+      response = await fetch(`${base}${name}.json`);
+      if (response.ok) return await response.json();
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+    }
+    if (response && !response.ok && (!RETRY_STATUS(response.status) || attempt >= attempts)) {
+      throw new Error(`Could not load ${name}.json (${response.status})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pause * attempt));
+  }
 }
 
 export async function load(base) {
