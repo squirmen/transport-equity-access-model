@@ -63,6 +63,8 @@ usual window's regional mean, so they can be compared directly.
 | `working_age_share` | share | residents aged 15 to 64 |
 | `low_income_share` | share | households with income of $70,000 or less |
 | `median_income` | dollars | median household income |
+| `household_size` | people | mean usual residents per household, 2023 Census |
+| `income_equivalised` | dollars | median household income divided by the square root of household size, raised to 2026 by wage growth; the income behind the fare burden |
 | `commute_car_share` | share | workers who drove or were driven to work, by SA2 |
 | `sa1`, `sa2_code`, `sa2`, `urban_rural`, `local_board` | text | census geography of the hexagon centre |
 

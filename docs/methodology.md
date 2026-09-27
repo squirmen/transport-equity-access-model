@@ -263,7 +263,68 @@ or between runs. The score and the index can do all three. TEAM publishes
 deciles because they are the unit TAI-PT uses and the comparison is useful, not
 because a ranking answers the question.
 
-## 7. Who misses out
+## 7. Fares, and what they cost against income
+
+**Fares.** Every network's fare table was read from its operator's fares page.
+A fare depends only on the zones at each end of a journey, so the
+origin-destination pairs already routed for the gravity scores are priced
+rather than routed again. Auckland's zones are recovered from Auckland
+Transport's printed map, because AT publishes no zone geometry; Wellington's,
+Napier-Hastings' and Nelson's come from the zone on each stop in their
+timetable feeds, each hexagon taking the zone of its nearest stop. Where an
+urban area lies inside one zone, as Hamilton, Palmerston North, Whanganui and
+New Plymouth do, every trip costs one fare. A journey's fare counts the zones
+it passes through, capped as the operator caps it. Off-peak prices, and
+SuperGold's free hours, follow the time of day being shown.
+
+A fare budget turns into the number of zones a traveller can afford, and a
+public transport trip counts only when it stays inside them. The budget covers
+a return trip unless set to one way, because the transfer window joins the
+legs of one journey and not a trip out and back.
+
+**Fares against income.** The same fare is a different burden in different
+places. TEAM measures it as the fare as a share of a day's income where the
+traveller lives:
+
+    burden = fare / (income / 365)
+
+Income is the 2023 Census median household income of the SA1 around each
+hexagon, divided by the square root of the SA1's average household size (the
+OECD square-root equivalence scale), so a household of four on the same
+income as a household of one counts as less well off per person. Because the
+census gives a median income and a mean household size, this approximates the
+median equivalised income rather than measuring it. Census income is for the
+year to March 2023; it is raised by the growth in the Quarterly Employment
+Survey's average ordinary-time hourly earnings, from $38.93 in the March 2023
+quarter to $44.62 in the June 2026 quarter, a factor of 1.146. SA1 medians
+the census publishes above $200,000 are held at that figure. Income is before
+tax, so the burden against take-home pay is higher.
+
+A trip that takes a given share of a day's income, made every day, takes that
+share of income over a month. That is the 60-trip month Carruthers, Dick and
+Saurkar (2005) use for the World Bank's public transport affordability index,
+so the burden of a daily return trip reads directly against it. Weekly fare
+caps, which lower the cost of travelling that often, are not applied.
+
+The site uses the burden two ways. Its map shows the cheapest way to reach the
+nearest destination inside the standard, as a share of a day's income:
+walking or low-stress cycling is free, and otherwise it is the fare for the
+fewest zones that get there in time. Its panel compares the average burden in
+the most and least deprived fifths of areas, for the people who have to pay
+to get there in time. And a fare budget can be set as a share of a day's
+income instead of in dollars, which gives every area its own budget, so the
+same share buys fewer zones where incomes are lower; every access and equity
+figure then follows. This follows Guzman and Oviedo (2018), who judged a
+public transport subsidy in Bogotá by what each income group could reach
+within what it could afford, and El-Geneidy et al. (2016), who showed that
+counting fares changes who comes out ahead on transit access.
+
+Incomes describe an area, not a household: a low-income household in a
+well-off area is counted at the area's income. Cells with no published income
+take the city's median when they need a budget, and are left off the burden
+map.
+
+## 8. Who misses out
 
 For each service and standard, TEAM counts the people living in hexagons that
 miss it, overall and for groups: people in households without a car, children
@@ -301,7 +362,7 @@ giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
 Figures are summarised for each SA2 and each of Auckland's 21 local boards.
 
-## 8. Why a place misses a standard
+## 9. Why a place misses a standard
 
 For every hexagon that misses a standard, TEAM records the first of these
 rules that applies. Each rule points to a different kind of fix.
@@ -318,7 +379,7 @@ The parameters (1.3, 12 km/h, four departures an hour) are in the
 configuration. These are screening rules: they say which kind of fix to look at
 first. A local study is still needed to design one.
 
-## 9. Checks
+## 10. Checks
 
 - Unit tests with known answers cover the standards, the reason rules, the
   competition adjustment and the equity statistics
@@ -333,7 +394,7 @@ first. A local study is still needed to design one.
 - Every routing run writes a manifest with its inputs, settings, date and row
   counts, including any empty tables left out of the timetable feed.
 
-## 10. What TEAM does not do
+## 11. What TEAM does not do
 
 - It uses the nearest service. School zones, GP enrolment, opening hours and
   store size are not modelled, so the nearest service may not be one a person
@@ -351,12 +412,41 @@ first. A local study is still needed to design one.
 
 ## References
 
+Abley, S. and Halden, D. (2013). *The New Zealand accessibility analysis
+methodology*. NZ Transport Agency research report 512. Wellington: NZ
+Transport Agency. ISBN 978-0-478-40717-4.
+
 Atkinson, J., Salmond, C., & Crampton, P. (2024). *NZDep2023 Index of
 Deprivation*. University of Otago, Wellington.
+
+Carruthers, R., Dick, M., & Saurkar, A. (2005). *Affordability of public transport in
+developing countries*. Transport Paper TP-3, World Bank, Washington DC.
 
 Conway, M. W., Byrd, A., & van der Linden, M. (2017). Evidence-based transit and
 land use sketch planning using interactive accessibility methods on
 combinatorial scenario designs. *Transportation Research Record*, 2653, 45–53.
+
+Dill, J., & McNeil, N. (2016). Revisiting the four types of cyclists: findings
+from a national survey. *Transportation Research Record*, 2587, 90–99.
+
+El-Geneidy, A., Levinson, D., Diab, E., Boisjoly, G., Verbich, D., & Loong, C. (2016).
+The cost of equity: Assessing transit accessibility and social disparity using
+total travel cost. *Transportation Research Part A*, 91, 302–316.
+
+Fink, C., Klumpenhouwer, W., Saraiva, M., Pereira, R., & Tenkanen, H. (2022).
+*r5py: Rapid Realistic Routing with R5 in Python*. Zenodo.
+https://doi.org/10.5281/zenodo.7060438
+
+Foster, J., Greer, J., & Thorbecke, E. (1984). A class of decomposable poverty
+measures. *Econometrica*, 52(3), 761–766.
+
+Geurs, K. T., & van Wee, B. (2004). Accessibility evaluation of land-use and
+transport strategies: review and research directions. *Journal of Transport
+Geography*, 12(2), 127–140.
+
+Guzman, L. A., & Oviedo, D. (2018). Accessibility, affordability and equity:
+Assessing 'pro-poor' public transport subsidies in Bogotá. *Transport Policy*,
+68, 37–51.
 
 Karner, A., Pereira, R. H. M., & Farber, S. (2025). Advances and pitfalls in
 measuring transportation equity. *Transportation*, 52, 1399–1427.
@@ -365,27 +455,6 @@ Lovelace, R., Goodman, A., Aldred, R., Berkoff, N., Abbas, A., & Woodcock, J.
 (2017). The Propensity to Cycle Tool: an open source online system for
 sustainable transport planning. *Journal of Transport and Land Use*, 10(1),
 505–528.
-
-Abley, S. and Halden, D. (2013). *The New Zealand accessibility analysis
-methodology*. NZ Transport Agency research report 512. Wellington: NZ
-Transport Agency. ISBN 978-0-478-40717-4.
-
-Transport for NSW (2026). *Transport Access Indicators: Technical Development
-Report for TAI-PT*. August 2026.
-
-Dill, J., & McNeil, N. (2016). Revisiting the four types of cyclists: findings
-from a national survey. *Transportation Research Record*, 2587, 90–99.
-
-Foster, J., Greer, J., & Thorbecke, E. (1984). A class of decomposable poverty
-measures. *Econometrica*, 52(3), 761–766.
-
-Fink, C., Klumpenhouwer, W., Saraiva, M., Pereira, R., & Tenkanen, H. (2022).
-*r5py: Rapid Realistic Routing with R5 in Python*. Zenodo.
-https://doi.org/10.5281/zenodo.7060438
-
-Geurs, K. T., & van Wee, B. (2004). Accessibility evaluation of land-use and
-transport strategies: review and research directions. *Journal of Transport
-Geography*, 12(2), 127–140.
 
 Lucas, K., van Wee, B., & Maat, K. (2016). A method to evaluate equitable
 accessibility: combining ethical theories and accessibility-based approaches.
@@ -412,13 +481,13 @@ in future post-pandemic cities. *Smart Cities*, 4(1), 93–111.
 Palma, J. G. (2011). Homogeneous middles vs. heterogeneous tails, and the end
 of the "inverted-U". *Development and Change*, 42(1), 87–153.
 
-Pereira, R. H. M., Schwanen, T., & Banister, D. (2017). Distributive justice and
-equity in transportation. *Transport Reviews*, 37(2), 170–191.
-
 Pereira, R. H. M., Banister, D., Schwanen, T., & Wessel, N. (2019).
 Distributional effects of transport policies on inequalities in access to
 opportunities in Rio de Janeiro. *Journal of Transport and Land Use*, 12(1),
 741–764.
+
+Pereira, R. H. M., Schwanen, T., & Banister, D. (2017). Distributive justice and
+equity in transportation. *Transport Reviews*, 37(2), 170–191.
 
 Shen, Q. (1998). Location characteristics of inner-city neighborhoods and
 employment accessibility of low-wage workers. *Environment and Planning B*,
@@ -427,9 +496,11 @@ employment accessibility of low-wage workers. *Environment and Planning B*,
 Transport for London (2015). *Assessing transport connectivity in London*.
 Transport for London.
 
+Transport for NSW (2026). *Transport Access Indicators: Technical Development
+Report for TAI-PT*. August 2026.
+
 Victoria State Government (2019). *20-minute neighbourhoods: creating a more
 liveable Melbourne*. Department of Environment, Land, Water and Planning.
-
 
 Wagstaff, A., Paci, P., & van Doorslaer, E. (1991). On the measurement of
 inequalities in health. *Social Science & Medicine*, 33(5), 545–557.

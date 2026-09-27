@@ -292,8 +292,13 @@ def clip_osm(root: Path, city: str, margin: float = 0.05) -> Path:
     return out
 
 
-def _ckan(resource: str, region: str) -> list[dict]:
-    """Every row of a data.govt.nz table for one regional council."""
+def _ckan(resource: str, region: str | list[str]) -> list[dict]:
+    """Every row of a data.govt.nz table for one or more regional councils.
+
+    A network can cross a regional boundary: Nelson's buses run into Tasman.
+    """
+    if not isinstance(region, str):
+        return [row for one in region for row in _ckan(resource, one)]
     rows: list[dict] = []
     offset = 0
     while True:
@@ -314,11 +319,11 @@ def _ckan(resource: str, region: str) -> list[dict]:
     return rows
 
 
-def fetch_schools(root: Path, city: str, region: str) -> Path:
+def fetch_schools(root: Path, city: str, region: list[str]) -> Path:
     """The schools directory for the region, with rolls and coordinates."""
     rows = _ckan(SCHOOLS_RESOURCE, region)
     if not rows:
-        raise SystemExit(f"No schools found for Regional_Council = {region!r}.")
+        raise SystemExit(f"No schools found for Regional_Council in {region!r}.")
     out = root / "raw" / city / "education" / f"educationcounts_schools_{city}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"records": rows}), encoding="utf-8")
@@ -327,14 +332,14 @@ def fetch_schools(root: Path, city: str, region: str) -> Path:
         "dataset_id": f"educationcounts_schools_{city}",
         "license": "CC-BY-4.0",
         "resource_id": SCHOOLS_RESOURCE,
-        "where": f'"Regional_Council" = {region!r}',
+        "where": f'"Regional_Council" in {region!r}',
         "record_count": len(rows),
     })
     log.info("schools: wrote %s (%d schools)", out.name, len(rows))
     return out
 
 
-def fetch_ece(root: Path, city: str, region: str) -> Path:
+def fetch_ece(root: Path, city: str, region: list[str]) -> Path:
     """Early childhood services for the region, with rolls and coordinates.
 
     A first-order destination for households with young children, which is
@@ -342,7 +347,7 @@ def fetch_ece(root: Path, city: str, region: str) -> Path:
     """
     rows = _ckan(ECE_RESOURCE, region)
     if not rows:
-        raise SystemExit(f"No early childhood services found for Regional_Council = {region!r}.")
+        raise SystemExit(f"No early childhood services found for Regional_Council in {region!r}.")
     out = root / "raw" / city / "education" / f"educationcounts_ece_{city}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"records": rows}), encoding="utf-8")
@@ -351,7 +356,7 @@ def fetch_ece(root: Path, city: str, region: str) -> Path:
         "dataset_id": f"educationcounts_ece_{city}",
         "license": "CC-BY-4.0",
         "resource_id": ECE_RESOURCE,
-        "where": f'"Regional_Council" = {region!r}',
+        "where": f'"Regional_Council" in {region!r}',
         "record_count": len(rows),
         "notes": "Early Childhood Services Directory, with coordinates and the licensed roll.",
     })
@@ -366,7 +371,7 @@ def main() -> None:
     parser.add_argument("--city", required=True, help="short name, used in paths")
     parser.add_argument("--tas", nargs="+", help="territorial authority names, as Stats NZ spells them")
     parser.add_argument("--urban", nargs="+", help="urban area names (UR2023), as Stats NZ spells them")
-    parser.add_argument("--region", help="regional council name, for the schools directory")
+    parser.add_argument("--region", nargs="+", help="regional council names, for the schools directory")
     parser.add_argument("--only", choices=STEPS, help="run one step")
     args = parser.parse_args()
     root = args.data_root.expanduser().resolve()

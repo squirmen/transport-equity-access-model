@@ -151,9 +151,31 @@ def fare(table: dict, zones: int, profile: str = "adult", payment: str = "hop") 
     so every journey costs the same.
     """
     zones = max(1, min(int(zones), zone_cap(table)))
-    prices = table["fares"].get(profile) or table["fares"]["adult"]
-    scale = prices.get(payment) or prices["hop"]
+    adult = table["fares"]["adult"]
+    prices = table["fares"].get(profile) or adult
+    scale = prices.get(payment) or adult.get(payment) or next(iter(prices.values()))
     return float(scale[str(zones)])
+
+
+def free_hours(rule: dict) -> list[tuple[float, float]]:
+    """The weekday hours a SuperGold card rides free, as (from, to) pairs.
+
+    Networks write this three ways: a list of hours, a start and end with an
+    optional evening start, or a start alone, meaning free from then on.
+    """
+    def clock(value) -> float:
+        hour, _, minute = str(value).partition(":")
+        return float(hour) + (float(minute) / 60 if minute else 0.0)
+
+    if rule.get("free_hours_weekday"):
+        return [(float(a), float(b)) for a, b in rule["free_hours_weekday"]]
+    start = clock(rule.get("free_from", "09:00"))
+    if rule.get("free_until"):
+        hours = [(start, clock(rule["free_until"]))]
+        if rule.get("free_after"):
+            hours.append((clock(rule["free_after"]), 24.0))
+        return hours
+    return [(start, 24.0)]
 
 
 def free_travel(table: dict, profile: str, hour: float | None, weekday: bool = True) -> bool:
@@ -172,10 +194,7 @@ def free_travel(table: dict, profile: str, hour: float | None, weekday: bool = T
         return True
     if hour is None:
         return False
-    rule = table["free"]["supergold"]
-    if rule.get("free_hours_weekday"):
-        return any(float(start) <= float(hour) < float(end) for start, end in rule["free_hours_weekday"])
-    return float(hour) >= float(str(rule["free_from"]).split(":")[0])
+    return any(start <= float(hour) < end for start, end in free_hours(table["free"]["supergold"]))
 
 
 def affordable_zones(

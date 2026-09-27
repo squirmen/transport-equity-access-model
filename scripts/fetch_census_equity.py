@@ -8,7 +8,7 @@ Three Stats NZ layers, all keyed on SA12023_V1_00 and all 33,164 rows:
 
     individuals part 1   age, ethnicity, Maori descent, disability
     individuals part 2   study participation, personal income
-    households           vehicles, household income, tenure
+    households           vehicles, household income, tenure, household size
 
 Layer ids 1 and 3 are used rather than 0 and 2, which are clipped to the
 coastline and drop rows.
@@ -45,6 +45,7 @@ log = logging.getLogger("fetch_census")
 BASE = "https://services2.arcgis.com/vKb0s8tBIA3bdocZ/arcgis/rest/services"
 INDIVIDUALS_1 = f"{BASE}/2023_Census_totals_by_topic_for_individuals_by_SA1/FeatureServer/1"
 INDIVIDUALS_2 = f"{BASE}/2023_Census_totals_by_topic_for_individuals_by_SA1/FeatureServer/3"
+HOUSEHOLDS = f"{BASE}/2023_Census_totals_by_topic_for_households_by_SA1/FeatureServer/1"
 PAGE = 2000
 
 KEY = "SA12023_V1_00"
@@ -73,6 +74,12 @@ TARGETS = {
         "url": INDIVIDUALS_1,
         "fields": AGE_FIELDS + ETHNICITY_FIELDS + DISABILITY_FIELDS,
         "notes": "2023 Census age brackets, ethnicity, and disability by SA1, for TEAM's group filters.",
+    },
+    "statsnz_census_household_size_sa1_2023": {
+        "url": HOUSEHOLDS,
+        # 116 total stated, 117 the mean number of usual residents, both 2023.
+        "fields": ["VAR_4_116", "VAR_4_117"],
+        "notes": "2023 Census average household size by SA1, to put household income on a per-person footing.",
     },
     "statsnz_census_individual_part2_sa1_2023": {
         "url": INDIVIDUALS_2,

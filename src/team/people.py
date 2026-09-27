@@ -45,6 +45,7 @@ DISABLED_TOTAL = "VAR_1_438"
 LOW_INCOME = ["VAR_4_214", "VAR_4_215", "VAR_4_216", "VAR_4_217"]  # household income $70,000 or less
 INCOME_TOTAL = "VAR_4_224"
 MEDIAN_INCOME = "VAR_4_225"
+HOUSEHOLD_SIZE = "VAR_4_117"   # mean usual residents per household, 2023
 NO_VEHICLE = "VAR_4_136"
 VEHICLE_TOTAL = "VAR_4_144"
 
@@ -109,9 +110,18 @@ def age_shares(settings: Settings) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+def _household_size_path(settings: Settings):
+    """The household size table: configured, or beside the household table."""
+    if "census_household_size" in settings.raw["data"]:
+        return settings.data("census_household_size")
+    return settings.data("census_households").with_name("statsnz_census_household_size_sa1_2023.json")
+
+
 def household_shares(settings: Settings) -> pd.DataFrame:
+    from .affordability import equivalised
+
     table = _records(settings.data("census_households"))
-    return pd.DataFrame(
+    out = pd.DataFrame(
         {
             "sa1": table["sa1"],
             "no_vehicle_share": _share(_count(table[NO_VEHICLE]), _count(table[VEHICLE_TOTAL])),
@@ -119,6 +129,15 @@ def household_shares(settings: Settings) -> pd.DataFrame:
             "median_income": _count(table[MEDIAN_INCOME]),
         }
     )
+    # Household size puts income on a per-person footing for the fare burden.
+    # A build without the table still runs; it just has no burden to show.
+    path = _household_size_path(settings)
+    if path.exists():
+        sizes = _records(path)
+        sizes = pd.DataFrame({"sa1": sizes["sa1"], "household_size": _count(sizes[HOUSEHOLD_SIZE])})
+        out = out.merge(sizes, on="sa1", how="left")
+        out["income_equivalised"] = equivalised(out["median_income"], out["household_size"])
+    return out
 
 
 def assign_areas(points, areas, field: str, max_distance: float = COAST_METRES) -> pd.Series:

@@ -22,7 +22,7 @@ test('a fare is capped at four zones', () => {
 
 test('a traveller with no cash table of their own pays the adult cash fare', () => {
   assert.equal(fare(meta, 2, 'community_connect', 'hop'), 2.45);
-  assert.equal(fare(meta, 2, 'community_connect', 'cash'), 2.45);
+  assert.equal(fare(meta, 2, 'community_connect', 'cash'), 6.0);
 });
 
 test('a return trip costs two fares', () => {
@@ -70,4 +70,22 @@ test('money reads as dollars', () => {
 test('the traveller line names who is travelling and how', () => {
   assert.equal(travellerSummary(meta, base, 10), 'Adult · HOP · return · 10:00');
   assert.equal(travellerSummary(meta, { ...base, payment: 'cash', returnTrip: false }, 7), 'Adult · cash · one way · 07:00');
+});
+
+test('SuperGold free hours can stop at 3pm and start again at 6.30pm', async () => {
+  const { freeHours, freeTravel } = await import('../../web/js/fares.js');
+  const meta = { free: { supergold: { free_from: '09:00', free_until: '15:00', free_after: '18:30' } } };
+  assert.deepEqual(freeHours(meta.free.supergold), [[9, 15], [18.5, 24]]);
+  assert.equal(freeTravel(meta, 'supergold', 10), true);
+  assert.equal(freeTravel(meta, 'supergold', 16), false);
+  assert.equal(freeTravel(meta, 'supergold', 19), true);
+  assert.equal(freeTravel(meta, 'supergold', 16, false), true, 'weekends are free all day');
+  assert.deepEqual(freeHours({ free_from: '09:00' }), [[9, 24]]);
+});
+
+test('a concession with no cash price pays the adult cash price', async () => {
+  const { fare } = await import('../../web/js/fares.js');
+  const meta = { kind: 'flat', fares: { adult: { card: { 1: 2.2 }, cash: { 1: 3.5 } }, tertiary_student: { card: { 1: 1.1 } } } };
+  assert.equal(fare(meta, 1, 'tertiary_student', 'cash'), 3.5);
+  assert.equal(fare(meta, 1, 'tertiary_student', 'card'), 1.1);
 });

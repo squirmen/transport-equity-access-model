@@ -41,6 +41,9 @@ function prepare(raw) {
     pop: numeric(c.pop),
     nzdep: numeric(c.nzdep),
     drive: numeric(c.drive),
+    // Equivalised household income in the fare year's dollars, for the fare
+    // burden. Sent in hundreds to keep the file small.
+    income: c.inc ? Float32Array.from(c.inc, (v) => (v == null ? NaN : v * 100)) : null,
     shares: {
       no_car: numeric(c.nocar),
       children: numeric(c.kids),
@@ -184,6 +187,34 @@ export function costLayer(data, service, zones) {
   return steps ? layers[`z${Math.min(Math.floor(zones), steps)}`] : null;
 }
 
+const merged = new WeakMap();
+
+/** The priced public transport layer for `zones`, which is either one number
+ *  for everyone or one per hexagon, as when each area's budget is a share of
+ *  its own income. A hexagon that cannot afford to board gets no time. */
+export function pricedLayer(data, service, zones) {
+  if (zones == null) return null;
+  if (typeof zones === 'number') return costLayer(data, service, zones);
+  const layers = data.cost[service];
+  if (!layers) return null;
+  let byService = merged.get(zones);
+  if (!byService) {
+    byService = new Map();
+    merged.set(zones, byService);
+  }
+  if (!byService.has(service)) {
+    let steps = 0;
+    while (layers[`z${steps + 1}`]) steps += 1;
+    const out = new Float32Array(data.n).fill(NaN);
+    for (let i = 0; i < data.n; i += 1) {
+      const z = Math.min(zones[i], steps);
+      if (z > 0) out[i] = layers[`z${z}`][i];
+    }
+    byService.set(service, out);
+  }
+  return byService.get(service);
+}
+
 /** Minutes to the nearest `service` by `mode`; `best` is the fastest counting mode.
  *
  *  With `zones` set, a public transport trip only counts when it stays inside
@@ -194,8 +225,8 @@ export function times(data, service, mode, zones = null) {
   const byMode = data.t[service] || {};
   const forMode = (m) => {
     if (m !== 'pt' || zones == null) return byMode[m];
-    if (zones <= 0) return null;
-    return costLayer(data, service, zones);
+    if (typeof zones === 'number' && zones <= 0) return null;
+    return pricedLayer(data, service, zones);
   };
   if (mode !== 'best') return forMode(mode) || new Float32Array(data.n).fill(NaN);
   const out = new Float32Array(data.n).fill(NaN);
@@ -216,7 +247,7 @@ export function bestMode(data, service, i, zones = null) {
   for (const m of data.meta.standard_modes) {
     let v;
     if (m === 'pt' && zones != null) {
-      v = zones <= 0 ? NaN : costLayer(data, service, zones)?.[i];
+      v = pricedLayer(data, service, zones)?.[i];
     } else {
       v = data.t[service]?.[m]?.[i];
     }
@@ -236,7 +267,7 @@ export function cellInputs(data, service, i, best, zones = null) {
   // place the bus is too slow to reach.
   const pt = zones == null
     ? t.pt?.[i]
-    : (zones <= 0 ? undefined : costLayer(data, service, zones)?.[i]);
+    : pricedLayer(data, service, zones)?.[i];
   return {
     km: data.km[service]?.[i],
     walk: t.walk?.[i],

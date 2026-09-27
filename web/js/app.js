@@ -2,15 +2,15 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, rankPlaces,
+  byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
   reasons as reasonCodes, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare, windowOf, windowsFor,
 } from './data.js';
 import {
   byGroup as shortfallByGroup, concentrationIndex, fgt, leaning, pricedOut, shortfallLeaning, shortfalls,
 } from './equity.js';
 import {
-  affordableZones, budgetSentence, cheapestFareClasses, fareClassCosts, fareSteps, money, payments,
-  travellerSummary, zoneCap,
+  affordableZones, budgetSentence, burdenClass, cheapestFareClasses, cheapestZones, dailyIncome, fare,
+  fareClassCosts, fareSteps, freeTravel, incomeZones, money, paymentKey, payments, travellerSummary, zoneCap,
 } from './fares.js';
 import { count, el, minutes, MODES, place } from './format.js';
 import {
@@ -23,8 +23,8 @@ import {
 } from './palette.js';
 import {
   renderAccess, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
-  renderPeople, renderScore, renderServicePicker, renderTraveller, renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER,
-  SERVICE_SHORT, setServices,
+  renderBurden, renderChips, renderPeople, renderScore, renderServicePicker, renderTraveller, renderWhenPicker, SERVICE_NOUN,
+  SERVICE_ORDER, SERVICE_SHORT, setServices,
 } from './panel.js';
 import { renderPlace } from './place.js';
 
@@ -105,6 +105,8 @@ const groupChips = () => groupKeys().map((g) => [g, (data.meta.groups || {})[g] 
 const $ = (id) => document.getElementById(id);
 
 const MEASURES = ['standards', 'score'];
+const INCOME_MAX = 15;
+const INCOME_DEFAULT = 5;
 
 const state = {
   measure: 'standards',
@@ -120,6 +122,9 @@ const state = {
   jobsLimit: '45',
   jobsFair: false,
   budget: null,
+  // 'dollars' for one budget for everyone, 'income' for a share of a day's
+  // income in each area, so the same slider asks what a low income buys.
+  budgetUnit: 'dollars',
   when: null,
   profile: 'adult',
   payment: 'hop',
@@ -160,7 +165,7 @@ function readHash() {
   if (score[0]) state.scoreKey = score[0];
   if (score[1]) state.scoreMode = score[1];
   if (score[2] === 'd') state.scoreDisplay = 'decile';
-  if (params.get('w') === 'fare') state.show = 'fare';
+  if (['fare', 'burden'].includes(params.get('w'))) state.show = params.get('w');
   const cost = (params.get('c') || '').split('.');
   if (cost[0] !== undefined && cost[0] !== '') {
     const amount = Number(cost[0]);
@@ -169,6 +174,7 @@ function readHash() {
   if (cost[1]) state.profile = cost[1];
   if (cost[2]) state.payment = cost[2] === 'cash' ? 'cash' : 'hop';
   if (cost[3]) state.returnTrip = cost[3] !== '1';
+  if (cost[4] === 'i') state.budgetUnit = 'income';
   const when = params.get('h');
   if (when && /^[a-z_]+$/.test(when)) state.when = when;
   const jobs = (params.get('j') || '').split('.');
@@ -194,7 +200,7 @@ function hashNow() {
   }
   if (state.show !== 'minutes') params.set('w', state.show);
   if (state.budget != null) {
-    params.set('c', [state.budget, state.profile, state.payment, state.returnTrip ? 'r' : '1'].join('.'));
+    params.set('c', [state.budget, state.profile, state.payment, state.returnTrip ? 'r' : '1', state.budgetUnit === 'income' ? 'i' : ''].join('.'));
   }
   if (state.when) params.set('h', state.when);
   if (state.group !== 'everyone') params.set('g', state.group);
@@ -213,7 +219,9 @@ function writeHash() {
 }
 
 function set(patch) {
-  if ('profile' in patch || 'payment' in patch || 'returnTrip' in patch || 'budget' in patch) cache.best.clear();
+  if ('profile' in patch || 'payment' in patch || 'returnTrip' in patch || 'budget' in patch || 'budgetUnit' in patch) {
+    cache.best.clear();
+  }
   if ('when' in patch && patch.when !== state.when) {
     setWindow(data, patch.when);
     cache.best.clear();
@@ -266,18 +274,63 @@ function whenClause(thing = subject()) {
   return ` ${spec.phrase}`;
 }
 
+/** Whether this build has the income behind the fare burden. */
+function incomeAvailable() {
+  return Boolean(data.income && data.meta.affordability && data.meta.affordability.median_income);
+}
+
+function byIncome() {
+  return state.budgetUnit === 'income' && incomeAvailable();
+}
+
+let daily = null;
+const incomeCache = new Map();
+
 /** Fare zones this traveller can afford for a trip to `service`.
- *  Null when no budget is set, which leaves every measure as it was. */
+ *
+ *  Null when no budget is set, which leaves every measure as it was. With a
+ *  dollar budget it is one number for everyone. With a budget as a share of
+ *  income it is one number per hexagon, because the same share of a lower
+ *  income buys fewer zones.
+ */
 function zonesFor(service) {
   if (state.budget == null || state.measure === 'score') return null;
   const meta = data.meta.fares;
   if (!meta || !meta.fares || !data.cost[service]) return null;
   const { hour, weekday } = tripWindow(service);
-  return affordableZones(meta, { ...state, hour, weekday });
+  if (!byIncome()) return affordableZones(meta, { ...state, hour, weekday });
+  daily = daily || dailyIncome(data);
+  const key = [state.budget, state.profile, state.payment, state.returnTrip, hour, weekday].join('|');
+  if (!incomeCache.has(key)) incomeCache.set(key, incomeZones(meta, daily, state.budget, { ...state, hour, weekday }));
+  return incomeCache.get(key);
+}
+
+/** Share of jobs reachable by public transport within the zones each place
+ *  can afford: none where no fare is affordable. */
+function pricedJobs(zones) {
+  if (typeof zones === 'number') {
+    return zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, zoneCap(data.meta.fares))}`];
+  }
+  const layer = pricedLayer(data, 'jobs', zones);
+  return Float32Array.from(layer, (v, i) => (zones[i] > 0 ? v : 0));
+}
+
+/** The line under a figure saying what a per-area budget is doing. */
+function fareNote(zones) {
+  if (zones == null || typeof zones === 'number') return null;
+  return `Each area can spend ${percentText(state.budget)} of a day's income on the trip, `
+    + 'so the same budget buys more zones where incomes are higher.';
+}
+
+/** A cache key for a zone limit, which may be one number or one per hexagon. */
+function zonesKey(zones) {
+  if (zones == null) return 'any';
+  if (typeof zones === 'number') return String(zones);
+  return `inc:${state.budget}|${state.profile}|${state.payment}|${state.returnTrip}|${state.when}`;
 }
 
 function bestTimes(service, zones) {
-  const key = `${service}|${zones == null ? 'any' : zones}`;
+  const key = `${service}|${zonesKey(zones)}`;
   if (!cache.best.has(key)) cache.best.set(key, times(data, service, 'best', zones));
   return cache.best.get(key);
 }
@@ -350,7 +403,9 @@ function accessModel() {
       standard,
       mode: state.mode,
       zones,
+      fareNote: fareNote(zones),
       canShowFare: fareAvailable() && Boolean(data.cost[service]),
+      canShowBurden: fareAvailable() && Boolean(data.cost[service]) && incomeAvailable(),
       standardModes: data.meta.standard_modes,
       fare: fareClause(),
       share: weightedShare(flags, data.pop),
@@ -400,6 +455,7 @@ function fareSurfaceModel() {
       noun: SERVICE_NOUN[service],
       standard,
       show: 'fare',
+      canShowBurden: incomeAvailable(),
       trip,
       freeShare: total > 0 ? free / total : NaN,
       paid,
@@ -410,6 +466,105 @@ function fareSurfaceModel() {
         + 'so the map changes when the traveller does.',
     },
   };
+}
+
+/** What the cheapest way to the nearest one costs, against local income.
+ *
+ *  The same fare is a different burden in different places, so this maps the
+ *  fare as a share of a day's income where each person lives. Walking and
+ *  low-stress cycling count as free. The panel compares the most and least
+ *  deprived areas, which is the question a flat fare map cannot answer.
+ */
+function burdenModel() {
+  const service = state.service;
+  const standard = standardFor(service);
+  const meta = data.meta.fares;
+  const { hour, weekday } = tripWindow(service);
+  const zones = cheapestZones(data, service, standard);
+  const trips = state.returnTrip ? 2 : 1;
+  const trip = state.returnTrip ? 'return' : 'one way';
+  const column = paymentKey(meta, state.payment, hour, weekday);
+  const free = freeTravel(meta, state.profile, hour, weekday);
+  const costOf = (z) => (z <= 0 || free ? 0 : fare(meta, z, state.profile, column) * trips);
+  const burden = new Float32Array(data.n).fill(NaN);
+  const classes = new Int8Array(data.n).fill(-1);
+  for (let i = 0; i < data.n; i += 1) {
+    const z = zones[i];
+    if (z === -1) continue;
+    if (z === -2) { classes[i] = 5; continue; }
+    const income = data.income[i];
+    if (!(income > 0)) continue;
+    burden[i] = costOf(z) / (income / 365);
+    classes[i] = burdenClass(burden[i]);
+  }
+  // Average burden among the people who have to pay to get there in time.
+  // Counting everyone who can walk as paying nothing would bury the question
+  // under the places where it does not arise.
+  const meanBurden = (weights, mask) => {
+    let total = 0;
+    let sum = 0;
+    for (let i = 0; i < data.n; i += 1) {
+      if (mask && !mask[i]) continue;
+      const w = weights[i];
+      if (!(w > 0) || !(burden[i] > 0)) continue;
+      total += w;
+      sum += w * burden[i];
+    }
+    return total > 0 ? sum / total : NaN;
+  };
+  const weights = data.weights[state.group];
+  const labels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
+  const byQuintile = [1, 2, 3, 4, 5].map((q, k) => ({
+    label: labels[k],
+    value: meanBurden(weights, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
+    emphasis: k === 4,
+  }));
+  const byGroup = groupChips().map(([g, label]) => ({ label, value: meanBurden(data.weights[g]), emphasis: g === state.group }));
+  let heavy = 0;
+  let paying = 0;
+  for (let i = 0; i < data.n; i += 1) {
+    if (!(weights[i] > 0) || !(burden[i] > 0)) continue;
+    paying += weights[i];
+    if (burden[i] >= 0.05) heavy += weights[i];
+  }
+  return {
+    classes,
+    colours: FARE,
+    tooltip: (i) => {
+      if (classes[i] === 5) return [`${SERVICE_SHORT[service]}: no way to get there within ${standard} min`];
+      if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
+      if (burden[i] === 0) return [`${SERVICE_SHORT[service]}: free, on foot, by bike or on a free fare`];
+      const perYear = Math.round(data.income[i] / 1000);
+      return [
+        `${SERVICE_SHORT[service]}: ${money(costOf(zones[i]))} ${trip}, ${percentOf(burden[i])} of a day's income here`,
+        `Income about $${perYear}k a year per person, after household size`,
+      ];
+    },
+    panel: {
+      noun: SERVICE_NOUN[service],
+      standard,
+      trip,
+      group: state.group,
+      groups: groupChips(),
+      least: byQuintile[0].value,
+      most: byQuintile[4].value,
+      heavy,
+      paying,
+      byQuintile,
+      byGroup,
+      show: 'burden',
+      canShowFare: true,
+      canShowBurden: true,
+      meta: data.meta.affordability,
+      legend: ['Free', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', 'No way'].map((label, k) => ({ colour: FARE[k], label })),
+    },
+  };
+}
+
+function percentOf(value) {
+  if (!Number.isFinite(value)) return '–';
+  const pct = value * 100;
+  return `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
 }
 
 function peopleModel() {
@@ -563,9 +718,7 @@ function jobsModel() {
   // A budget only changes public transport, and the priced layer is built at
   // the gravity cap rather than the job thresholds, so it replaces the values
   // and says so rather than pretending the threshold still applies.
-  const priced = zones != null && choice.mode === 'pt' && data.cost.jobs
-    ? (zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, zoneCap(data.meta.fares))}`])
-    : null;
+  const priced = zones != null && choice.mode === 'pt' && data.cost.jobs ? pricedJobs(zones) : null;
   const values = priced || (choice.fair ? data.fair[choice.mode][String(choice.limit)] : data.jobs[choice.mode][String(choice.limit)]);
   const edges = choice.fair ? FAIR_BREAKS : JOBS_BREAKS;
   const classes = Int8Array.from(values, (v) => (Number.isFinite(v) ? classify(v, edges) : -1));
@@ -591,6 +744,7 @@ function jobsModel() {
       ...choice,
       priced: Boolean(priced),
       zones,
+      fareNote: fareNote(zones),
       fare: fareClause(),
       when: choice.mode === 'pt' ? whenClause('jobs') : '',
       limit: priced ? (data.meta.fares.max_minutes || choice.limit) : choice.limit,
@@ -679,7 +833,31 @@ function scoreAvailable() {
 function fareClause() {
   const when = whenClause();
   if (state.budget == null || state.measure === 'score') return when;
+  if (byIncome()) return ` on a ${state.returnTrip ? 'return' : 'one-way'} budget of ${percentText(state.budget)} of a day's income${when}`;
   return ` for ${money(state.budget)}${state.returnTrip ? ' return' : ' one way'}${when}`;
+}
+
+function percentText(value) {
+  return `${Number(value).toFixed(value % 1 ? 1 : 0)}%`;
+}
+
+/** The dollars a share of income buys where incomes are lowest and highest,
+ *  among the middle 80% of residents, so the sentence is about real places. */
+function incomeRange(share) {
+  daily = daily || dailyIncome(data);
+  const idx = [];
+  for (let i = 0; i < data.n; i += 1) if (Number.isFinite(daily[i]) && data.pop[i] > 0) idx.push(i);
+  idx.sort((a, b) => daily[a] - daily[b]);
+  const total = idx.reduce((sum, i) => sum + data.pop[i], 0);
+  const at = (p) => {
+    let running = 0;
+    for (const i of idx) {
+      running += data.pop[i];
+      if (running >= p * total) return daily[i];
+    }
+    return daily[idx[idx.length - 1]];
+  };
+  return [at(0.1) * share / 100, at(0.9) * share / 100];
 }
 
 function compute() {
@@ -693,6 +871,7 @@ function compute() {
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
   if (state.show === 'fare' && fareAvailable() && data.cost[state.service]) return fareSurfaceModel();
+  if (state.show === 'burden' && fareAvailable() && data.cost[state.service] && incomeAvailable()) return burdenModel();
   return accessModel();
 }
 
@@ -747,18 +926,42 @@ function renderBudget() {
   if (hide) return;
   const meta = data.meta.fares;
   const spec = meta.budget || {};
-  const max = Number(spec.max ?? 20);
+  const income = byIncome();
+  // As a share of income the slider runs to 15% of a day's income, which is
+  // already past what the World Bank calls unaffordable.
+  const max = income ? INCOME_MAX : Number(spec.max ?? 20);
   const slider = $('budget');
-  slider.min = String(spec.min ?? 0);
+  slider.min = String(income ? 0 : spec.min ?? 0);
   slider.max = String(max);
-  slider.step = String(spec.step ?? 0.5);
+  slider.step = String(income ? 0.5 : spec.step ?? 0.5);
   slider.value = String(state.budget == null ? max : state.budget);
+  const trip = state.returnTrip ? 'return' : 'one way';
   $('budget-value').textContent = state.budget == null
     ? 'any fare'
-    : `${money(state.budget)} ${state.returnTrip ? 'return' : 'one way'}`;
+    : income ? `${percentText(state.budget)} of a day's income` : `${money(state.budget)} ${trip}`;
   const reset = $('budget-reset');
   reset.hidden = state.budget == null;
+  const unit = $('budget-unit');
+  unit.hidden = !incomeAvailable();
+  if (incomeAvailable()) {
+    const units = [['dollars', 'Dollars'], ['income', 'Share of income', "A share of a day's income in each area"]];
+    renderChips(unit, units, state.budgetUnit, (value) => {
+      if (value === state.budgetUnit) return;
+      // A dollar figure means nothing as a percentage, so each unit starts
+      // from its own default.
+      set({ budgetUnit: value, budget: value === 'income' ? INCOME_DEFAULT : null });
+    });
+  }
   const { hour, weekday } = tripWindow(state.service);
+  if (income) {
+    const [low, high] = state.budget == null ? [NaN, NaN] : incomeRange(state.budget);
+    $('budget-note').textContent = state.budget == null
+      ? "Each area's budget is a share of its own income, after household size."
+      : `Each area gets its own budget: ${money(low)} ${trip} where incomes are lowest, `
+        + `${money(high)} where they are highest.`;
+    $('budget-ticks').replaceChildren();
+    return;
+  }
   $('budget-note').textContent = budgetSentence(meta, state, hour, weekday);
 
   // Ticks sit where each extra zone starts costing, and move when the
@@ -820,6 +1023,7 @@ function renderView(model) {
   }
   if (state.view === 'access') {
     if (model.panel.show === 'fare') renderFareSurface(root, model.panel, set);
+    else if (model.panel.show === 'burden') renderBurden(root, model.panel, set);
     else renderAccess(root, model.panel, set);
   }
   else if (state.view === 'people') renderPeople(root, model.panel, set);

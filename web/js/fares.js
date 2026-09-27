@@ -75,10 +75,29 @@ export function fare(meta, zones, profile = 'adult', payment = 'hop') {
   const table = meta.fares || {};
   const prices = table[profile] || table.adult;
   if (!prices) return NaN;
-  const scale = prices[payment] || prices.hop || prices[Object.keys(prices)[0]];
+  // A concession with no price for this way of paying pays the adult price.
+  const scale = prices[payment] || (table.adult || {})[payment] || prices[Object.keys(prices)[0]];
   const capped = Math.max(1, Math.min(Math.round(zones), zoneCap(meta)));
   const value = scale ? scale[String(capped)] : undefined;
   return typeof value === 'number' ? value : NaN;
+}
+
+/** The weekday hours a SuperGold card rides free, as [from, to] pairs.
+ *  Networks write this as a list of hours, as a start and end with an
+ *  optional evening start, or as a start alone. */
+export function freeHours(rule) {
+  const clock = (value) => {
+    const [h, m] = String(value).split(':');
+    return Number(h) + (m ? Number(m) / 60 : 0);
+  };
+  if (Array.isArray(rule.free_hours_weekday)) return rule.free_hours_weekday.map(([a, b]) => [Number(a), Number(b)]);
+  const start = clock(rule.free_from || '09:00');
+  if (rule.free_until) {
+    const hours = [[start, clock(rule.free_until)]];
+    if (rule.free_after) hours.push([clock(rule.free_after), 24]);
+    return hours;
+  }
+  return [[start, 24]];
 }
 
 /** Whether this traveller pays nothing at this time of day.
@@ -88,13 +107,7 @@ export function freeTravel(meta, profile, hour, weekday = true) {
   if (profile === 'child_0_4') return true;
   if (profile !== 'supergold') return false;
   if (!weekday) return true;
-  const rule = (meta.free || {}).supergold || {};
-  // Some networks charge again in the evening peak, and list their free hours.
-  if (Array.isArray(rule.free_hours_weekday)) {
-    return Number.isFinite(hour) && rule.free_hours_weekday.some(([from, to]) => hour >= from && hour < to);
-  }
-  const from = rule.free_from || '09:00';
-  return Number.isFinite(hour) && hour >= Number(String(from).split(':')[0]);
+  return Number.isFinite(hour) && freeHours((meta.free || {}).supergold || {}).some(([from, to]) => hour >= from && hour < to);
 }
 
 /** The most zones this traveller can pay for out of `budget`.
@@ -220,4 +233,85 @@ export function fareClassCosts(meta, state, hour = state.hour, weekday = true) {
   const trips = state.returnTrip ? 2 : 1;
   const column = paymentKey(meta, state.payment, hour, weekday);
   return [0, 1, 2, 3, 4].map((z) => (z === 0 ? 0 : fare(meta, z, state.profile, column) * trips));
+}
+
+// ------------------------------------------------------------ fares and income
+//
+// A fare means more where incomes are lower. The burden of a trip is its
+// return fare as a share of a day's income where the traveller lives:
+//
+//     burden = return fare / (income / 365)
+//
+// with income the area's median household income divided by the square root
+// of its household size, in 2026 dollars (see src/team/affordability.py). A
+// burden made every day is the same share of income spent on a month of daily
+// return trips, the World Bank's 60-trip affordability basket.
+
+/** A day's income in each hexagon, with the city's median where the census
+ *  has none, so every place still gets a budget. */
+export function dailyIncome(data) {
+  const income = data.income;
+  if (!income) return null;
+  const fallback = (data.meta.affordability || {}).median_income;
+  return Float32Array.from(income, (v) => ((Number.isFinite(v) && v > 0 ? v : fallback) || NaN) / 365);
+}
+
+/** Fare zones each hexagon can afford when its budget for a return trip, or a
+ *  single one, is `share` percent of a day's local income. */
+export function incomeZones(meta, daily, share, state) {
+  const cap = zoneCap(meta);
+  const out = new Int8Array(daily.length);
+  if (freeTravel(meta, state.profile, state.hour, state.weekday)) return out.fill(cap);
+  const steps = fareSteps(meta, state);
+  for (let i = 0; i < daily.length; i += 1) {
+    const budget = (share / 100) * daily[i];
+    let zones = 0;
+    for (const step of steps) if (step.cost <= budget + 1e-9) zones = step.zones;
+    out[i] = zones;
+  }
+  return out;
+}
+
+/** The fewest zones that reach the nearest one inside the standard: 0 when
+ *  walking or low-stress cycling already does, -2 when nothing does, -1 when
+ *  there is no route at all. Unlike cheapestFareClasses, this keeps the true
+ *  count on networks with more than four zones. */
+export function cheapestZones(data, service, standard) {
+  const cap = zoneCap(data.meta.fares);
+  const free = data.meta.standard_modes.filter((m) => m !== 'pt');
+  const priced = data.cost[service] || {};
+  const out = new Int8Array(data.n).fill(-1);
+  for (let i = 0; i < data.n; i += 1) {
+    let found = -1;
+    for (const mode of free) {
+      const t = data.t[service]?.[mode]?.[i];
+      if (Number.isFinite(t)) {
+        found = t <= standard ? 0 : -2;
+        break;
+      }
+    }
+    if (found !== 0) {
+      for (let z = 1; z <= cap; z += 1) {
+        const t = priced[`z${z}`]?.[i];
+        if (Number.isFinite(t)) {
+          if (t <= standard) { found = z; break; }
+          found = -2;
+        }
+      }
+    }
+    out[i] = found;
+  }
+  return out;
+}
+
+/** Burden bands for the map: free, under 2.5%, 2.5 to 5%, 5 to 10%, 10% and
+ *  over, and no way within the standard. */
+export const BURDEN_BREAKS = [0.025, 0.05, 0.1];
+
+export function burdenClass(value) {
+  if (!Number.isFinite(value)) return -1;
+  if (value <= 0) return 0;
+  let k = 1;
+  for (const edge of BURDEN_BREAKS) if (value >= edge) k += 1;
+  return k;
 }

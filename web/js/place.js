@@ -1,6 +1,7 @@
 // The place panel: everything TEAM knows about one hexagon.
 
-import { bestMode, costLayer } from './data.js';
+import { bestMode, costLayer, pricedLayer, tripTime } from './data.js';
+import { fare, freeTravel, money, paymentKey } from './fares.js';
 import { diagnoseCell } from './diagnose.js';
 import { count, el, metres, minutes, MODES, place as placeNames } from './format.js';
 import { SERVICE_ORDER, SERVICE_SHORT } from './panel.js';
@@ -49,8 +50,7 @@ function section(title, ...children) {
  */
 export function timeFor(data, service, mode, i, zones = null) {
   if (mode !== 'pt' || zones == null) return data.t[service]?.[mode]?.[i];
-  if (zones <= 0) return NaN;
-  return costLayer(data, service, zones)?.[i] ?? NaN;
+  return pricedLayer(data, service, zones)?.[i] ?? NaN;
 }
 
 export function serviceVerdict(data, i, service, standard, viewMode, zones = null) {
@@ -131,7 +131,10 @@ export function renderPlace(root, data, i, state) {
   root.sub.textContent = bits.join(' · ');
 
   const viewMode = state.measure === 'score' ? 'best' : state.mode;
-  const zones = state.measure === 'score' ? null : state.zonesNow ?? null;
+  // A budget set as a share of income gives each hexagon its own limit; the
+  // card is about one hexagon, so it reads that one.
+  let zones = state.measure === 'score' ? null : state.zonesNow ?? null;
+  if (zones != null && typeof zones !== 'number') zones = zones[i];
   const services = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s]).map((s) =>
     serviceRow(data, i, s, state.standard[s] ?? data.meta.services[s].standard_minutes, viewMode, zones),
   );
@@ -215,6 +218,20 @@ export function renderPlace(root, data, i, state) {
     const payable = cheapest.filter((z) => z && z > 0).length;
     const never = cheapest.filter((z) => z === null).length;
     standing.push(row('Everyday services reachable', `${freeCount} free on foot or by bike, ${payable} for a fare, ${never} not at all`));
+  }
+  // What the cheapest fare means here, against what people here earn.
+  const income = data.income?.[i];
+  if (data.meta.fares?.fares && Number.isFinite(income) && income > 0) {
+    const meta = data.meta.fares;
+    const { hour, weekday } = tripTime(data, data.activeWindow?.gp || data.meta.services?.gp?.window);
+    const trips = state.returnTrip ? 2 : 1;
+    const cost = freeTravel(meta, state.profile, hour, weekday)
+      ? 0 : fare(meta, 1, state.profile, paymentKey(meta, state.payment, hour, weekday)) * trips;
+    standing.push(row('Income per person, after household size', `about $${Math.round(income / 1000)}k a year`));
+    if (Number.isFinite(cost)) {
+      const pct = (cost / (income / 365)) * 100;
+      standing.push(row(`A ${state.returnTrip ? 'return' : 'one-way'} fare of ${money(cost)}`, `${pct.toFixed(pct < 10 ? 1 : 0)}% of a day's income here`));
+    }
   }
 
   let heading = viewMode === 'best'

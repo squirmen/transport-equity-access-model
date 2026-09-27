@@ -258,6 +258,15 @@ def build_services(settings: Settings) -> pd.DataFrame:
     if covered:
         osm = osm[~osm["service"].isin(covered)]
     table = pd.concat([osm, facilities, school_services(settings), ece_services(settings)], ignore_index=True)
+    # School and early childhood directories come by region, and a region can
+    # hold several towns. Keep what lies around this one: anything further
+    # is beyond the routing limit anyway, and would only crowd the map.
+    if "census_sa1" in settings.raw["data"] and settings.data("census_sa1").exists():
+        west, south, east, north = city_bounds(settings)
+        inside = table["lon"].between(west, east) & table["lat"].between(south, north)
+        if (~inside).any():
+            log.info("left out %d destination rows outside the city", int((~inside).sum()))
+        table = table[inside]
     # A register can list the same facility twice at slightly different
     # addresses: Health New Zealand has Peninsula Medical Centre at two points
     # two hundred metres apart. One id is one place, so keep the first.

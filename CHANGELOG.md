@@ -11,6 +11,13 @@ Latest changes:
 - Who misses out reports where the shortfall falls, as a concentration index
   of the shortfall itself, so it follows the standard, mode, time and fare on
   screen. Groups show how far short they are as well as how many miss out.
+- Fares against income. A Share of income view maps what the cheapest way to
+  each service costs as a share of a day's local income, and compares the most
+  and least deprived areas. A fare budget can be set as a share of income, so
+  each area gets its own budget and every access and equity figure follows.
+- Eleven more urban areas: Hamilton, Tauranga, Dunedin, Napier-Hastings,
+  Nelson, Palmerston North, New Plymouth, Rotorua, Whangārei, Whanganui and
+  Queenstown.
 - A return visit goes straight to the last place viewed.
 - Fixed: fare budgets past four zones on Wellington's fourteen-zone network
   were read as four zones.

@@ -183,13 +183,18 @@ function chipRow(options, current, onPick, extraClass = '') {
  *  timed then, so moving from GPs to jobs stays on Saturday; anything that
  *  was not, such as a school run, keeps its own time. */
 export function renderWhenPicker(root, options, current, set) {
+  renderChips(root, options, current, (when) => set({ when }));
+}
+
+/** A row of chips in an existing radio group: [value, text, title] each. */
+export function renderChips(root, options, current, onPick) {
   const buttons = options.map(([value, text, title]) => {
     const button = el('button', 'chip', text);
     button.type = 'button';
     button.setAttribute('role', 'radio');
     button.setAttribute('aria-checked', String(value === current));
     if (title) button.title = title;
-    button.addEventListener('click', () => set({ when: value }));
+    button.addEventListener('click', () => onPick(value));
     return button;
   });
   root.replaceChildren(...buttons);
@@ -233,6 +238,7 @@ function accessSentence(model) {
 /** A line under the hero saying what the fare budget is doing, when one is set. */
 function fareLine(model) {
   if (!model.fare) return null;
+  if (model.fareNote) return el('p', 'note is-fare', model.fareNote);
   if (model.zones === 0) {
     return el('p', 'note is-fare', 'On this budget no fare is affordable, so only walking and cycling count.');
   }
@@ -262,9 +268,11 @@ function modePicker(current, set, standardModes) {
   return field;
 }
 
-function showSwitch(current, set, available) {
+function showSwitch(current, set, available, burden = false) {
   if (!available) return null;
-  return radios('Show', [['minutes', 'Minutes'], ['fare', 'What it costs']], current, (show) => set({ show }), { compact: true });
+  const options = [['minutes', 'Minutes'], ['fare', 'What it costs']];
+  if (burden) options.push(['burden', 'Share of income']);
+  return radios('Show', options, current, (show) => set({ show }), { compact: true });
 }
 
 export function renderAccess(root, model, set) {
@@ -272,7 +280,7 @@ export function renderAccess(root, model, set) {
     ...[
       hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
       fareLine(model),
-      showSwitch('minutes', set, model.canShowFare),
+      showSwitch('minutes', set, model.canShowFare, model.canShowBurden),
       modePicker(model.mode, set, model.standardModes),
       legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
     ].filter(Boolean),
@@ -292,7 +300,7 @@ export function renderFareSurface(root, model, set) {
       `of ${place.residents} can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
       model.paid > 0 ? `${count(model.paid)} more can, but only by paying.` : null,
     ),
-    showSwitch('fare', set, true),
+    showSwitch('fare', set, true, model.canShowBurden),
     legend(`Cheapest way to reach ${model.noun}, ${model.trip}`, model.legend, { divider: 1, note: model.note }),
     el('p', 'note', `${count(model.none)} people cannot reach ${model.noun} within ${model.standard} minutes at any price without a car.`),
   );
@@ -308,6 +316,71 @@ function figures(model) {
   if (Number.isFinite(model.lean)) bits.push(`concentration index of the shortfall by NZDep ${fixed(model.lean, 3)}`);
   const who = model.group === 'everyone' ? 'Everyone' : `${phrase(model.group)[0].toUpperCase()}${phrase(model.group).slice(1)}`;
   return `${who}: ${bits.join(', ').replace(/^Headcount/, 'headcount')}. The gap indices measure the shortfall as a share of the standard.`;
+}
+
+/** What the fare means against local income.
+ *
+ *  A dollar map says the same $6 everywhere. This says what $6 is to the
+ *  people who pay it, and whether the places paying most of their income are
+ *  the poorer ones.
+ */
+export function renderBurden(root, model, set) {
+  const share = (v) => (Number.isFinite(v) ? `${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%` : '–');
+  const ratio = model.least > 0 ? model.most / model.least : NaN;
+  let figure = '–';
+  let text = `Nobody here has to pay to reach ${model.noun} within ${model.standard} minutes.`;
+  if (Number.isFinite(ratio)) {
+    figure = `${ratio.toFixed(1)}×`;
+    text = ratio >= 1.05
+      ? `as much of a day's income goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
+      : ratio <= 0.95
+        ? `the share of a day's income the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
+        : `The fare to ${model.noun} takes about the same share of a day's income in more and less deprived areas.`;
+  } else if (model.paying > 0) {
+    figure = share(model.most || model.least);
+    text = `of a day's income goes on a ${model.trip} fare to ${model.noun}, for the people who have to pay.`;
+  }
+  const sub = Number.isFinite(ratio)
+    ? `A ${model.trip} fare takes ${share(model.most)} of a day's income in the most deprived fifth of areas and ${share(model.least)} in the least, for the ${count(model.paying)} people who have to pay to get there in time.`
+    : null;
+  const chartQ = el('div', 'chart');
+  bars(chartQ, model.byQuintile, {
+    format: share,
+    max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
+    caption: "Share of a day's income, for those who pay, by neighbourhood deprivation",
+    label: 'Fare burden by NZDep quintile',
+  });
+  const chartG = el('div', 'chart');
+  bars(chartG, [...model.byGroup].sort((a, b) => (b.value || 0) - (a.value || 0)), {
+    format: share,
+    max: Math.max(...model.byQuintile.map((r) => r.value || 0), ...model.byGroup.map((r) => r.value || 0)) * 1.1 || 1,
+    caption: 'By group, for those who pay',
+    label: 'Fare burden by group',
+  });
+  const meta = model.meta || {};
+  root.replaceChildren(
+    hero(figure, text, sub),
+    showSwitch('burden', set, true, true),
+    legend(`Cheapest way to reach ${model.noun} within ${model.standard} min, as a share of a day's income`, model.legend, { divider: 1 }),
+    el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of a day's income on the ${model.trip} fare.`),
+    chartQ,
+    chartG,
+    method(
+      'How this is worked out',
+      "Burden is the fare for the cheapest way to reach the nearest one inside the standard, divided by a day's "
+        + 'income where the traveller lives. The fare follows the traveller, payment and time chosen above.',
+      "Income is the 2023 Census median household income of the area, divided by the square root of its average "
+        + 'household size so a large household on the same income counts as less well off, and raised by '
+        + `${((meta.uplift || 1) - 1) * 100 > 0 ? (((meta.uplift || 1) - 1) * 100).toFixed(1) : '0'}% for wage growth since `
+        + 'then (average hourly earnings, March 2023 to June 2026). It is before tax, so against take-home pay the '
+        + 'burden would be higher. Areas the census publishes above $200,000 are held at that figure.',
+      'A trip that takes a share of a day\'s income, made every day, takes that share of income over a month. That is '
+        + 'the 60-trip month the World Bank uses to judge whether public transport is affordable (Carruthers, Dick and '
+        + 'Saurkar, 2005). Weekly fare caps would lower the cost of travelling that often, and are not applied here.',
+      'Incomes describe an area, not a household, so a low-income household in a well-off area is counted at the '
+        + "area's income.",
+    ),
+  );
 }
 
 export function renderPeople(root, model, set) {
@@ -446,7 +519,7 @@ export function renderJobsAccess(root, model, set) {
     ...[
       hero(figure, text),
       model.priced
-        ? el('p', 'note is-fare', model.zones === 0
+        ? el('p', 'note is-fare', model.fareNote ? `Counted over ${model.limit} minutes. ${model.fareNote}` : model.zones === 0
           ? 'On this budget no fare is affordable, so no job is reachable by public transport.'
           : `Counted over ${model.limit} minutes, the cap the priced layer is built at, and only where the trip stays inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`)
         : null,

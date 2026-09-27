@@ -94,3 +94,15 @@ def test_a_thinner_window_scores_below_the_usual_mean(tmp_path: Path, monkeypatc
     assert abs(usual_mean - 100.0) < 1e-3
     assert saturday_mean < 60.0
     assert "accessidx_everyday_pt_saturday" in table
+
+
+def test_equivalised_income_divides_by_the_root_of_household_size():
+    from team import affordability
+
+    income = affordability.equivalised(pd.Series([100_000.0, 100_000.0, -99.0]), pd.Series([1.0, 4.0, 2.0]), uplift=1.0)
+    assert income.iloc[0] == 100_000.0
+    assert income.iloc[1] == 50_000.0
+    assert np.isnan(income.iloc[2])
+    # A $7.30 return against $36,500 a year is 7.3% of a day's income.
+    assert abs(float(affordability.burden(7.30, 36_500.0)) - 0.073) < 1e-9
+    assert abs(affordability.INCOME_UPLIFT - 44.62 / 38.93) < 1e-12

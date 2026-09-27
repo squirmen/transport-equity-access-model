@@ -283,9 +283,10 @@ def test_fare_caps_at_four_zones():
 def test_fare_falls_back_to_the_adult_cash_price():
     from team import fares
 
-    # Community Connect exists only on an AT HOP card.
+    # Community Connect exists only on an AT HOP card, so paying cash costs
+    # what an adult pays in cash.
     assert fares.fare(FARE_TABLE, 1, "community_connect") == 1.5
-    assert fares.fare(FARE_TABLE, 1, "community_connect", "cash") == 1.5
+    assert fares.fare(FARE_TABLE, 1, "community_connect", "cash") == 4.0
 
 
 def test_affordable_zones_counts_a_return_trip_as_two_fares():

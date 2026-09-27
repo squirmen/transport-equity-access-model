@@ -168,6 +168,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
             if column in table
         },
         "drive": _ints(table["commute_car_share"], 100) if "commute_car_share" in table else None,
+        # Equivalised household income in the fare year's dollars, to the
+        # nearest hundred, for the fare burden.
+        "inc": _ints(table["income_equivalised"], 0.01) if "income_equivalised" in table else None,
         "freq": {w: _floats(table[f"pt_per_hour_{w}"], 1) for w in settings.routing["windows"]},
         "m_stop": _ints(table["m_frequent_stop"]),
         "m_rail": _ints(table["m_rail_ferry"]),
@@ -297,6 +300,29 @@ def fare_meta(settings: Settings, summary: dict) -> dict:
     }
 
 
+def affordability_meta(table: pd.DataFrame) -> dict:
+    """How the income behind the fare burden was made, for the method note."""
+    from . import affordability
+
+    if "income_equivalised" not in table:
+        return {}
+    people = table["population"].where(table["income_equivalised"].notna(), 0.0)
+    total = float(people.sum())
+    median = None
+    if total > 0:
+        order = table["income_equivalised"].sort_values().index
+        running = people.reindex(order).cumsum() / total
+        median = float(table["income_equivalised"].reindex(order)[running >= 0.5].iloc[0])
+    return {
+        "income": "2023 Census median household income, divided by the square root of mean household size",
+        "uplift": round(affordability.INCOME_UPLIFT, 4),
+        "uplift_source": affordability.UPLIFT_SOURCE,
+        "scale": 100,
+        "median_income": round(median, -2) if median else None,
+        "covered_share": round(float(people.sum() / table["population"].sum()), 4),
+    }
+
+
 def _area_records(frame: pd.DataFrame) -> list[dict]:
     records = frame.round(4).to_dict(orient="records")
     return [_clean(r) for r in records]
@@ -359,6 +385,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
             "purposes": {k: v.get("label", k) for k, v in settings.gravity.get("purposes", {}).items()},
         },
         "fares": fare_meta(settings, summary),
+        "affordability": affordability_meta(table),
         "quintiles": QUINTILE_LABELS,
         "reasons": {str(code): {"key": key, "label": label, "fix": fix} for code, (key, label, fix) in REASONS.items()},
         "totals": {"cells": int(len(table)), "population": round(float(table["population"].sum()))},
@@ -392,6 +419,9 @@ FIELD_NOTES = {
     "accessidx_": "The gravity score as an index where the population-weighted regional mean is 100.",
     "accessdec_": "Population-weighted decile of the gravity score, 1 lowest access to 10 highest.",
     "costzone": "Public transport fare zone the cell sits in.",
+    "household_size": "Mean usual residents per household in the SA1, 2023 Census.",
+    "income_equivalised": "Median household income divided by the square root of household size, raised to 2026 by "
+                          "the growth in average hourly earnings; used for the fare burden.",
     "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport.",
     "costmin_": "Minutes to the nearest one within this many fare zones by public transport.",
     "costshare_": "The same, as a share of all of them in the region.",
