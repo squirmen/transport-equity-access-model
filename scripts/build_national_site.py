@@ -29,7 +29,7 @@ from team import __version__
 log = logging.getLogger("national")
 
 REPO_WEB = Path(__file__).resolve().parents[1] / "web"
-DATA_FILES = ("cells.json", "summary.json", "places.json", "destinations.json", "overlays.json")
+DATA_FILES = ("cells.json", "cells_more.json", "summary.json", "places.json", "destinations.json", "overlays.json")
 
 
 def weighted_median(values, weights) -> float | None:

@@ -54,6 +54,24 @@ def _clean(value):
     return value
 
 
+# What the map and the first views need, sent first. The rest (job access,
+# scores, fares, choice counts and the measures behind the screening reasons)
+# follows in cells_more.json once the map is drawn. Auckland's core is about a
+# third of the whole, which matters on a host that sends a few hundred kilobytes
+# a second.
+CORE_CELL_KEYS = (
+    "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
+    "freq", "t", "tw", "nearest", "urban", "zone",
+)
+
+
+def split_cells(payload: dict) -> tuple[dict, dict]:
+    """The cell payload as the part sent first and the part that follows."""
+    core = {k: v for k, v in payload.items() if k in CORE_CELL_KEYS}
+    more = {k: v for k, v in payload.items() if k not in CORE_CELL_KEYS}
+    return core, more
+
+
 def _dump(path: Path, payload) -> None:
     """Write the file, and a gzipped copy beside it.
 
@@ -355,7 +373,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
     data = settings.output_dir / "site" / "data"
     places, place_index = place_list(table)
     dests, dest_index = destination_list(destinations)
-    _dump(data / "cells.json", cell_payload(settings, table, place_index, dest_index))
+    core, more = split_cells(cell_payload(settings, table, place_index, dest_index))
+    _dump(data / "cells.json", core)
+    _dump(data / "cells_more.json", more)
     _dump(data / "places.json", places)
     _dump(data / "destinations.json", dests)
 

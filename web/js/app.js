@@ -2,7 +2,7 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, decileBands, load, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
+  byQuintile, decileBands, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
   choiceWithin, reasons as reasonCodes, setUrban, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare,
   windowOf, windowsFor,
 } from './data.js';
@@ -1291,7 +1291,17 @@ function incomeRange(share) {
   return [at(0.1) * share / 100, at(0.9) * share / 100];
 }
 
+/** Whether what is on screen reads the part of the data sent after the map. */
+function needsMore() {
+  if (data.complete) return false;
+  return state.measure === 'score' || state.service === 'jobs' || state.view === 'fixes'
+    || ['fare', 'burden', 'choice'].includes(state.show) || state.budget != null;
+}
+
 function compute() {
+  if (needsMore()) {
+    return { waiting: true, classes: new Int8Array(data.n).fill(-1), colours: ACCESS, tooltip: () => ['Loading…'], panel: {} };
+  }
   state.zonesNow = zonesFor(state.service);
   if (state.measure === 'score') {
     const model = scoreModel();
@@ -1448,6 +1458,10 @@ function renderView(model) {
   }
   $('service-field').hidden = score;
   $('tabs').hidden = score;
+  if (model.waiting) {
+    $('view').replaceChildren(el('p', 'note', 'Loading the rest of the data for this view…'));
+    return;
+  }
   if (score) {
     renderScore($('view'), model.panel, set);
     return;
@@ -1571,6 +1585,12 @@ function update() {
     console.warn('The map is not ready to paint yet.', error);
   }
   const t2 = performance.now();
+  if (current.waiting) {
+    // The controls for this view read the data still on its way; they are
+    // drawn when it arrives.
+    renderView(current);
+    return;
+  }
   renderWhere();
   renderWhen();
   renderStandard();
@@ -1593,6 +1613,14 @@ function update() {
 function showPlace(i) {
   $('place').hidden = false;
   document.body.dataset.place = 'open';
+  if (!data.complete) {
+    // The card reads the measures sent after the map; it is drawn again when
+    // they arrive.
+    $('place-title').textContent = placeName(i);
+    $('place-sub').textContent = '';
+    $('place-body').replaceChildren(el('p', 'note', 'Loading the details for this place…'));
+    return;
+  }
   try {
     renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
   } catch (error) {
@@ -2092,6 +2120,23 @@ async function init() {
     $('panel-toggle').setAttribute('aria-label', 'Show controls');
   }
   update();
+  if (!data.complete) {
+    // The rest of the data follows the map. When it arrives the whole set is
+    // rebuilt with the settings already chosen, and whatever is open is drawn
+    // again, including a view that was waiting for it.
+    loadMore(`${DATA_BASE}${CITY}/`, data).then((full) => {
+      data = full;
+      if (state.urbanOnly) setUrban(data, true);
+      setWindow(data, state.when);
+      cache.best.clear();
+      cache.routed.clear();
+      update();
+    }).catch((error) => {
+      console.warn('The rest of the data could not be loaded.', error);
+      $('loading').hidden = false;
+      $('loading').textContent = 'Some views could not load. Reload the page to try again.';
+    });
+  }
   if (at) {
     const [zoom, lat, lng] = at.split('/').map(Number);
     if ([zoom, lat, lng].every(Number.isFinite)) map.jumpTo({ center: [lng, lat], zoom });

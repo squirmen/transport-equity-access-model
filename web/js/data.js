@@ -30,7 +30,24 @@ export async function fetchJson(base, name, { attempts = 3, pause = 600 } = {}) 
 
 export async function load(base) {
   const [cells, summary, places, destinations] = await Promise.all(FILES.map((name) => fetchJson(base, name)));
-  return prepare({ cells, summary, places, destinations });
+  const raw = { cells, summary, places, destinations };
+  const data = prepare(raw);
+  data.raw = raw;
+  // Builds from 0.6.1 send what the map needs first and the rest after it.
+  data.complete = 'jobs' in cells;
+  return data;
+}
+
+/** The rest of the data, sent after the map: job access, scores, fares,
+ *  choice counts and the measures behind the screening reasons. Returns a
+ *  whole new data set, built as if everything had come at once. */
+export async function loadMore(base, data) {
+  const more = await fetchJson(base, 'cells_more');
+  const raw = { ...data.raw, cells: { ...data.raw.cells, ...more } };
+  const full = prepare(raw);
+  full.raw = raw;
+  full.complete = true;
+  return full;
 }
 
 export function loadOverlays(base) {
