@@ -1,35 +1,35 @@
-# TEAM configuration for Gisborne.
+# TEAM configuration for Tokoroa.
 #
-# Inputs were prepared with scripts/add_city.py from the urban areas the
-# local buses serve and Stats NZ's functional urban area (2023) around them:
-# the satellite towns and rural land whose workers commute in.
+# Inputs were prepared with scripts/add_city.py from the census blocks of
+# Stats NZ's Tokoroa functional urban area: the town and the rural land
+# whose workers commute into it.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
-name: gisborne
-region: Gisborne urban area, with the functional urban area around them
+name: tokoroa
+region: Tokoroa functional urban area
 
 naming:
-  place: Gisborne
-  residents: Gisborne residents
-  possessive: Gisborne's
-  slug: gisborne
-  agency: GizzyBus
+  place: Tokoroa
+  residents: Tokoroa residents
+  possessive: Tokoroa's
+  slug: tokoroa
+  agency: Busit
 
 data:
-  osm: raw/gisborne/osm/gisborne_bbox.osm.pbf
-  gtfs: raw/gisborne/gtfs/gizzybus_gtfs_2026-09-28.zip
-  grid: processed/gisborne/grid/gisborne_h3_r9_population.parquet
-  jobs_grid: processed/gisborne/grid/gisborne_h3_r9_v2_opportunities.parquet
-  schools: raw/gisborne/education/educationcounts_schools_gisborne.json
-  ece: raw/gisborne/education/educationcounts_ece_gisborne.json
-  census_sa1: raw/gisborne/census/statsnz_census_sa1_2023_gisborne.geojson
+  osm: raw/tokoroa/osm/tokoroa_bbox.osm.pbf
+  gtfs: raw/hamilton/gtfs/busit_gtfs_2026-09-26.zip
+  grid: processed/tokoroa/grid/tokoroa_h3_r9_population.parquet
+  jobs_grid: processed/tokoroa/grid/tokoroa_h3_r9_v2_opportunities.parquet
+  schools: raw/hamilton/education/educationcounts_schools_hamilton.json
+  ece: raw/hamilton/education/educationcounts_ece_hamilton.json
+  census_sa1: raw/tokoroa/census/statsnz_census_sa1_2023_tokoroa.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
   census_equity: raw/auckland/census/statsnz_census_individual_equity_sa1_2023.json
   health_facilities: raw/nz/health/facility_code_table.xlsx
-  fare_table: raw/gisborne/fares/gizzybus_fares_2026-09-26.json
+  fare_table: raw/tokoroa/fares/busit_fares_tokoroa_2026-09-28.json
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
@@ -208,17 +208,17 @@ jobs:
 
 # What a journey costs, and what a traveller can reach for it.
 #
-# GizzyBus charges one fare for any trip in Gisborne. Buses run on weekdays
-# only, so Saturday has no public transport. The timetable comes from the
-# council's web timetables (scripts/build_rideguide_gtfs.py), as GDC
-# publishes no GTFS.
+# All of Tokoroa is one Busit fare zone, so every trip inside it costs the
+# 1-zone fare from Busit's regional zone table. There is no Saturday service.
+#
+# Fares were read from Busit's fares page in September 2026.
 fares:
   mode: pt
   max_minutes: 45
   purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
   budget:
     min: 0
-    max: 12
+    max: 16
     step: 0.5
     default: null
     return_trip: true
@@ -226,5 +226,7 @@ fares:
   profiles:
     - {key: adult, label: Adult, ages: "19 to 64"}
     - {key: child, label: Youth, ages: "5 to 18"}
+    - {key: tertiary_student, label: University of Waikato student, ages: "any, University of Waikato students only"}
     - {key: community_connect, label: Community Services Card, ages: "any"}
+    - {key: accessible, label: Accessibility concession, ages: "any"}
     - {key: supergold, label: SuperGold, ages: "65 and over"}

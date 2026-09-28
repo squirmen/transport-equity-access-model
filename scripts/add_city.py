@@ -14,7 +14,11 @@ name, and writes a metadata file next to what it produced.
 
     python scripts/add_city.py --data-root <root> --city wellington \\
         --tas "Wellington City" "Lower Hutt City" "Upper Hutt City" "Porirua City" \\
-        --region "Wellington Region"
+        --fua Wellington "Kapiti Coast" Ōtaki Masterton --region "Wellington Region"
+
+A place is usually one or more of Stats NZ's functional urban areas (2023):
+an urban core with the satellite towns and rural land whose workers commute
+into it. `--fua` adds those to whatever `--tas` and `--urban` select.
 
 Steps are separate so a slow one can be rerun on its own:
 
@@ -47,6 +51,7 @@ from pathlib import Path
 log = logging.getLogger("add_city")
 
 SA1_LAYER = "https://services.arcgis.com/XTtANUDT8Va4DLwI/ArcGIS/rest/services/2023_Census_by_SA1/FeatureServer/19"
+FUA_LAYER = "https://services.arcgis.com/XTtANUDT8Va4DLwI/arcgis/rest/services/nz_functional_urban_areas/FeatureServer/0"
 SA1_FIELDS = (
     "OBJECTID,SA12023_code,LANDWATER,LANDWATER_NAME,SA22023_code,SA22023_name,SA32023_code,"
     "SA32023_name,UR2023_code,UR2023_name,REGC2023_code,REGC2023_name,TA2023_code,TA2023_name,"
@@ -68,6 +73,14 @@ def _get(url: str, timeout: int = 180) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _post(url: str, params: dict, timeout: int = 300) -> dict:
+    """A query too long for a URL, such as a list of a few thousand blocks."""
+    body = urllib.parse.urlencode(params).encode("utf-8")
+    request = urllib.request.Request(url, data=body, headers={"User-Agent": "TEAM/0.1 (Better Places Lab)"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _write_metadata(path: Path, payload: dict) -> None:
     payload = {"downloaded_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(), **payload}
     path.with_suffix(path.suffix + ".metadata.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -78,11 +91,12 @@ def _quoted(names: list[str]) -> str:
 
 
 def where_clause(tas: list[str] | None, urban: list[str] | None = None) -> str:
-    """Census blocks by territorial authority, by urban area, or both.
+    """Census blocks in these territorial authorities and in these urban areas.
 
     A district is often mostly farmland, and some take in a second town with
     no bus of its own, as Queenstown-Lakes takes in Wānaka. Urban areas keep a
-    town to the people its network is there for.
+    town to the people its network is there for. Given both, a place takes in
+    each, so a city council's area can be joined by towns outside it.
     """
     parts = []
     if tas:
@@ -91,33 +105,97 @@ def where_clause(tas: list[str] | None, urban: list[str] | None = None) -> str:
         parts.append(f"UR2023_name IN ({_quoted(urban)})")
     if not parts:
         raise SystemExit("Give --tas, --urban or both.")
-    return " AND ".join(parts)
+    return " OR ".join(parts)
 
 
-def fetch_sa1(root: Path, city: str, tas: list[str] | None, urban: list[str] | None = None) -> Path:
-    """Census blocks for these territorial authorities or urban areas, with their geometry."""
-    where = where_clause(tas, urban)
-    count = _get(f"{SA1_LAYER}/query?" + urllib.parse.urlencode({"where": where, "returnCountOnly": "true", "f": "json"}))
+def fua_blocks(names: list[str]) -> list[str]:
+    """Census blocks in Stats NZ's functional urban areas of these names.
+
+    A functional urban area is an urban core with the satellite towns and
+    rural land whose workers commute into it (Stats NZ, 2023). A block belongs
+    to the area its centre falls in.
+    """
+    from shapely import make_valid
+    from shapely.geometry import Point, shape
+    from shapely.ops import unary_union
+
+    page = _post(f"{FUA_LAYER}/query", {
+        "where": f"FUA_name IN ({_quoted(names)})",
+        "outFields": "FUA_name,IFUA_name",
+        "outSR": "4326",
+        "f": "geojson",
+    })
+    found = {f["properties"]["FUA_name"] for f in page.get("features", [])}
+    missing = set(names) - found
+    if missing:
+        raise SystemExit(f"No functional urban area called {sorted(missing)}. Check Stats NZ's spelling.")
+    area = unary_union([make_valid(shape(f["geometry"])) for f in page["features"]])
+    west, south, east, north = area.bounds
+
+    codes: list[str] = []
+    offset = 0
+    while True:
+        got = _post(f"{SA1_LAYER}/query", {
+            "where": "1=1",
+            "geometry": f"{west},{south},{east},{north}",
+            "geometryType": "esriGeometryEnvelope",
+            "inSR": "4326",
+            "spatialRel": "esriSpatialRelIntersects",
+            "outFields": "SA12023_code",
+            "returnGeometry": "false",
+            "returnCentroid": "true",
+            "outSR": "4326",
+            "resultOffset": offset,
+            "resultRecordCount": 2000,
+            "f": "json",
+        }).get("features", [])
+        for feature in got:
+            centre = feature.get("centroid") or {}
+            if "x" in centre and area.contains(Point(centre["x"], centre["y"])):
+                codes.append(feature["attributes"]["SA12023_code"])
+        if len(got) < 2000:
+            break
+        offset += len(got)
+    log.info("sa1: %d blocks in functional urban areas %s", len(codes), ", ".join(names))
+    return sorted(set(codes))
+
+
+def fetch_sa1(root: Path, city: str, tas: list[str] | None, urban: list[str] | None = None,
+              fua: list[str] | None = None) -> Path:
+    """Census blocks for these territorial authorities, urban areas or functional
+    urban areas, with their geometry.
+
+    Functional urban areas are added to whatever the districts and urban areas
+    select, so a place can keep a whole city council's area and take in the
+    towns that commute into it.
+    """
+    parts = [f"({where_clause(tas, urban)})"] if (tas or urban) else []
+    label = parts[0] if parts else ""
+    if fua:
+        parts.append(f"SA12023_code IN ({_quoted(fua_blocks(fua))})")
+        label = " OR ".join(filter(None, [label, f"functional urban area IN ({_quoted(fua)})"]))
+    if not parts:
+        raise SystemExit("Give --tas, --urban or --fua.")
+    where = " OR ".join(parts)
+    count = _post(f"{SA1_LAYER}/query", {"where": where, "returnCountOnly": "true", "f": "json"})
     total = int(count.get("count", 0))
     if not total:
-        raise SystemExit(f"No census blocks matched {where}. Check the names against Stats NZ's spelling.")
-    log.info("sa1: %d blocks for %s", total, where)
+        raise SystemExit(f"No census blocks matched {label}. Check the names against Stats NZ's spelling.")
+    log.info("sa1: %d blocks for %s", total, label)
 
     features: list[dict] = []
     offset = 0
     while offset < total:
-        query = urllib.parse.urlencode(
-            {
-                "where": where,
-                "outFields": SA1_FIELDS,
-                "returnGeometry": "true",
-                "outSR": "4326",
-                "resultOffset": offset,
-                "resultRecordCount": PAGE,
-                "f": "geojson",
-            }
-        )
-        page = _get(f"{SA1_LAYER}/query?{query}")
+        page = _post(f"{SA1_LAYER}/query", {
+            "where": where,
+            "outFields": SA1_FIELDS,
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "orderByFields": "SA12023_code",
+            "resultOffset": offset,
+            "resultRecordCount": PAGE,
+            "f": "geojson",
+        })
         got = page.get("features", [])
         if not got:
             break
@@ -136,7 +214,8 @@ def fetch_sa1(root: Path, city: str, tas: list[str] | None, urban: list[str] | N
             "dataset_id": f"statsnz_census_sa1_2023_{city}",
             "license": "CC-BY-4.0",
             "source_url": SA1_LAYER,
-            "where": where,
+            "where": label,
+            "functional_urban_areas": fua or [],
             "feature_count": len(features),
             "notes": "SA1 geometry with the 2023 usually resident population field C23_URPopTot and NZDep2023.",
         },
@@ -371,6 +450,7 @@ def main() -> None:
     parser.add_argument("--city", required=True, help="short name, used in paths")
     parser.add_argument("--tas", nargs="+", help="territorial authority names, as Stats NZ spells them")
     parser.add_argument("--urban", nargs="+", help="urban area names (UR2023), as Stats NZ spells them")
+    parser.add_argument("--fua", nargs="+", help="functional urban area names (Stats NZ 2023), added to the rest")
     parser.add_argument("--region", nargs="+", help="regional council names, for the schools directory")
     parser.add_argument("--only", choices=STEPS, help="run one step")
     args = parser.parse_args()
@@ -378,9 +458,9 @@ def main() -> None:
     steps = [args.only] if args.only else list(STEPS)
 
     if "sa1" in steps:
-        if not args.tas and not args.urban:
-            raise SystemExit("--tas or --urban is needed to fetch census blocks.")
-        fetch_sa1(root, args.city, args.tas, args.urban)
+        if not (args.tas or args.urban or args.fua):
+            raise SystemExit("--tas, --urban or --fua is needed to fetch census blocks.")
+        fetch_sa1(root, args.city, args.tas, args.urban, args.fua)
     if "grid" in steps:
         build_grid(root, args.city)
     if "jobs" in steps:

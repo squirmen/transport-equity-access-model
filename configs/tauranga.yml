@@ -1,19 +1,18 @@
 # TEAM configuration for Tauranga.
 #
-# Inputs were prepared with scripts/add_city.py from the census blocks of the
-# urban areas Baybus serves, so farmland and towns with no bus of their
-# own are left out.
+# Inputs were prepared with scripts/add_city.py from Stats NZ's functional
+# urban areas (2023) for Tauranga (Ōmokoroa included), Te Puke and Katikati.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
 name: tauranga
-region: Tauranga urban area
+region: Tauranga, Te Puke and Katikati functional urban areas
 
 naming:
-  place: Tauranga
-  residents: Tauranga residents
-  possessive: Tauranga's
+  place: Tauranga and Western Bay
+  residents: Tauranga and Western Bay residents
+  possessive: Tauranga and Western Bay's
   slug: tauranga
   agency: Baybus
 
@@ -29,7 +28,9 @@ data:
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
   census_equity: raw/auckland/census/statsnz_census_individual_equity_sa1_2023.json
   health_facilities: raw/nz/health/facility_code_table.xlsx
-  fare_table: raw/tauranga/fares/baybus_fares_2026-09-26.json
+  fare_table: raw/tauranga/fares/baybus_fares_western_bay_2026-09-28.json
+  fare_zone_meta: raw/tauranga/fares/baybus_fare_zones.metadata.json
+  fare_zones: raw/tauranga/fares/baybus_fare_zones.geojson
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
@@ -208,18 +209,19 @@ jobs:
 
 # What a journey costs, and what a traveller can reach for it.
 #
-# Baybus charges one fare for any trip inside Tauranga. Children and SuperGold
-# holders pay differently at peak times, so the table has peak and off-peak
-# columns.
+# Baybus charges one fare inside a town and more between towns. Its stops
+# carry rings out from Tauranga (Te Puke and Ōmokoroa 2, Katikati 3), so the
+# pair fares are turned into a ring count; the fare table lists where that
+# is approximate. Zones are built by scripts/build_gtfs_fare_zones.py.
 #
-# Fares were read from Baybus's fares page in September 2026.
+# Fares were read from Baybus's fares pages in September 2026.
 fares:
   mode: pt
   max_minutes: 45
   purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
   budget:
     min: 0
-    max: 12
+    max: 14
     step: 0.5
     default: null
     return_trip: true

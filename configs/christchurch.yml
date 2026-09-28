@@ -1,19 +1,20 @@
 # TEAM configuration for Christchurch.
 #
-# Inputs were prepared with scripts/add_city.py, which pulls the census blocks,
-# builds the hexagon grid, spreads jobs onto it, clips the street network out
-# of the national extract and fetches the schools directory.
+# Inputs were prepared with scripts/add_city.py: all of Christchurch City and
+# Stats NZ's Christchurch functional urban area (2023), which adds the
+# satellite towns and rural land whose workers commute in. That takes in
+# Rolleston, Lincoln, Prebbleton, Kaiapoi, Rangiora and Woodend, all on Metro.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
 name: christchurch
-region: Christchurch City
+region: Christchurch City and the Christchurch functional urban area
 
 naming:
-  place: Christchurch
-  residents: Christchurch residents
-  possessive: Christchurch's
+  place: Greater Christchurch
+  residents: Greater Christchurch residents
+  possessive: Greater Christchurch's
   slug: christchurch
   agency: Metro
 

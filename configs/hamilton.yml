@@ -1,19 +1,19 @@
 # TEAM configuration for Hamilton.
 #
-# Inputs were prepared with scripts/add_city.py from the census blocks of the
-# urban areas Busit serves, so farmland and towns with no bus of their
-# own are left out.
+# Inputs were prepared with scripts/add_city.py from Stats NZ's functional
+# urban areas (2023) for Hamilton, Cambridge, Te Awamutu and Huntly: each
+# urban core with the rural land whose workers commute into it.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
 name: hamilton
-region: Hamilton urban area
+region: Hamilton, Cambridge, Te Awamutu and Huntly functional urban areas
 
 naming:
-  place: Hamilton
-  residents: Hamilton residents
-  possessive: Hamilton's
+  place: Greater Hamilton
+  residents: Greater Hamilton residents
+  possessive: Greater Hamilton's
   slug: hamilton
   agency: Busit
 
@@ -29,7 +29,9 @@ data:
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
   census_equity: raw/auckland/census/statsnz_census_individual_equity_sa1_2023.json
   health_facilities: raw/nz/health/facility_code_table.xlsx
-  fare_table: raw/hamilton/fares/busit_fares_hamilton_city_2026-09-26.json
+  fare_table: raw/hamilton/fares/busit_fares_2026-09-26.json
+  fare_zone_meta: raw/hamilton/fares/busit_fare_zones.metadata.json
+  fare_zones: raw/hamilton/fares/busit_fare_zones.geojson
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
@@ -208,9 +210,11 @@ jobs:
 
 # What a journey costs, and what a traveller can reach for it.
 #
-# Busit charges by fare zone, but all of Hamilton City is zone 1, so every trip
-# inside the urban area costs one fare. The table used here keeps the 1-zone
-# fare; the full zone table sits beside it.
+# Busit charges by the number of fare zones travelled, counted on rings out
+# from Hamilton: Hamilton is zone 1 and Cambridge, Te Awamutu and Huntly are
+# ring 3. The zones are built from the ring on each stop in the GTFS by
+# scripts/build_gtfs_fare_zones.py, with the central city zone counted as
+# zone 1 (its cheaper fare is not modelled).
 #
 # Fares were read from Busit's fares page in September 2026.
 fares:

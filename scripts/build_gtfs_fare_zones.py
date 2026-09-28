@@ -16,6 +16,9 @@ as the cheaper one, which is how a boundary works for the person paying.
 
     python scripts/build_gtfs_fare_zones.py --data-root <root> --city napier_hastings \\
         --gtfs raw/napier_hastings/gtfs/gobay_gtfs_2026-09-26.zip --name gobay
+
+A zone id with no ring in it, such as Busit's central city zone `WKO00_CBD`,
+takes the ring given with `--alias WKO00_CBD=1`.
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ def ring(zone_id: str) -> int | None:
     return min(numbers) if numbers else None
 
 
-def read_stops(path: Path):
+def read_stops(path: Path, alias: dict[str, int] | None = None):
     import pandas as pd
 
     with zipfile.ZipFile(path) as feed:
@@ -52,14 +55,15 @@ def read_stops(path: Path):
     frame = pd.DataFrame(list(csv.DictReader(io.StringIO(text))))
     frame["lat"] = pd.to_numeric(frame["stop_lat"], errors="coerce")
     frame["lon"] = pd.to_numeric(frame["stop_lon"], errors="coerce")
-    frame["zone"] = frame.get("zone_id", "").map(ring)
+    ids = frame.get("zone_id", pd.Series("", index=frame.index)).fillna("")
+    frame["zone"] = [alias[z] if alias and z in alias else ring(z) for z in ids]
     return frame.dropna(subset=["lat", "lon", "zone"])
 
 
-def build(root: Path, city: str, gtfs: str, name: str) -> dict:
+def build(root: Path, city: str, gtfs: str, name: str, alias: dict[str, int] | None = None) -> dict:
     import geopandas as gpd
 
-    stops = read_stops(root / gtfs)
+    stops = read_stops(root / gtfs, alias)
     log.info("stops with a fare zone: %d across rings %s", len(stops), sorted(stops["zone"].astype(int).unique()))
     grid = gpd.read_parquet(root / "processed" / city / "grid" / f"{city}_h3_r9_population.parquet")
     metric = "EPSG:2193"
@@ -96,6 +100,7 @@ def build(root: Path, city: str, gtfs: str, name: str) -> dict:
         "adjacency": adjacency,
         "hexagons_per_zone": {k: int(v) for k, v in sorted(counts.items())},
         "max_stop_metres": MAX_STOP_METRES,
+        "zone_id_aliases": alias or {},
         "caveats": [
             "A boundary stop carries two zones in the feed; the cheaper one is used.",
             "A hexagon further than 3 km from any stop has no zone, which is right where there is no service to pay for.",
@@ -112,8 +117,11 @@ def main() -> None:
     parser.add_argument("--city", required=True)
     parser.add_argument("--gtfs", required=True, help="feed path relative to the data root")
     parser.add_argument("--name", required=True, help="file name prefix, usually the network's name")
+    parser.add_argument("--alias", nargs="+", default=[], metavar="ZONE_ID=RING",
+                        help="rings for zone ids that carry none, such as Busit's central city zone")
     args = parser.parse_args()
-    meta = build(args.data_root.expanduser().resolve(), args.city, args.gtfs, args.name)
+    alias = {key: int(value) for key, value in (item.split("=", 1) for item in args.alias)}
+    meta = build(args.data_root.expanduser().resolve(), args.city, args.gtfs, args.name, alias)
     print(json.dumps({k: meta[k] for k in ("zones", "adjacency", "hexagons_per_zone")}, indent=2))
 
 

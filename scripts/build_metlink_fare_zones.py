@@ -59,6 +59,38 @@ def read_stops(path: Path):
     return frame
 
 
+def _connected(adjacency: dict[str, list[str]], start: str, end: str) -> bool:
+    seen, queue = {start}, collections.deque([start])
+    while queue:
+        zone = queue.popleft()
+        if zone == end:
+            return True
+        for other in adjacency.get(zone, []):
+            if other not in seen:
+                seen.add(other)
+                queue.append(other)
+    return False
+
+
+def bridge_gaps(adjacency: dict[str, list[str]]) -> list[tuple[str, str]]:
+    """Join each zone to the next number up when nothing else connects them.
+
+    Zones are drawn from where people live, so the Remutaka Range or a run of
+    empty farmland can leave the Wairarapa zones touching nothing on the
+    Wellington side, though the train runs straight through. Metlink numbers
+    its zones outward along each line, so the next number up is the next zone
+    along. Joined in place; returns the pairs joined.
+    """
+    names = sorted(adjacency, key=lambda z: int(z.split()[-1]))
+    joined = []
+    for low, high in zip(names, names[1:]):
+        if not _connected(adjacency, low, high):
+            adjacency[low] = sorted(set(adjacency[low]) | {high})
+            adjacency[high] = sorted(set(adjacency[high]) | {low})
+            joined.append((low, high))
+    return joined
+
+
 def build(root: Path) -> dict:
     import geopandas as gpd
     from shapely.geometry import mapping
@@ -104,6 +136,9 @@ def build(root: Path) -> dict:
             if i != j and grown.iloc[i].intersects(projected.geometry.iloc[j])
         ]
         adjacency[name] = sorted(touching)
+    bridged = bridge_gaps(adjacency)
+    if bridged:
+        log.info("zones joined across empty land: %s", ", ".join(f"{a}-{b}" for a, b in bridged))
     lonely = [z for z, v in adjacency.items() if not v]
     if lonely:
         log.warning("zones touching nothing: %s", ", ".join(lonely))
@@ -125,6 +160,7 @@ def build(root: Path) -> dict:
             "A boundary stop carries two zones in the feed; the cheaper one is used.",
             "A hexagon further than 3 km from any stop has no zone, which is right where there is no service to pay for.",
             "Zones come from where stops are, so a zone edge follows the network rather than Metlink's own boundary line.",
+            "Where empty land leaves two consecutive zones with no path between them, they are joined directly.",
         ],
     }
     (out / "metlink_fare_zones.metadata.json").write_text(json.dumps(meta, indent=2))

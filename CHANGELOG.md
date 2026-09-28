@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0 (28 September 2026)
+
+- Every place is now built from Stats NZ's functional urban areas (2023): the
+  city or town with the satellite towns and rural land whose workers commute
+  into it. Twenty places, up from seventeen, holding 4.12 million people (83%
+  of the country).
+- Greater Christchurch adds Rolleston, Lincoln, Prebbleton, Kaiapoi, Rangiora
+  and Woodend. Greater Wellington adds Kāpiti, Ōtaki, Masterton, Carterton and
+  the South Wairarapa towns, with Metlink's zones out to 14. Greater Hamilton
+  adds Cambridge, Te Awamutu and Huntly on Busit's zone fares. Tauranga and
+  Western Bay adds Te Puke and Katikati. Palmerston North and Feilding share
+  Horizons' zones.
+- Taupō, Whakatāne and Tokoroa are new.
+- The other places take in their commuting land, New Plymouth with Te Pahi's
+  zone fares out to Inglewood.
+- Auckland's population now matches the 2023 Census: its grid had been built
+  from an earlier count that was 2% short.
+- Where they live, in Who misses out: where each group lives against its share
+  across the place, how many live where they are at least one and a half times
+  as common, and whether those places reach the service. For people aged 65
+  and over this finds the retirement communities nobody planned, and which of
+  them cannot reach a GP without a car.
+- Destination pins are coloured by kind, grow under the pointer and say they
+  can be clicked, instead of hiding under the hexagon's tooltip.
+- A layer ticked before the basemap has arrived now appears when it does.
+
 ## 0.5.0 (28 September 2026)
 
 - Gisborne, Blenheim and Invercargill, from timetables their councils publish

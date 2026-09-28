@@ -1,14 +1,14 @@
 # TEAM configuration for Queenstown.
 #
-# Inputs were prepared with scripts/add_city.py from the census blocks of the
-# urban areas Orbus serves, so farmland and towns with no bus of their
-# own are left out.
+# Inputs were prepared with scripts/add_city.py from the urban areas the
+# local buses serve and Stats NZ's functional urban area (2023) around them:
+# the satellite towns and rural land whose workers commute in.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
 name: queenstown
-region: Queenstown, Arrowtown and Millbrook urban areas
+region: Queenstown, Arrowtown and Millbrook urban areas, with the functional urban area around them
 
 naming:
   place: Queenstown

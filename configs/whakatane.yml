@@ -1,35 +1,35 @@
-# TEAM configuration for Gisborne.
+# TEAM configuration for Whakatāne.
 #
-# Inputs were prepared with scripts/add_city.py from the urban areas the
-# local buses serve and Stats NZ's functional urban area (2023) around them:
-# the satellite towns and rural land whose workers commute in.
+# Inputs were prepared with scripts/add_city.py from the census blocks of
+# Stats NZ's Whakatāne functional urban area: the town, Ōhope and the
+# rural land whose workers commute into them.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
-name: gisborne
-region: Gisborne urban area, with the functional urban area around them
+name: whakatane
+region: Whakatāne functional urban area, Ōhope included
 
 naming:
-  place: Gisborne
-  residents: Gisborne residents
-  possessive: Gisborne's
-  slug: gisborne
-  agency: GizzyBus
+  place: Whakatāne
+  residents: Whakatāne residents
+  possessive: Whakatāne's
+  slug: whakatane
+  agency: Baybus
 
 data:
-  osm: raw/gisborne/osm/gisborne_bbox.osm.pbf
-  gtfs: raw/gisborne/gtfs/gizzybus_gtfs_2026-09-28.zip
-  grid: processed/gisborne/grid/gisborne_h3_r9_population.parquet
-  jobs_grid: processed/gisborne/grid/gisborne_h3_r9_v2_opportunities.parquet
-  schools: raw/gisborne/education/educationcounts_schools_gisborne.json
-  ece: raw/gisborne/education/educationcounts_ece_gisborne.json
-  census_sa1: raw/gisborne/census/statsnz_census_sa1_2023_gisborne.geojson
+  osm: raw/whakatane/osm/whakatane_bbox.osm.pbf
+  gtfs: raw/tauranga/gtfs/baybus_gtfs_2026-09-26.zip
+  grid: processed/whakatane/grid/whakatane_h3_r9_population.parquet
+  jobs_grid: processed/whakatane/grid/whakatane_h3_r9_v2_opportunities.parquet
+  schools: raw/tauranga/education/educationcounts_schools_tauranga.json
+  ece: raw/tauranga/education/educationcounts_ece_tauranga.json
+  census_sa1: raw/whakatane/census/statsnz_census_sa1_2023_whakatane.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
   census_age: raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json
   census_equity: raw/auckland/census/statsnz_census_individual_equity_sa1_2023.json
   health_facilities: raw/nz/health/facility_code_table.xlsx
-  fare_table: raw/gisborne/fares/gizzybus_fares_2026-09-26.json
+  fare_table: raw/whakatane/fares/baybus_fares_whakatane_2026-09-28.json
 
 origins:
   # Cells with fewer residents than this are slivers left by spreading census
@@ -208,10 +208,9 @@ jobs:
 
 # What a journey costs, and what a traveller can reach for it.
 #
-# GizzyBus charges one fare for any trip in Gisborne. Buses run on weekdays
-# only, so Saturday has no public transport. The timetable comes from the
-# council's web timetables (scripts/build_rideguide_gtfs.py), as GDC
-# publishes no GTFS.
+# One Baybus fare covers any trip within Whakatāne, Ōhope included.
+#
+# Fares were read from Baybus's Eastern Bay fares page in September 2026.
 fares:
   mode: pt
   max_minutes: 45
@@ -225,6 +224,8 @@ fares:
   payment_labels: {card: Bee Card}
   profiles:
     - {key: adult, label: Adult, ages: "19 to 64"}
-    - {key: child, label: Youth, ages: "5 to 18"}
+    - {key: child, label: Child/Youth, ages: "5 to 18"}
+    - {key: tertiary_student, label: Tertiary student, ages: "any, with tertiary student ID"}
     - {key: community_connect, label: Community Services Card, ages: "any"}
+    - {key: accessible, label: Accessibility concession, ages: "any"}
     - {key: supergold, label: SuperGold, ages: "65 and over"}

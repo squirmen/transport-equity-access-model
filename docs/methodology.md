@@ -1,7 +1,7 @@
 # TEAM method
 
-TEAM answers three questions for every populated part of seventeen New Zealand
-urban areas:
+TEAM answers three questions for every populated part of twenty New Zealand
+cities and towns and the land that commutes into them:
 
 1. How long does it take to reach everyday services and jobs without a car?
 2. Who lives where that takes too long?
@@ -12,10 +12,32 @@ jobs within a set time, and the number of people on either side of a stated
 standard. There is no composite index. Each figure can be traced back to a
 travel time, a destination list and a census count.
 
-Each urban area has its own configuration in [`configs/`](../configs/), with the
+Each place has its own configuration in [`configs/`](../configs/), with the
 same method and parameters; they differ only in their inputs and fares.
-Auckland, Wellington and Christchurch cover their council areas; the other
-fourteen cover the Stats NZ 2023 urban areas their buses serve.
+
+**What a place covers.** A place is built from Stats NZ's functional urban
+areas (2023): an urban core with the satellite towns and rural land whose
+workers commute into it (Stats NZ, 2021). That is the extent of a city as
+people use it, rather than as its council boundary or its built-up edge draws
+it. Census blocks are
+assigned to a functional urban area by where their centre falls
+(`scripts/add_city.py --fua`). Auckland covers the Auckland Council area, which
+holds 99% of its functional urban area; Greater Christchurch adds the rest of
+Christchurch City. Where one network serves several neighbouring areas they are
+joined: Greater Wellington is the Wellington, Kāpiti Coast, Ōtaki and Masterton
+areas with the four cities and the South Wairarapa towns, all on Metlink;
+Greater Hamilton is Hamilton, Cambridge, Te Awamutu and Huntly on Busit;
+Tauranga and Western Bay is Tauranga, Te Puke and Katikati on Baybus; and
+Palmerston North and Feilding share Horizons' network. The rest are one area
+each.
+
+Together the twenty places hold 4.12 million of the 4.99 million people the
+2023 Census counted (83%). Every urban area of 30,000 people or more is in,
+with the towns and farmland that commute into it. Left out are towns that are
+functional urban areas of their own but have little or no bus service in a
+published timetable feed, among them Levin, Timaru, Ashburton, Oamaru, Hāwera
+and Wānaka; Pōkeno and Tuakau, which commute to Auckland but lie outside the
+Auckland Council area; and rural land beyond any functional urban area.
 
 **Timetables without a feed.** Gisborne, Blenheim and Invercargill publish no
 GTFS. Gisborne's and Invercargill's councils show their timetables through Ride
@@ -288,12 +310,18 @@ because a ranking answers the question.
 A fare depends only on the zones at each end of a journey, so the
 origin-destination pairs already routed for the gravity scores are priced
 rather than routed again. Auckland's zones are recovered from Auckland
-Transport's printed map, because AT publishes no zone geometry; Wellington's,
-Napier-Hastings' and Nelson's come from the zone on each stop in their
-timetable feeds, each hexagon taking the zone of its nearest stop. Where an
-urban area lies inside one zone, as Hamilton, Palmerston North, Whanganui and
-New Plymouth do, every trip costs one fare. A journey's fare counts the zones
-it passes through, capped as the operator caps it. Off-peak prices, and
+Transport's printed map, because AT publishes no zone geometry. Every other
+zone network (Wellington, Hamilton, Tauranga, Palmerston North, Napier-Hastings,
+Nelson and New Plymouth) puts the zone on each stop in its timetable feed, so
+each hexagon takes the zone of its nearest stop. Where a place lies inside one
+zone or pays one fare, as Christchurch, Dunedin, Whanganui, Taupō, Tokoroa and
+Whakatāne do, every trip costs the same. A journey's fare counts the zones it
+passes through, capped as the operator caps it. Baybus prices each pair of
+Western Bay towns rather than counting zones, so its pair fares are turned
+into a count of rings out from Tauranga; the fare table lists the trips this
+gets wrong, the largest being Tauranga to Ōmokoroa, charged $1.04 too much.
+Metlink's zones are joined where their shapes touch, and consecutive zones are
+joined directly where empty land such as the Remutaka Range leaves no path. Off-peak prices, and
 SuperGold's free hours, follow the time of day being shown.
 
 A fare budget turns into the number of zones a traveller can afford, and a
@@ -368,10 +396,10 @@ counts every one within 10, 15, 20 and 30 minutes by walking, low-stress
 cycling or public transport, taking whichever reaches the most, and reports the
 share of people with two or more.
 
-**Urban areas only.** Auckland, Wellington and Christchurch take in rural land,
-where the question of access without a car is a different one. The figures can
-be limited to hexagons in Stats NZ urban areas of 1,000 people or more, the
-line Stats NZ draws between an urban area and a rural settlement.
+**Urban areas only.** Every place takes in rural land, where the question of
+access without a car is a different one. The figures can be limited to
+hexagons in Stats NZ urban areas of 1,000 people or more, the line Stats NZ
+draws between an urban area and a rural settlement.
 
 ## 9. Who misses out
 
@@ -541,6 +569,9 @@ equity in transportation. *Transport Reviews*, 37(2), 170–191.
 Shen, Q. (1998). Location characteristics of inner-city neighborhoods and
 employment accessibility of low-wage workers. *Environment and Planning B*,
 25(3), 345–365.
+
+Stats NZ (2021). *Functional urban areas: methodology and classification*.
+Wellington: Stats NZ. Classification updated for 2023.
 
 Transport for London (2015). *Assessing transport connectivity in London*.
 Transport for London.

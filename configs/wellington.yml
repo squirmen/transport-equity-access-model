@@ -1,19 +1,19 @@
 # TEAM configuration for Wellington.
 #
-# Inputs were prepared with scripts/add_city.py, which pulls the census blocks,
-# builds the hexagon grid, spreads jobs onto it, clips the street network out
-# of the national extract and fetches the schools directory.
+# Inputs were prepared with scripts/add_city.py: the four cities, Stats NZ's
+# functional urban areas (2023) for Wellington, Kāpiti Coast, Ōtaki and
+# Masterton, and Featherston, Greytown and Martinborough, all on Metlink.
 #
 # Paths under `data` are relative to the data root, set with --data-root or
 # the TEAM_DATA_ROOT environment variable.
 
 name: wellington
-region: Wellington City, Lower Hutt, Upper Hutt and Porirua
+region: Wellington, Kāpiti Coast, Ōtaki and Masterton functional urban areas, with Wellington, Lower Hutt, Upper Hutt and Porirua cities and the South Wairarapa towns
 
 naming:
-  place: Wellington
-  residents: Wellingtonians
-  possessive: Wellington's
+  place: Greater Wellington
+  residents: Greater Wellington residents
+  possessive: Greater Wellington's
   slug: wellington
   agency: Metlink
 
