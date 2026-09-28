@@ -7,20 +7,22 @@ import {
   windowOf, windowsFor,
 } from './data.js';
 import {
-  byGroup as shortfallByGroup, concentrationIndex, fgt, leaning, pricedOut, shortfallLeaning, shortfalls,
+  byGroup as shortfallByGroup, concentrationBreaks, concentrationClasses, concentrationIndex, CONCENTRATED, fgt, leaning,
+  pricedOut, shortfallLeaning, shortfalls, whereTheyLive,
 } from './equity.js';
 import {
   affordableZones, budgetSentence, burdenClass, cheapestFareClasses, cheapestZones, dailyIncome, fare,
   fareClassCosts, fareSteps, freeTravel, hasCaps, incomeZones, money, paymentKey, payments, travellerSummary,
   weekCost, zoneCap,
 } from './fares.js';
-import { count, el, minutes, MODES, place } from './format.js';
+import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
   BASEMAPS, cellCollection, createMap, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
   setCells, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
-  ACCESS, accessBreaks, classify, DECILE, FADED, FAIR, FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
+  ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
+  FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
   PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
 } from './palette.js';
 import {
@@ -148,6 +150,10 @@ const state = {
   areaLevel: 'sa2',
   areaSort: 'missing',
   areaAll: false,
+  // Who misses out, or where the group lives in the first place; and whether
+  // that map keeps only the places that miss the standard.
+  peopleShow: 'short',
+  liveMissing: false,
 };
 
 let data;
@@ -189,6 +195,11 @@ function readHash() {
   if (cost[3]) state.returnTrip = cost[3] !== '1';
   if (cost[4] === 'i') state.budgetUnit = 'income';
   if (params.get('u') === '1') state.urbanOnly = true;
+  const live = (params.get('p') || '').split('.');
+  if (live[0] === 'live') {
+    state.peopleShow = 'live';
+    state.liveMissing = live[1] === 'm';
+  }
   const when = params.get('h');
   if (when && /^[a-z_]+$/.test(when)) state.when = when;
   const jobs = (params.get('j') || '').split('.');
@@ -222,6 +233,7 @@ function hashNow() {
   }
   if (state.when) params.set('h', state.when);
   if (state.urbanOnly) params.set('u', '1');
+  if (state.peopleShow === 'live') params.set('p', state.liveMissing ? 'live.m' : 'live');
   if (state.group !== 'everyone') params.set('g', state.group);
   if (state.basemap !== 'light') params.set('b', state.basemap);
   if (map) {
@@ -686,7 +698,8 @@ function downloadAreas() {
   const text = areaCsv(lastAreas.rows, label);
   const name = [
     'team', data.meta.naming.slug, state.service, `${standardFor(state.service)}min`,
-    state.group, state.when || 'usual', state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
+    state.group, lastAreas.live ? 'where-they-live' : null, lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
+    state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
   ].filter(Boolean).join('_');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
@@ -856,6 +869,7 @@ function percentOf(value) {
 }
 
 function peopleModel() {
+  if (state.peopleShow === 'live') return liveModel();
   const service = state.service;
   const standard = standardFor(service);
   const shown = bestTimes(service, state.zonesNow);
@@ -932,6 +946,121 @@ function peopleModel() {
         { colour: PEOPLE[3], label: 'more' },
       ],
     },
+  };
+}
+
+/** Where a group lives in the first place, and whether the places it is
+ *  concentrated in can reach the service. For everyone, simply where people
+ *  live. */
+function liveModel() {
+  const service = state.service;
+  const standard = standardFor(service);
+  const shown = bestTimes(service, state.zonesNow);
+  const cap = data.meta.routing_max_minutes || 60;
+  const gaps = shortfalls(shown, standard, cap);
+  const everyone = state.group === 'everyone';
+  const weights = data.weights[state.group];
+  // Where the census suppresses a group's count there is no share to draw, and
+  // those residents are left out of the place's share rather than counted as
+  // having none of the group.
+  const shares = everyone ? null : data.shares[state.group];
+  const known = (i) => everyone || Number.isFinite(shares && shares[i]);
+  const pop = everyone ? data.pop : Float32Array.from(data.pop, (p, i) => (known(i) ? p : 0));
+  const summary = whereTheyLive(weights, pop, gaps);
+  const keep = state.liveMissing ? Array.from(gaps, (g) => g > 0) : null;
+  const noun = GROUP_NOUN[state.group] || 'people';
+  // Small groups need a decimal, or a 3% share and its edges round together.
+  const digits = !everyone && summary.share < 0.1 ? 1 : 0;
+
+  let classes;
+  let colours;
+  let legendItems;
+  let divider;
+  if (everyone) {
+    const edges = quartileBreaks(data.pop);
+    classes = Int8Array.from(data.pop, (v, i) => (v > 0 && (!keep || keep[i]) ? classify(v, edges) : -1));
+    colours = DENSITY;
+    legendItems = DENSITY.map((colour, k) => ({
+      colour,
+      label: k === 0 ? `up to ${edges[0]}` : k === DENSITY.length - 1 ? `over ${edges[edges.length - 1]}` : '',
+    }));
+  } else {
+    const breaks = concentrationBreaks(summary.share);
+    classes = concentrationClasses(weights, pop, breaks, keep);
+    colours = CONCENTRATION;
+    legendItems = CONCENTRATION.map((colour, k) => ({
+      colour,
+      label: k === 0 ? `under ${percent(breaks[0], digits)}` : `${percent(breaks[k - 1], digits)}+`,
+    }));
+    divider = 2;
+  }
+
+  return {
+    classes,
+    colours,
+    tooltip: (i) => {
+      const lines = everyone
+        ? [`About ${count(data.pop[i])} people`]
+        : known(i)
+          ? [`About ${count(weights[i])} ${noun}`, `${percent(data.pop[i] > 0 ? weights[i] / data.pop[i] : NaN, digits)} of residents`]
+          : [`No census count of ${noun} here`];
+      if (!Number.isFinite(shown[i])) lines.push(`${SERVICE_SHORT[service]}: no route within ${cap} min`);
+      else if (gaps[i] > 0) lines.push(`${SERVICE_SHORT[service]}: ${Math.round(gaps[i] * standard)} min over the standard`);
+      else lines.push(`${SERVICE_SHORT[service]}: within ${standard} min`);
+      return lines;
+    },
+    panel: {
+      live: true,
+      noun: SERVICE_NOUN[service],
+      standard,
+      group: state.group,
+      groups: groupChips(),
+      fare: fareClause(),
+      missingOnly: state.liveMissing,
+      summary,
+      digits,
+      concentrated: CONCENTRATED,
+      legend: legendItems,
+      divider,
+      modeNote: state.mode !== 'best' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
+      areas: liveAreas(gaps, weights, pop, standard),
+    },
+  };
+}
+
+/** Areas by how many of the group live there, or by their share of residents. */
+function liveAreas(gaps, weights, pop, standard) {
+  const levels = areaLevels();
+  const level = levels.some(([k]) => k === state.areaLevel) ? state.areaLevel : 'sa2';
+  const areaOf = level === 'board'
+    ? Array.from(data.place, (p) => (p != null && data.places[p] ? data.places[p].board || null : null))
+    : data.place;
+  const residents = new Map(areaTable(areaOf, gaps, pop, data.nzdep, standard).map((row) => [row.area, row.people]));
+  const rows = areaTable(areaOf, gaps, weights, data.nzdep, standard).map((row) => ({
+    ...row,
+    name: level === 'board' ? row.area : (data.places[row.area] ? data.places[row.area].name : 'Unnamed area'),
+    residents: residents.get(row.area) || 0,
+    ofResidents: residents.get(row.area) > 0 ? row.people / residents.get(row.area) : NaN,
+  }));
+  // Everyone is all of the residents, so a share of them sorts nothing.
+  const sort = state.group !== 'everyone' && state.areaSort === 'share' ? 'share' : 'missing';
+  // An area of a few dozen people can be almost all one group; a share means
+  // more from an area of some size.
+  const eligible = sort === 'share' ? rows.filter((r) => r.residents >= 200) : rows;
+  // With only the places that miss the standard on the map, the list follows
+  // it: the people there who miss out, most first.
+  const by = state.liveMissing ? 'missing' : 'people';
+  const sorted = [...eligible]
+    .filter((r) => r[by] > 0)
+    .sort((a, b) => (sort === 'share' ? b.ofResidents - a.ofResidents : b[by] - a[by]) || b[by] - a[by]);
+  lastAreas = { rows: sorted, level, live: true, missingOnly: state.liveMissing };
+  return {
+    level,
+    levels,
+    sort,
+    total: sorted.length,
+    showAll: state.areaAll,
+    rows: state.areaAll ? sorted : sorted.slice(0, 10),
   };
 }
 
@@ -1434,6 +1563,7 @@ function update() {
     current.classes = Int8Array.from(current.classes, (c, i) => (data.urban[i] ? c : -1));
   }
   const t1 = performance.now();
+  if (redrawKey && state.service !== lastService) redrawKey();
   // The panel is worth drawing even when the basemap has not arrived.
   try {
     paintCells(map, current.classes, current.colours);
@@ -1569,13 +1699,14 @@ function wireControls() {
   const mapKey = $('map-key');
   const shown = new Set();
   const drawKey = () => {
+    lastService = state.service;
     const rows = [];
     for (const [key, spec] of Object.entries(OVERLAYS)) {
       if (!shown.has(key) || !spec.key) continue;
       for (const entry of spec.key) {
         const row = el('div', 'key-row');
         const swatch = el('span', `key-swatch key-${entry.swatch}`);
-        swatch.style.setProperty('--swatch', entry.colour);
+        swatch.style.setProperty('--swatch', entry.colour || DESTINATION_COLOURS[state.service] || DESTINATION_OTHER);
         row.append(swatch, el('span', 'key-label', entry.label));
         rows.push(row);
       }
@@ -1583,12 +1714,14 @@ function wireControls() {
     mapKey.replaceChildren(...rows);
     mapKey.hidden = rows.length === 0;
   };
+  redrawKey = drawKey;
   for (const [key, spec] of Object.entries(OVERLAYS)) {
     const label = el('label', 'check');
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.addEventListener('change', () => {
-      setOverlay(map, key, box.checked);
+      state.overlays[key] = box.checked;
+      applyOverlays();
       if (box.checked) shown.add(key); else shown.delete(key);
       drawKey();
     });
@@ -1613,25 +1746,40 @@ function wireControls() {
       const named = services.map((id) => SERVICE_SHORT[id.trim()] || id.trim()).join(', ');
       if (named) box.append(el('span', null, named));
     }
+    tooltip.hidden = true;
     new window.maplibregl.Popup({ closeButton: true, offset: 10, className: 'point-popup' })
       .setLngLat(lngLat)
       .setDOMContent(box)
       .addTo(map);
+  }, {
+    hover({ kind, properties }, point) {
+      const title = kind === 'stop' ? 'Public transport stop' : (properties.name || 'Unnamed');
+      const services = String(properties.services || '').replace(/[[\]"]/g, '').split(',').filter(Boolean);
+      const named = kind === 'stop' ? '' : services.map((id) => SERVICE_SHORT[id.trim()] || id.trim()).join(', ');
+      showTooltip([el('strong', null, title), named ? el('span', null, named) : null,
+        el('span', 'tooltip-hint', kind === 'stop' ? 'Click for departures' : 'Click for details')], point);
+    },
+    leave() {
+      tooltip.hidden = true;
+    },
   });
 
   const tooltip = $('tooltip');
+  function showTooltip(lines, point) {
+    tooltip.replaceChildren(...lines.filter(Boolean));
+    tooltip.hidden = false;
+    // Keep the tooltip clear of the place panel and the window edge.
+    const room = window.innerWidth - ($('place').hidden ? 0 : 360);
+    const x = Math.round(point.x + 14);
+    const y = Math.round(point.y + 14);
+    tooltip.style.transform = point.x + 300 > room
+      ? `translate(${Math.round(point.x - 14)}px, ${y}px) translateX(-100%)`
+      : `translate(${x}px, ${y}px)`;
+  }
   onCells(map, {
     hover(i, point) {
       if (!current) return;
-      tooltip.replaceChildren(el('strong', null, placeName(i)), ...current.tooltip(i).map((line) => el('span', null, line)));
-      tooltip.hidden = false;
-      // Keep the tooltip clear of the place panel and the window edge.
-      const room = window.innerWidth - ($('place').hidden ? 0 : 360);
-      const x = Math.round(point.x + 14);
-      const y = Math.round(point.y + 14);
-      tooltip.style.transform = point.x + 300 > room
-        ? `translate(${Math.round(point.x - 14)}px, ${y}px) translateX(-100%)`
-        : `translate(${x}px, ${y}px)`;
+      showTooltip([el('strong', null, placeName(i)), ...current.tooltip(i).map((line) => el('span', null, line))], point);
     },
     leave() {
       tooltip.hidden = true;
@@ -1646,6 +1794,23 @@ function wireControls() {
 }
 
 
+// The map key names the destination's colour, which changes with the service.
+let redrawKey = null;
+let lastService = null;
+
+/** Show the layers ticked in the Layers menu. A tick made before the basemap
+ *  style has arrived is kept and applied when it does. */
+function applyOverlays() {
+  if (!map) return;
+  for (const [key, on] of Object.entries(state.overlays)) {
+    try {
+      setOverlay(map, key, on);
+    } catch {
+      // The style is not in yet; adding the layers applies every tick again.
+    }
+  }
+}
+
 /** The opening view: every city, and what each one is like. */
 async function start() {
   const response = await fetch(`${DATA_BASE}cities.json`, { cache: 'no-cache' });
@@ -1658,7 +1823,7 @@ async function start() {
   $('panel').inert = true;
   $('panel').setAttribute('aria-hidden', 'true');
   $('start-lede').textContent = `How much people can reach without a car: everyday services and jobs for `
-    + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand urban areas. `
+    + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand cities and towns. `
     + 'Pick a place to open its map.';
   const everyday = (city) => (Number.isFinite(city.everyday_all_share) ? `${Math.round(city.everyday_all_share * 100)}%` : '–');
   const jobs = (city) => (Number.isFinite(city.jobs_pt_45_typical) ? count(city.jobs_pt_45_typical) : '–');
@@ -1722,7 +1887,8 @@ async function start() {
     return button;
   }));
   const built = new Date(`${index.built}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-  $('start-note').textContent = `Timetables from September 2026, 2023 Census. Built ${built}. Version ${index.version}.`;
+  $('start-note').textContent = 'Each place takes in the towns and rural land that commute into it, as Stats NZ draws '
+    + `its functional urban areas. Timetables from September 2026, 2023 Census. Built ${built}. Version ${index.version}.`;
   wireCityPicker(index, null);
   wireLocate(index);
   $('start-featured').querySelector('.start-feature')?.focus();
@@ -1899,6 +2065,7 @@ async function init() {
     setCells(map, cellCollection(data.h3));
     setOverlays(map, {}, data.destinations);
     setBasemap(map, state.basemap);
+    applyOverlays();
     overlaysReady.then((overlays) => setOverlays(map, overlays, data.destinations));
   };
   if (styleReady) {

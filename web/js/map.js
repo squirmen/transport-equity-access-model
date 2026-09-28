@@ -6,6 +6,8 @@
 
 /* global maplibregl, h3 */
 
+import { DESTINATION_COLOURS, DESTINATION_OTHER } from './palette.js';
+
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const CLEAR = 'rgba(0,0,0,0)';
@@ -49,7 +51,8 @@ export const OVERLAYS = {
   destinations: {
     label: 'Places you are getting to',
     layers: ['destinations'],
-    key: [{ swatch: 'ring', colour: '#0c0c48', label: 'Shown for the destination chosen' }],
+    // Coloured by the kind of place chosen, so the colour is set when drawn.
+    key: [{ swatch: 'dot', colour: null, label: 'The destination chosen. Click one for details.' }],
   },
 };
 
@@ -134,10 +137,14 @@ export function createMap(container) {
       {
         id: 'destinations', type: 'circle', source: 'destinations', layout: { visibility: 'none' },
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 15, 6],
-          'circle-color': '#ffffff',
-          'circle-stroke-color': '#0c0c48',
-          'circle-stroke-width': 1.5,
+          // A pin under the pointer grows and takes a dark ring, so it reads
+          // as something to click rather than part of the map.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            10, ['case', ['boolean', ['feature-state', 'hover'], false], 5, 3],
+            15, ['case', ['boolean', ['feature-state', 'hover'], false], 10, 6.5]],
+          'circle-color': DESTINATION_OTHER,
+          'circle-stroke-color': ['case', ['boolean', ['feature-state', 'hover'], false], '#0c0c48', '#ffffff'],
+          'circle-stroke-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5, 1.5],
         },
       },
       { id: 'cell-hover', type: 'line', source: 'hover', paint: { 'line-color': '#0c0c48', 'line-width': 1.5 } },
@@ -206,6 +213,17 @@ export function setOverlays(map, overlays, destinations) {
 
 export function showDestinationsFor(map, service) {
   map.setFilter('destinations', service ? ['in', service, ['get', 'services']] : ['boolean', false]);
+  map.setPaintProperty('destinations', 'circle-color', DESTINATION_COLOURS[service] || DESTINATION_OTHER);
+}
+
+const POINT_LAYERS = ['destinations', 'ov-stops'];
+
+/** The pin or stop under the pointer, if one is showing there. */
+function pointAt(map, point) {
+  const layers = POINT_LAYERS.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none');
+  if (!layers.length) return null;
+  const hits = map.queryRenderedFeatures(point, { layers });
+  return hits.length ? hits[0] : null;
 }
 
 export function setBasemap(map, key) {
@@ -219,9 +237,15 @@ export function setOverlay(map, key, on) {
 }
 
 /** Clicks on a destination pin or a stop, which are points rather than cells
- *  and so need their own handler. Returns what was clicked and where. */
-export function onPoints(map, handler) {
-  for (const layer of ['destinations', 'ov-stops']) {
+ *  and so need their own handler. Returns what was clicked and where. Hovering
+ *  one calls `hover` with what it is, so it can say it can be clicked. */
+export function onPoints(map, handler, { hover, leave } = {}) {
+  let lit = null;
+  const unlight = () => {
+    if (lit != null) map.setFeatureState({ source: 'destinations', id: lit }, { hover: false });
+    lit = null;
+  };
+  for (const layer of POINT_LAYERS) {
     map.on('click', layer, (event) => {
       const feature = event.features && event.features[0];
       if (!feature) return;
@@ -233,8 +257,29 @@ export function onPoints(map, handler) {
         lngLat: event.lngLat,
       });
     });
-    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+    map.on('mousemove', layer, (event) => {
+      // Where a pin and a stop overlap, both layers fire; only the one drawn
+      // on top answers, so the tooltip and the highlight agree.
+      const top = pointAt(map, event.point);
+      if (top && top.layer.id !== layer) {
+        if (layer === 'destinations') unlight();
+        return;
+      }
+      const feature = top || (event.features && event.features[0]);
+      if (!feature) return;
+      map.getCanvas().style.cursor = 'pointer';
+      if (layer === 'destinations' && feature.id !== lit) {
+        unlight();
+        lit = feature.id;
+        map.setFeatureState({ source: 'destinations', id: lit }, { hover: true });
+      }
+      if (hover) hover({ kind: layer === 'destinations' ? 'destination' : 'stop', properties: feature.properties || {} }, event.point);
+    });
+    map.on('mouseleave', layer, () => {
+      map.getCanvas().style.cursor = '';
+      if (layer === 'destinations') unlight();
+      if (leave) leave();
+    });
   }
 }
 
@@ -243,6 +288,15 @@ export function onCells(map, { hover, leave, click }) {
   map.on('mousemove', 'cells-fill', (event) => {
     const feature = event.features && event.features[0];
     if (!feature) return;
+    // A pin or stop sits on top of a cell; it has its own hover, so the cell
+    // steps back rather than covering it with a tooltip.
+    if (pointAt(map, event.point)) {
+      if (hovered != null) {
+        hovered = null;
+        map.getSource('hover').setData(EMPTY);
+      }
+      return;
+    }
     if (hovered !== feature.id) {
       hovered = feature.id;
       map.getSource('hover').setData(cells.features[hovered] || EMPTY);

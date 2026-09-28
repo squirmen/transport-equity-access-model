@@ -9,6 +9,27 @@ export const ACCESS = ['#184f95', '#3987e5', '#9ec5f4', '#f8ad8b', '#d65d15', '#
 // People missing the standard in a cell: one hue, light to dark.
 export const PEOPLE = ['#fecbb4', '#f0986f', '#d56326', '#933d09'];
 
+// Where a group lives: its share of residents set against its share across
+// the whole place. Below that share is quiet grey; above it, purple darkens,
+// so the eye goes to the concentrations.
+export const CONCENTRATION = ['#e4e2dc', '#c9c6be', '#c7b8e6', '#8f71c9', '#4b2a7a'];
+
+// People per hexagon, when the group is everyone: one hue, light to dark.
+export const DENSITY = ['#ddd3ee', '#a58ed1', '#6f4fb0', '#43287a'];
+
+// Destination pins by kind of place, so a pin says what it is before it is
+// clicked: food green, health red, learning amber.
+export const DESTINATION_COLOURS = {
+  supermarket: '#1a7f4b',
+  gp: '#c8364e',
+  pharmacy: '#c8364e',
+  early_childhood: '#b86e00',
+  primary_school: '#b86e00',
+  intermediate_school: '#b86e00',
+  secondary_school: '#b86e00',
+};
+export const DESTINATION_OTHER = '#0c0c48';
+
 // Share of the region's jobs within reach: one hue, light to dark.
 export const JOBS = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0d366b'];
 export const JOBS_BREAKS = [2, 5, 10, 25];

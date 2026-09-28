@@ -179,3 +179,67 @@ export function byGroup(times, standard, groups, unreachable = 60) {
   rows.sort((a, b) => (b.rate || 0) - (a.rate || 0));
   return rows;
 }
+
+// ---------------------------------------------------------------- where people live
+
+/** How much more concentrated a group has to be than across the whole place
+ *  before an area counts as a concentration: half as much again. */
+export const CONCENTRATED = 1.5;
+
+/** Class edges for a group's share of residents, set against its share across
+ *  the whole place: half of it, all of it, one and a half times, twice. */
+export function concentrationBreaks(placeShare) {
+  return [0.5, 1, CONCENTRATED, 2].map((k) => k * placeShare);
+}
+
+/** Each hexagon's class by the group's share of its residents, or -1 where
+ *  nobody lives or where `keep` says to leave it off. */
+export function concentrationClasses(weights, pop, breaks, keep = null) {
+  return Int8Array.from(weights, (w, i) => {
+    if (!(pop[i] > 0) || (keep && !keep[i])) return -1;
+    // A share on an edge goes up a class, allowing for rounding in the edges.
+    const share = (w / pop[i]) * (1 + 1e-6);
+    let k = 0;
+    while (k < breaks.length && share >= breaks[k]) k += 1;
+    return k;
+  });
+}
+
+/** Where a group lives, and whether the places it is concentrated in can
+ *  reach the service.
+ *
+ *  `gaps` is each hexagon's shortfall against the standard (0 where it is
+ *  met). A concentration is a hexagon where the group's share of residents is
+ *  at least CONCENTRATED times its share across the place.
+ */
+export function whereTheyLive(weights, pop, gaps) {
+  let group = 0;
+  let everyone = 0;
+  for (let i = 0; i < weights.length; i += 1) {
+    if (weights[i] > 0) group += weights[i];
+    if (pop[i] > 0) everyone += pop[i];
+  }
+  const share = everyone > 0 ? group / everyone : NaN;
+  let concentrated = 0;
+  let concentratedMissing = 0;
+  let missing = 0;
+  for (let i = 0; i < weights.length; i += 1) {
+    const w = weights[i];
+    if (!(w > 0) || !(pop[i] > 0)) continue;
+    const short = gaps[i] > 0;
+    if (short) missing += w;
+    if ((w / pop[i]) * (1 + 1e-6) >= CONCENTRATED * share) {
+      concentrated += w;
+      if (short) concentratedMissing += w;
+    }
+  }
+  return {
+    group,
+    everyone,
+    share,
+    concentrated,
+    concentratedShare: group > 0 ? concentrated / group : NaN,
+    concentratedMissingRate: concentrated > 0 ? concentratedMissing / concentrated : NaN,
+    missingRate: group > 0 ? missing / group : NaN,
+  };
+}

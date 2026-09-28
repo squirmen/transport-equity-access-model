@@ -48,13 +48,20 @@ export function sortAreas(rows, by = 'missing', minimum = 100) {
   return [...eligible].sort((a, b) => (b[by] || 0) - (a[by] || 0) || b.missing - a.missing);
 }
 
-/** The table as CSV text, with its settings in the file name, not the rows. */
+/** The table as CSV text, with its settings in the file name, not the rows.
+ *  Rows that also know the area's residents, as the where-they-live table
+ *  does, get the group's share of them too. */
 export function areaCsv(rows, label) {
   const quote = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
   const round = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '');
-  const lines = [[label, 'people', 'missing', 'share_missing', 'minutes_short', 'mean_nzdep'].join(',')];
+  const live = rows.some((r) => r.residents != null);
+  const head = [label, 'people', 'missing', 'share_missing', 'minutes_short', 'mean_nzdep'];
+  if (live) head.push('residents', 'share_of_residents');
+  const lines = [head.join(',')];
   for (const r of rows) {
-    lines.push([quote(r.name), round(r.people), round(r.missing), round(r.share, 3), round(r.minutesShort, 1), round(r.nzdep, 1)].join(','));
+    const cells = [quote(r.name), round(r.people), round(r.missing), round(r.share, 3), round(r.minutesShort, 1), round(r.nzdep, 1)];
+    if (live) cells.push(round(r.residents), round(r.ofResidents, 3));
+    lines.push(cells.join(','));
   }
   return `${lines.join('\n')}\n`;
 }

@@ -124,7 +124,7 @@ function method(summary, ...paragraphs) {
   const box = el('details', 'method');
   const head = el('summary');
   head.append(el('span', 'method-mark', 'i'), el('span', null, summary));
-  box.append(head, ...paragraphs.map((text) => el('p', 'method-text', text)));
+  box.append(head, ...paragraphs.filter(Boolean).map((text) => el('p', 'method-text', text)));
   return box;
 }
 
@@ -498,7 +498,125 @@ export function renderBurden(root, model, set) {
   ].filter(Boolean));
 }
 
+/** Who misses out, or where the group lives in the first place. */
+function peopleSwitch(current, set) {
+  return radios('Show', [['short', 'Who misses out'], ['live', 'Where they live']], current, (peopleShow) => set({ peopleShow }), { compact: true });
+}
+
+const capitalise = (text) => `${text[0].toUpperCase()}${text.slice(1)}`;
+
+/** Where a group lives, set against its share across the whole place, and
+ *  whether its concentrations can reach the service. */
+function renderLive(root, model, set) {
+  const s = model.summary;
+  const everyone = model.group === 'everyone';
+  const who = phrase(model.group);
+  const withoutCar = model.group === 'no_car' ? '' : ' without a car';
+  const reach = `reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}`;
+  const parts = [];
+  if (everyone) {
+    parts.push(hero(count(s.everyone), `people live in ${place.name}.`, `${percent(s.missingRate)} can't ${reach}.`));
+  } else {
+    parts.push(hero(
+      count(s.group),
+      `${who} live in ${place.name}, ${percent(s.share, model.digits)} of residents.`,
+      s.concentrated > 0
+        ? `${count(s.concentrated)} of them (${percent(s.concentratedShare)}) live where they are at least one and a half times as common as across ${place.name}.`
+        : null,
+    ));
+    if (s.concentrated > 0) {
+      const line = el('p', 'lean');
+      const worse = s.concentratedMissingRate > s.missingRate + 0.02;
+      const better = s.concentratedMissingRate < s.missingRate - 0.02;
+      line.append(
+        el('span', `lean-dot ${worse ? 'is-away' : better ? 'is-toward' : 'is-even'}`),
+        el('span', null, `There, ${percent(s.concentratedMissingRate)} can't ${reach}, against ${percent(s.missingRate)} of all ${who}.`),
+      );
+      parts.push(line);
+    }
+  }
+  if (model.modeNote) parts.push(el('p', 'note', model.modeNote));
+  parts.push(
+    peopleSwitch('live', set),
+    radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
+    radios('Map', [['all', everyone ? 'Everyone' : 'All of them'], ['missing', 'Only where they miss the standard']],
+      model.missingOnly ? 'missing' : 'all', (value) => set({ liveMissing: value === 'missing' }), { compact: true }),
+    legend(everyone ? 'People per hexagon' : `${capitalise(who)}, as a share of residents`, model.legend, {
+      divider: model.divider,
+      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(s.share, model.digits)}.`,
+    }),
+    liveAreaSection(model, set),
+    method(
+      'How this is worked out',
+      everyone
+        ? 'Each hexagon is coloured by how many people live in it, from the 2023 Census.'
+        : `Each hexagon is coloured by the share of its residents who are ${who}, set against their share across ${place.name}. `
+          + 'Grey is below that share and purple above it; the darkest purple is twice it or more.',
+      everyone ? '' : `A concentration is anywhere ${who} are at least ${model.concentrated === 1.5 ? 'one and a half' : model.concentrated} times as common as across the place. `
+        + (model.group === 'older'
+          ? 'Where older people gather like this without anyone planning it, it is sometimes called a naturally occurring retirement community.'
+          : ''),
+      'Whether a place meets the standard is counted by the fastest of walking, low-stress cycling and public transport, '
+        + 'for the service, standard, time and any fare set above.',
+      'Group figures come from census shares of the block around each hexagon, so they estimate people in an area rather than counting individuals.',
+    ),
+  );
+  root.replaceChildren(...parts.filter(Boolean));
+}
+
+function liveAreaSection(model, set) {
+  const a = model.areas;
+  const box = el('div', 'field areas');
+  if (!a || !a.total) return box;
+  box.append(el('span', 'field-label', 'By area'));
+  if (a.levels.length > 1) {
+    box.append(chipRow(a.levels, a.level, (areaLevel) => set({ areaLevel, areaAll: false }), ' chips-compact', 'Areas'));
+  }
+  const everyone = model.group === 'everyone';
+  if (!everyone) {
+    box.append(chipRow([['missing', 'Most people'], ['share', 'Highest share']], a.sort, (areaSort) => set({ areaSort }), ' chips-compact chips-quiet', 'Sort by'));
+  }
+  const list = el('ol', 'rank-list');
+  for (const row of a.rows) {
+    const item = el('li');
+    const button = el('button', 'rank-row');
+    button.type = 'button';
+    const ofResidents = everyone ? '' : `, ${percent(row.ofResidents, model.digits)} of residents`;
+    // With only the places that miss the standard shown, the list is ranked by
+    // the people there who miss out, so that is the number it leads with.
+    const reason = model.missingOnly
+      ? `of ${count(row.people)} here${ofResidents}, can't reach ${model.noun} in ${model.standard} min`
+      : `${everyone ? '' : `${percent(row.ofResidents, model.digits)} of residents · `}${percent(row.share)} can't reach ${model.noun} in ${model.standard} min`;
+    button.append(
+      el('span', 'rank-name', row.name),
+      el('span', 'rank-meta', count(model.missingOnly ? row.missing : row.people)),
+      el('span', 'rank-reason', reason),
+    );
+    button.addEventListener('click', () => set(a.level === 'board' ? { zoomBoard: row.area } : { zoomTo: row.area }));
+    item.append(button);
+    list.append(item);
+  }
+  box.append(list);
+  const actions = el('div', 'area-actions');
+  if (a.total > 10) {
+    const more = el('button', 'text-button', a.showAll ? 'Show fewer' : `Show all ${a.total}`);
+    more.type = 'button';
+    more.addEventListener('click', () => set({ areaAll: !a.showAll }));
+    actions.append(more);
+  }
+  const csv = el('button', 'text-button', 'Download as CSV');
+  csv.type = 'button';
+  csv.addEventListener('click', () => set({ download: true }));
+  actions.append(csv);
+  box.append(actions);
+  return box;
+}
+
 export function renderPeople(root, model, set) {
+  if (model.live) {
+    renderLive(root, model, set);
+    return;
+  }
   const chartG = el('div', 'chart');
   const chartQ = el('div', 'chart');
   // Groups are sorted worst first, with the regional rate as the line to beat.
@@ -547,6 +665,7 @@ export function renderPeople(root, model, set) {
   }
 
   parts.push(
+    peopleSwitch('short', set),
     radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     legend('People missing out × minutes short, per hexagon', model.legend),
     chartG,
