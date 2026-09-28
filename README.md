@@ -1,27 +1,49 @@
 # TEAM: Transport Equity and Access Model
 
-Who in Auckland can reach everyday services and jobs without a car, who
-cannot, and what would change that.
+Who in twenty New Zealand cities and towns can reach everyday services and
+jobs without a car, who cannot, and what would change that.
 
 [Open TEAM](https://team.tfwelch.com) · [Method](docs/methodology.md) ·
-[Indicators](docs/indicators.md) · [Download the data](https://team.tfwelch.com/downloads/)
+[Indicators](docs/indicators.md) · [Changes](CHANGELOG.md) ·
+[Download the data](https://team.tfwelch.com/downloads/)
 
 TEAM is built by the [Better Places Lab](https://betterplaces.blogs.auckland.ac.nz)
 at Waipapa Taumata Rau | University of Auckland.
 
+## Where it covers
+
+Auckland, Greater Christchurch, Greater Wellington, Greater Hamilton, Tauranga
+and Western Bay, Palmerston North and Feilding, Dunedin, Napier–Hastings,
+Nelson, New Plymouth, Rotorua, Whangārei, Invercargill, Whanganui, Gisborne,
+Blenheim, Queenstown, Taupō, Whakatāne and Tokoroa. Each is built from Stats
+NZ's functional urban areas, so it takes in the satellite towns and rural land
+that commute into it. Together they hold 4.12 million people, 83% of the
+country at the 2023 Census.
+
 ## What it shows
 
-- **Access.** Minutes from every populated hexagon in Auckland to the nearest
-  supermarket, GP, pharmacy and school, by walking, low-stress cycling and
-  public transport, with car times for reference. Jobs reachable within 30
+- **Access.** Minutes from every populated hexagon to the nearest
+  supermarket, GP, pharmacy, library, bank or post shop, early childhood
+  service and school, by walking, walking at a slower pace, low-stress cycling
+  and public transport, with car times for reference. Jobs reachable within 30
   and 45 minutes, with and without allowing for other workers competing for
   them.
+- **Errand rounds.** Whether someone can get from home to two, three or four
+  of the GP, pharmacy, supermarket, library and bank or post shop and home
+  again within a set time, with a limit on the longest single stretch.
 - **Standards.** Whether each place is within a stated time of each service
   without a car, and in how many ways. The standards are settings: the web app
   lets you change them.
 - **Who misses out.** The people beyond each standard, and how that differs by
-  neighbourhood deprivation, for households without a car, for children and
-  for people aged 65 and over.
+  neighbourhood deprivation, for households without a car, children, people
+  aged 65 and over, lower-income households, Māori, Pacific peoples, Asian
+  residents and disabled people.
+- **Where they live.** Where each group lives and is concentrated, and whether
+  those places meet the standard. For people aged 65 and over, rest homes and
+  retirement villages are set apart and suburbs that are naturally occurring
+  retirement communities are flagged.
+- **Fares.** What a trip costs on each network's fares, as dollars and as a
+  share of household income, with an optional fare budget.
 - **What would help.** The main reason each place misses a standard: an
   indirect walk, no low-stress bike route, infrequent or slow public transport,
   or nothing within reach. Each points to a different kind of fix.
@@ -33,10 +55,11 @@ at Waipapa Taumata Rau | University of Auckland.
   against the regional average, or as deciles, and switched on with the
   Measure toggle.
 
-## First results
+## First results, Auckland
 
-From the first full build (timetable of 1 September 2026, routed for a
-school-term Tuesday, 2023 Census):
+From the first full build of Auckland (timetable of 1 September 2026, routed
+for a school-term Tuesday, 2023 Census). Later versions add hills and more
+destinations, so the app's current figures differ a little.
 
 - 87% of Aucklanders can reach a GP within 20 minutes without a car. Two-thirds
   of the 203,000 who cannot live outside the main Auckland urban area, where
@@ -61,11 +84,19 @@ them for any other standard.
 
 ## How it works
 
-Travel times come from the R5 routing engine, using OpenStreetMap streets and
-paths and the Auckland Transport timetable for a school-term Tuesday. The
-region is divided into H3 hexagons of about 0.1 km², with residents and their
-characteristics from the 2023 Census. Destinations come from OpenStreetMap, the
-Ministry of Education school directory and Stats NZ business demography.
+Travel times come from the R5 routing engine through r5py, using
+OpenStreetMap streets and paths and each network's timetable for a
+school-term Tuesday and a Saturday. Gisborne, Invercargill and Blenheim
+publish no GTFS feed, so their timetables are converted from Ride Guide and the
+council's printed timetable. Walking and cycling are slowed on slopes, from
+LINZ's LiDAR and 8 m elevation models. Auckland's cycling uses the traffic
+stress ratings from SPAN, the lab's cycling investment model.
+
+Each place is divided into H3 hexagons of about 0.1 km², with residents and
+their characteristics from the 2023 Census. Destinations come from
+OpenStreetMap, the Ministry of Education's school and early learning
+directories, Health New Zealand's facility register and Stats NZ business
+demography.
 
 The full method, with its assumptions and references, is in
 [`docs/methodology.md`](docs/methodology.md). How TEAM relates to Transport for
@@ -79,7 +110,7 @@ access. It is not a project list, and the reasons it gives are screening rules
 rather than designs. It uses the nearest service, so school zones, GP
 enrolment and opening hours are not taken into account. Times come from
 timetables and street data rather than observed trips. The limits are listed in
-full in [`docs/methodology.md`](docs/methodology.md#9-what-team-does-not-do).
+full in [`docs/methodology.md`](docs/methodology.md#12-what-team-does-not-do).
 
 ## Running a build
 
@@ -87,16 +118,21 @@ You need Python 3.10 or later, Java 21 for R5, and
 [osmium](https://osmcode.org/osmium-tool/). Node 20 or later is used only for
 the web checks.
 
+Each place has a configuration in [`configs/`](configs/). Auckland's is the
+default; name another with `--config`.
+
 ```sh
 pip install -e ".[routing,test]"
-team --data-root /path/to/data destinations
-team --data-root /path/to/data route --all     # several hours; resumes if stopped
-team --data-root /path/to/data build
+team --config configs/wellington.yml --data-root DATA --out DATA/team-wellington destinations
+team --config configs/wellington.yml --data-root DATA --out DATA/team-wellington route --all
+team --config configs/wellington.yml --data-root DATA --out DATA/team-wellington build
+python scripts/build_national_site.py --out site --city DATA/team DATA/team-wellington
 ```
 
-The build writes an upload-ready folder to `<data root>/team/site/`. Copy its
-contents to any static web host. [`docs/running.md`](docs/running.md) describes
-the input files, the data root layout and each step.
+Routing takes from minutes for a small town to most of a day for Auckland,
+and resumes if stopped. The last step gathers the places into one site; copy
+its contents to any static web host. [`docs/running.md`](docs/running.md)
+describes the input files, adding a place, and each step.
 
 To try the web app without a build, serve the repository and open the
 synthetic test data:
@@ -119,7 +155,8 @@ npm test
 | --- | --- |
 | `src/team/` | the pipeline: destinations, routing, measures, equity, export |
 | `web/` | the web app (plain HTML, CSS and JavaScript; no build step) |
-| `configs/` | settings for each region |
+| `configs/` | settings for each place |
+| `scripts/` | preparing a new place, timetables, fare zones, elevation, SPAN stress, assembling the site |
 | `docs/` | method, indicators, data sources and the TAI-PT comparison |
 | `tests/` | tests, and a small synthetic dataset for the web app |
 
