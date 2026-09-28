@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (unreleased)
+## 0.8.0 (29 September 2026)
 
 - Libraries, and banks and post shops, are destinations of their own, under
   Community, and can be stops on an errand round.
