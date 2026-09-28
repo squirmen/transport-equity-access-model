@@ -294,8 +294,9 @@ function set(patch) {
     const stop = patch.errandToggle;
     delete patch.errandToggle;
     const now = errandStops();
+    const most = data.meta.chains?.max_stops || 4;
     const next = now.includes(stop) ? now.filter((s) => s !== stop) : [...now, stop];
-    if (next.length >= 2) patch.errandStops = next;
+    if (next.length >= 2 && next.length <= most) patch.errandStops = next;
   }
   Object.assign(state, patch);
   schedule();
@@ -1337,11 +1338,17 @@ function incomeRange(share) {
 
 let chainsLoading = null;
 
+// A round starts on the three everyday stops; the others are added by hand.
+const FIRST_ROUND = ['gp', 'pharmacy', 'supermarket'];
+
 /** The stops of the round on screen, in the order the build lists them. */
 function errandStops() {
   const all = data?.meta?.chains?.stops || [];
-  const chosen = (state.errandStops || all).filter((s) => all.includes(s));
-  return chosen.length >= 2 ? all.filter((s) => chosen.includes(s)) : all;
+  const most = data?.meta?.chains?.max_stops || all.length;
+  const start = FIRST_ROUND.filter((s) => all.includes(s));
+  const chosen = (state.errandStops || (start.length >= 2 ? start : all)).filter((s) => all.includes(s));
+  const ok = chosen.length >= 2 && chosen.length <= most;
+  return all.filter((s) => (ok ? chosen : start.length >= 2 ? start : all.slice(0, most)).includes(s));
 }
 
 function slowPace() {
@@ -1354,10 +1361,42 @@ function roundTimes() {
   const mode = state.errandMode + (slowPace() ? '_slow' : '');
   const key = `round|${set}|${mode}|${state.errandLeg}`;
   if (!cache.best.has(key)) {
-    const values = data.chains?.sets?.[set]?.[mode]?.[state.errandLeg];
+    const values = data.roundSets?.[set]?.modes?.[mode]?.[state.errandLeg];
     cache.best.set(key, values ? Float32Array.from(values, (v) => (v == null ? NaN : v)) : new Float32Array(data.n).fill(NaN));
   }
   return cache.best.get(key);
+}
+
+/** Whether the rounds for the stops on screen have arrived, fetching them if not.
+ *  The index comes first, then one file per set of stops as each is picked. */
+function roundsReady() {
+  if (!data.chains) {
+    requestChains();
+    return false;
+  }
+  const set = errandStops().join('+');
+  if (data.roundSets?.[set]) return true;
+  requestSet(set);
+  return false;
+}
+
+const setsLoading = new Set();
+
+function requestSet(set) {
+  const file = data.chains.sets?.[set];
+  if (!file || setsLoading.has(set)) return;
+  setsLoading.add(set);
+  fetchJson(`${DATA_BASE}${CITY}/chains/`, file).then((body) => {
+    data.roundSets = { ...(data.roundSets || {}), [set]: body };
+    setsLoading.delete(set);
+    update();
+  }).catch((error) => {
+    setsLoading.delete(set);
+    console.warn('An errand round could not be loaded.', error);
+    if (state.service === 'errands' && state.measure !== 'score') {
+      $('view').replaceChildren(el('p', 'note', 'This errand round could not be loaded. Reload the page to try again.'));
+    }
+  });
 }
 
 /** The rounds are read only when the view is opened. */
@@ -1426,6 +1465,7 @@ function errandModel() {
       standard,
       stops,
       allStops: spec.stops,
+      maxStops: spec.max_stops || spec.stops.length,
       mode: state.errandMode,
       modes: spec.modes,
       slow: slowPace(),
@@ -1454,10 +1494,7 @@ function compute() {
   if (needsMore()) return waiting;
   if (state.service === 'errands' && state.measure !== 'score') {
     state.zonesNow = null;
-    if (!data.chains) {
-      requestChains();
-      return waiting;
-    }
+    if (!roundsReady()) return waiting;
     if (state.view === 'access') return errandModel();
     if (state.view === 'people') return peopleModel();
     return { classes: new Int8Array(data.n).fill(-1), colours: ACCESS, tooltip: () => [], panel: { note: true } };
@@ -1716,7 +1753,7 @@ function renderMini() {
     return;
   }
   if (state.service === 'errands') {
-    const share = data.chains ? weightedShare(meetsFlags(roundTimes(), standardFor('errands')), data.pop) : NaN;
+    const share = data.roundSets?.[errandStops().join('+')] ? weightedShare(meetsFlags(roundTimes(), standardFor('errands')), data.pop) : NaN;
     const leg = state.errandLeg === 'any' ? '' : `, stretches ≤ ${state.errandLeg} min`;
     mini.textContent = `Errand round · ${Number.isFinite(share) ? `${Math.round(share * 100)}%` : '…'} within ${standardFor('errands')} min${leg}`;
     return;
@@ -2302,6 +2339,7 @@ async function init() {
     // again, including a view that was waiting for it.
     loadMore(`${DATA_BASE}${CITY}/`, data).then((full) => {
       full.chains = data.chains;
+      full.roundSets = data.roundSets;
       data = full;
       if (state.urbanOnly) setUrban(data, true);
       setWindow(data, state.when);

@@ -179,6 +179,11 @@ def build(out: Path, builds: list[Path]) -> dict:
                 path = source / f"{name}{suffix}"
                 if path.exists():
                     shutil.copy2(path, target / path.name)
+        # Errand rounds, one file per set of stops.
+        if (source / "chains").is_dir():
+            if (target / "chains").exists():
+                shutil.rmtree(target / "chains")
+            shutil.copytree(source / "chains", target / "chains")
         places = json.loads((source / "places.json").read_text(encoding="utf-8"))
         card["bbox"] = extent(places)
         card["places"] = len(places)

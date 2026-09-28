@@ -8,7 +8,7 @@ import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.
 // Everyday errands first, then education in the order a child meets it, then
 // jobs. A service the build does not have is dropped by setServices.
 const PREFERRED_ORDER = [
-  'supermarket', 'gp', 'pharmacy', 'errands',
+  'supermarket', 'gp', 'pharmacy', 'errands', 'library', 'bank_post',
   'early_childhood', 'primary_school', 'intermediate_school', 'secondary_school',
   'jobs',
 ];
@@ -20,6 +20,8 @@ export const SERVICE_SHORT = {
   gp: 'GP',
   pharmacy: 'Pharmacy',
   errands: 'Errand round',
+  library: 'Library',
+  bank_post: 'Bank or post',
   early_childhood: 'Early childhood',
   primary_school: 'Primary school',
   intermediate_school: 'Intermediate',
@@ -32,6 +34,8 @@ export const SERVICE_NOUN = {
   gp: 'a GP',
   pharmacy: 'a pharmacy',
   errands: 'an errand round',
+  library: 'a library',
+  bank_post: 'a bank or post shop',
   early_childhood: 'an early childhood service',
   primary_school: 'a primary school',
   intermediate_school: 'an intermediate school',
@@ -163,6 +167,7 @@ function legend(title, items, { note, divider } = {}) {
 // first destination, so nobody has to click twice to get somewhere.
 const SERVICE_GROUPS = [
   { key: 'everyday', label: 'Everyday', members: ['supermarket', 'gp', 'pharmacy', 'errands'] },
+  { key: 'community', label: 'Community', members: ['library', 'bank_post'] },
   { key: 'education', label: 'Education', members: ['early_childhood', 'primary_school', 'intermediate_school', 'secondary_school'] },
   { key: 'jobs', label: 'Jobs', members: ['jobs'] },
 ];
@@ -881,7 +886,9 @@ export function renderTraveller(root, model, set) {
 
 // ---------------------------------------------------------------- errand rounds
 
-const STOP_NAME = { gp: 'the GP', pharmacy: 'the pharmacy', supermarket: 'the supermarket' };
+const STOP_NAME = {
+  gp: 'the GP', pharmacy: 'the pharmacy', supermarket: 'the supermarket', library: 'the library', bank_post: 'the bank or post shop',
+};
 const ROUND_HOW = {
   walk: 'walk',
   pt: 'walk or take public transport',
@@ -895,8 +902,9 @@ export function stopList(stops) {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
 }
 
-/** Chips that turn on and off independently, for choosing the stops. */
-function toggles(label, options, selected, onToggle) {
+/** Chips that turn on and off independently, for choosing the stops. A round
+ *  has at least two stops and at most `most`. */
+function toggles(label, options, selected, onToggle, most = options.length) {
   const field = el('div', 'field');
   const id = `f-${label.replace(/\W+/g, '-').toLowerCase()}`;
   const title = el('span', 'field-label', label);
@@ -912,10 +920,14 @@ function toggles(label, options, selected, onToggle) {
     button.setAttribute('role', 'checkbox');
     button.setAttribute('aria-checked', String(on));
     button.dataset.value = value;
-    // A round needs two stops, so the last two cannot be turned off.
+    // A round needs two stops, so the last two cannot be turned off; and it
+    // has at most `most`, so a full round takes no more.
     if (on && selected.length <= 2) {
       button.disabled = true;
       button.title = 'A round needs at least two stops';
+    } else if (!on && selected.length >= most) {
+      button.disabled = true;
+      button.title = `A round has up to ${most} stops`;
     }
     button.addEventListener('click', () => onToggle(value));
     group.append(button);
@@ -927,7 +939,7 @@ function toggles(label, options, selected, onToggle) {
 export function roundSentence(model, negative = false) {
   const pace = model.slow ? ' at a slower pace' : '';
   const leg = model.leg === 'any' ? '' : `, with no stretch longer than ${model.leg} minutes`;
-  return `can${negative ? "'t" : ''} ${ROUND_HOW[model.mode]}${pace} to ${stopList(model.stops)} and home again within ${model.standard} minutes${leg}.`;
+  return `can${negative ? "'t" : ''} ${ROUND_HOW[model.mode]}${pace} to ${stopList(model.stops)}, and home again, within ${model.standard} minutes${leg}.`;
 }
 
 /** One trip from home to several services and back. */
@@ -939,7 +951,7 @@ export function renderErrands(root, model, set) {
     parts.push(el('p', 'note', `For one trip on its own, ${percent(model.single.share)} can ${ROUND_HOW[model.mode]}${model.slow ? ' at the same pace' : ''} to ${STOP_NAME[model.single.stop] || SERVICE_NOUN[model.single.stop]} within ${model.single.standard} minutes.`));
   }
   parts.push(
-    toggles('Stops', model.allStops.map((s) => [s, SERVICE_SHORT[s] || s]), model.stops, (stop) => set({ errandToggle: stop })),
+    toggles('Stops', model.allStops.map((s) => [s, SERVICE_SHORT[s] || s]), model.stops, (stop) => set({ errandToggle: stop }), model.maxStops),
     radios('Travel by', ROUND_WAYS.filter(([m]) => model.modes.includes(m)), model.mode, (errandMode) => set({ errandMode }), { compact: true }),
     model.mode === 'bike_low_stress' || !model.slowKmh ? null : radios('Walking pace', [['usual', 'Usual, 4.8 km/h'], ['slow', `Slower, ${model.slowKmh} km/h`]],
       model.slow ? 'slow' : 'usual', (pace) => set({ pace }), { compact: true }),
@@ -949,8 +961,8 @@ export function renderErrands(root, model, set) {
     method(
       'How this is worked out',
       'A round starts at home, stops at each place in turn and comes home again. Its length is the travel time only, '
-        + 'not the time spent inside. The pharmacy comes after the GP, where the prescription is written; the supermarket '
-        + 'can come at any point.',
+        + 'not the time spent inside. The pharmacy comes after the GP, where the prescription is written; the other stops '
+        + 'can come in any order.',
       `Each home tries the ${model.candidates} nearest of each kind of stop in every order allowed and keeps the quickest `
         + 'round. The nearest GP and then the pharmacy nearest to it can miss a better round, such as a GP a little further '
         + 'off with a pharmacy next door.',

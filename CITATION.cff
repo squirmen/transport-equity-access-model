@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use TEAM, please cite it as below."
 title: "TEAM: Transport Equity and Access Model"
-version: 0.7.0
+version: 0.8.0
 abstract: >-
   Travel times from every populated part of twenty New Zealand cities and
   towns, with the land that commutes into them, to everyday services and jobs by walking, low-stress cycling and public

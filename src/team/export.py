@@ -393,7 +393,13 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
 
     rounds = chains.payload(settings, table, _ints)
     if rounds is not None:
-        _dump(data / "chains.json", rounds)
+        index, files = rounds
+        _dump(data / "chains.json", index)
+        folder = data / "chains"
+        if folder.exists():
+            shutil.rmtree(folder)
+        for name, body in files.items():
+            _dump(folder / f"{name}.json", body)
 
     from . import context
 

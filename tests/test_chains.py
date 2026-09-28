@@ -17,6 +17,12 @@ def test_every_set_of_two_or_more():
         ("gp", "pharmacy", "supermarket"), ("gp", "pharmacy"), ("gp", "supermarket"), ("pharmacy", "supermarket")]
 
 
+def test_rounds_stop_at_four_stops():
+    sets = stop_sets(["gp", "pharmacy", "supermarket", "library", "bank_post"], 4)
+    assert max(len(s) for s in sets) == 4
+    assert len(sets) == 5 + 10 + 10
+
+
 def test_a_gp_with_a_pharmacy_next_door_beats_the_nearest_gp():
     # Stops: 0 a GP 5 min away, 1 a GP 8 min away, 2 a pharmacy next to GP 1
     # (1 min), 20 min from GP 0; the pharmacy is 9 min from home.

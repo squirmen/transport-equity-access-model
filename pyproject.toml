@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "team-access"
-version = "0.7.0"
+version = "0.8.0"
 description = "Transport Equity and Access Model: who can reach everyday needs without a car, and what would change that."
 readme = "README.md"
 license = { text = "MIT" }

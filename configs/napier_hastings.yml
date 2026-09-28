@@ -89,6 +89,20 @@ services:
     windows: [am_peak, saturday]  # also timed at these
     standard_minutes: 20
     osm: {amenity: [pharmacy], healthcare: [pharmacy]}
+  library:
+    label: Library
+    window: interpeak
+    windows: [saturday]  # also timed at this
+    standard_minutes: 20
+    osm: {amenity: [library]}
+    # School and university libraries are for their own students.
+    osm_exclude: {access: [private, no, customers, students]}
+  bank_post:
+    label: Bank or post shop
+    window: interpeak
+    windows: [saturday]  # also timed at this
+    standard_minutes: 20
+    osm: {amenity: [bank, post_office]}
   early_childhood:
     label: Early childhood service
     window: am_peak
@@ -239,14 +253,15 @@ fares:
     - {key: community_connect, label: Community Services Card, ages: "any"}
     - {key: supergold, label: SuperGold, ages: "65 and over"}
 
-# Errand rounds: one trip from home to several services and back, without a
-# car. The legs from home come from the service runs; the legs between stops
+# Errand rounds: one trip from home to two, three or four services and back,
+# without a car. The legs from home come from the service runs; the legs between stops
 # are routed as `links`. The pharmacy comes after the GP, where a prescription
 # is written; the supermarket can come at any point. Each home tries the
 # nearest few of each kind in every allowed order and keeps the quickest.
 chains:
-  stops: [gp, pharmacy, supermarket]
+  stops: [gp, pharmacy, supermarket, library, bank_post]
   after: {pharmacy: gp}
+  max_stops: 4
   candidates: 5
   leg_limits: [10, 15, 20]
   modes: [walk, pt, bike_low_stress]

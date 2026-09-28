@@ -41,8 +41,16 @@ def _row_tags(row: pd.Series, columns: list[str]) -> dict[str, str]:
     return tags
 
 
-def _match_service(tags: dict[str, str], rules: dict[str, dict[str, list[str]]]) -> str | None:
+def _match_service(
+    tags: dict[str, str],
+    rules: dict[str, dict[str, list[str]]],
+    excludes: dict[str, dict[str, list[str]]] | None = None,
+) -> str | None:
     for service, tag_rules in rules.items():
+        # A library inside a school or a university is for its own students,
+        # so a service can leave out features carrying certain tags.
+        if any(tags.get(key) in values for key, values in (excludes or {}).get(service, {}).items()):
+            continue
         for key, values in tag_rules.items():
             if tags.get(key) in values:
                 # A clinic tagged with a non-GP specialty (physio, dental) is not a GP.
@@ -81,6 +89,7 @@ def osm_services(settings: Settings) -> pd.DataFrame:
     import geopandas as gpd
 
     rules = {sid: s["osm"] for sid, s in settings.services.items() if s.get("osm")}
+    excludes = {sid: s["osm_exclude"] for sid, s in settings.services.items() if s.get("osm_exclude")}
     if not rules:
         return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
     filters = sorted({f"nwr/{key}={','.join(values)}" for tags in rules.values() for key, values in tags.items()})
@@ -96,7 +105,7 @@ def osm_services(settings: Settings) -> pd.DataFrame:
         if gdf.empty:
             continue
         columns = [c for c in ("amenity", "shop", "healthcare") if c in gdf.columns]
-        gdf["service"] = [_match_service(_row_tags(row, columns), rules) for _, row in gdf.iterrows()]
+        gdf["service"] = [_match_service(_row_tags(row, columns), rules, excludes) for _, row in gdf.iterrows()]
         gdf = gdf[gdf["service"].notna() & gdf.geometry.notna()].copy()
         if layer == "multipolygons":
             gdf["geometry"] = gdf.geometry.representative_point()

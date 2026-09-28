@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 (unreleased)
+
+- Libraries, and banks and post shops, are destinations of their own, under
+  Community, and can be stops on an errand round.
+- A round can take in two, three or four stops. Each set of stops loads only
+  when it is picked.
+
 ## 0.7.0 (28 September 2026)
 
 - Errand rounds, under Everyday: whether someone can get from home to the GP,

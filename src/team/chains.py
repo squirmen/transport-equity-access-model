@@ -59,9 +59,10 @@ def spec(settings: Settings) -> dict | None:
     return settings.raw.get("chains")
 
 
-def stop_sets(stops: list[str]) -> list[tuple[str, ...]]:
-    """Every set of two or more stops, in the configured order."""
-    return [combo for size in range(len(stops), 1, -1) for combo in itertools.combinations(stops, size)]
+def stop_sets(stops: list[str], most: int | None = None) -> list[tuple[str, ...]]:
+    """Every set of two up to `most` stops, in the configured order."""
+    most = len(stops) if most is None else min(most, len(stops))
+    return [combo for size in range(most, 1, -1) for combo in itertools.combinations(stops, size)]
 
 
 def orders(stop_set: tuple[str, ...], after: dict[str, str]) -> list[tuple[str, ...]]:
@@ -81,6 +82,12 @@ def orders(stop_set: tuple[str, ...], after: dict[str, str]) -> list[tuple[str, 
 
 def set_name(stop_set: tuple[str, ...]) -> str:
     return "+".join(stop_set)
+
+
+def set_file(stop_set: tuple[str, ...] | str) -> str:
+    """The file a set of stops is written to, safe in any address."""
+    names = stop_set.split("+") if isinstance(stop_set, str) else stop_set
+    return "-".join(names)
 
 
 def _pairs(settings: Settings, tag: str, stops: list[str]) -> pd.DataFrame:
@@ -221,6 +228,7 @@ def build(settings: Settings, cells: pd.Index) -> pd.DataFrame:
     if not chains:
         return pd.DataFrame(index=cells)
     stops = [str(s) for s in chains["stops"]]
+    most = int(chains.get("max_stops", len(stops)))
     after = {str(k): str(v) for k, v in (chains.get("after") or {}).items()}
     k = int(chains.get("candidates", 5))
     limits = [float(v) for v in chains.get("leg_limits", [])] + [float("inf")]
@@ -259,13 +267,13 @@ def build(settings: Settings, cells: pd.Index) -> pd.DataFrame:
         legs_home = legs_home[legs_home["stop"].notna() & (legs_home["cell"] >= 0)]
         legs_home = legs_home.groupby([legs_home["stop"].astype(int), "cell"])["minutes"].min()
         back = {stop: _back_times(legs_home, home[stop][1], home[stop][0], len(cells)) for stop in stops}
-        for stop_set in stop_sets(stops):
+        for stop_set in stop_sets(stops, most):
             best = best_rounds({s: home[s] for s in stop_set}, link, orders(stop_set, after), limits,
                                back={s: back[s] for s in stop_set})
             for j, name in enumerate(limit_names):
                 values = np.where(np.isfinite(best[:, j]), np.round(best[:, j]), np.nan).astype("float32")
                 columns[f"round_{set_name(stop_set)}_{mode}_{name}"] = values
-        log.info("rounds by %s: %d sets of stops", mode, len(stop_sets(stops)))
+        log.info("rounds by %s: %d sets of stops", mode, len(stop_sets(stops, most)))
     return pd.DataFrame(columns, index=cells)
 
 
@@ -278,33 +286,39 @@ MODE_LABELS = {
 }
 
 
-def payload(settings: Settings, table: pd.DataFrame, ints) -> dict | None:
-    """The rounds for the web page, one array per set of stops, way and limit."""
+def payload(settings: Settings, table: pd.DataFrame, ints) -> tuple[dict, dict[str, dict]] | None:
+    """The rounds for the web page: an index, and one payload per set of
+    stops, which the page fetches only when that set is picked."""
     chains = spec(settings)
     if not chains:
         return None
     stops = [str(s) for s in chains["stops"]]
+    most = int(chains.get("max_stops", len(stops)))
     limit_names = [str(int(v)) for v in chains.get("leg_limits", [])] + ["any"]
     modes = [m for m in MODE_LABELS if any(c.startswith("round_") and c.endswith(f"_{m}_any") for c in table.columns)]
-    sets = {}
-    for stop_set in stop_sets(stops):
+    files = {}
+    for stop_set in stop_sets(stops, most):
         name = set_name(stop_set)
-        sets[name] = {
-            mode: {limit: ints(table[f"round_{name}_{mode}_{limit}"]) for limit in limit_names
-                   if f"round_{name}_{mode}_{limit}" in table}
-            for mode in modes
+        files[set_file(stop_set)] = {
+            "set": name,
+            "modes": {
+                mode: {limit: ints(table[f"round_{name}_{mode}_{limit}"]) for limit in limit_names
+                       if f"round_{name}_{mode}_{limit}" in table}
+                for mode in modes
+            },
         }
-    return {
+    index = {
         "stops": stops,
+        "max_stops": most,
         "after": {str(k): str(v) for k, v in (chains.get("after") or {}).items()},
         "leg_limits": [int(v) for v in chains.get("leg_limits", [])],
         "standard_minutes": int(chains.get("standard_minutes", 30)),
         "window": str(chains["window"]),
         "candidates": int(chains.get("candidates", 5)),
         "modes": {m: MODE_LABELS[m] for m in modes},
-        "sets": sets,
+        "sets": {files[f]["set"]: f for f in files},
     }
-
+    return index, files
 
 def meta(settings: Settings) -> dict | None:
     """What the page needs to offer errand rounds before it loads them."""
@@ -314,6 +328,7 @@ def meta(settings: Settings) -> dict | None:
     wanted = list(chains.get("modes", ["walk"]))
     return {
         "stops": [str(s) for s in chains["stops"]],
+        "max_stops": int(chains.get("max_stops", len(chains["stops"]))),
         "after": {str(k): str(v) for k, v in (chains.get("after") or {}).items()},
         "leg_limits": [int(v) for v in chains.get("leg_limits", [])],
         "standard_minutes": int(chains.get("standard_minutes", 30)),
