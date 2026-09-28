@@ -60,3 +60,18 @@ def test_a_leg_limit_rules_out_a_long_walk():
     best = best_rounds(home, links, [("gp", "supermarket")], [10.0, 15.0])
     assert np.isinf(best[0, 0])
     assert best[0, 1] == 22
+
+
+def test_the_way_home_can_be_longer_than_the_way_out():
+    # Downhill to the shop in 6 minutes, 9 back up.
+    links = np.zeros((2, 2), dtype="float32")
+    links[0, 1] = links[1, 0] = 3
+    home = {
+        "gp": (np.array([[4]], dtype="float32"), np.array([[0]], dtype="int32")),
+        "supermarket": (np.array([[6]], dtype="float32"), np.array([[1]], dtype="int32")),
+    }
+    back = {"gp": np.array([[5]], dtype="float32"), "supermarket": np.array([[9]], dtype="float32")}
+    best = best_rounds(home, links, [("gp", "supermarket")], [8.0, float("inf")], back=back)
+    assert best[0, 1] == 4 + 3 + 9
+    # The climb home is the longest stretch, so an 8-minute limit rules it out.
+    assert np.isinf(best[0, 0])

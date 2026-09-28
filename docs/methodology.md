@@ -135,14 +135,15 @@ shows as a lower score rather than being rescaled back to 100. Fares follow
 the time too: Wellington charges less off-peak and at weekends, and SuperGold
 travel is free after 9am on weekdays and all weekend.
 
-**Hills.** Walking and cycling, including the walks to and from public
-transport, are slowed on slopes by Tobler's hiking function, which R5 applies
+**Hills.** Walking and cycling, including the walk to public transport, are
+slowed on slopes by Tobler's hiking function, which R5 applies
 from an elevation model sampled along each street. Each place's elevation
 model is built from LINZ's national 1 m LiDAR elevation model where it has
 been flown and LINZ's 8 m model elsewhere, averaged to a 20 m grid
 (`scripts/build_dem.py`). LiDAR is bare earth, so a bridge takes the height of
 the ground beneath it; a walk over a gully bridge is counted as down and up
-again. Driving is not slowed by hills.
+again. Driving is not slowed by hills. The walk from the last stop of a public
+transport trip, and walks between stops, are not slowed.
 
 **Traffic stress.** R5 classifies every street from its OpenStreetMap tags,
 following Mekuria, Furth & Nixon (2012). Level 2 or below covers off-road
@@ -179,9 +180,9 @@ none. A round can also be limited on its longest stretch, since many people
 manage several short walks and not one long one. Rounds are worked out for
 walking, walking and public transport (the faster of the two on each leg),
 and low-stress cycling, at the usual pace and the slower one, and for any two
-or three of the stops. The way home is taken to be as long as the way out from
-the last stop, which holds for walking and cycling but not always for public
-transport. The standard is 30 minutes of travel for the round.
+or three of the stops. The way home from the last stop is routed for walking
+and cycling, so a climb home counts; by public transport it is taken as the
+way out. The standard is 30 minutes of travel for the round.
 
 This draws on time geography (Hägerstrand, 1970), which treats what a person
 can do as a path in space and time rather than a trip to one place.
@@ -314,8 +315,8 @@ get cycled, not about what a nearby destination is worth, so the curve is held
 flat below its peak: everything inside the easiest riding distance counts in
 full, and beyond it the weight falls as the PCT says cycling does. The
 gradient terms are evaluated at the PCT's reference gradient, so the curve is
-flat-terrain. The routed times are flat-terrain too, because no elevation
-model is loaded, so hills are in neither. The same curve is used for every purpose, which a local survey would improve on.
+flat-terrain. The routed times allow for hills, so hills enter through the
+time and not a second time through the curve. The same curve is used for every purpose, which a local survey would improve on.
 The cycling score is labelled beta in the interface for these reasons.
 
 The parameters are settings in each city's configuration rather than constants

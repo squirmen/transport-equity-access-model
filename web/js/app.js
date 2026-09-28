@@ -894,13 +894,25 @@ function percentOf(value) {
   return `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
 }
 
+/** The time a home with no way there at all counts as.
+ *
+ *  A single trip is routed to 60 minutes, so no trip counts as 60. A round is
+ *  several legs of up to 60 minutes each, so a missing round counts as longer
+ *  than any round that exists, not as a middling one. */
+function unreachable(service) {
+  const single = data.meta.routing_max_minutes || 60;
+  if (service !== 'errands') return single;
+  const pace = slowPace() ? (data.meta.chains.usual_pace_kmh || 4.8) / data.meta.chains.slower_pace_kmh : 1;
+  return (errandStops().length + 1) * single * pace + 1;
+}
+
 function peopleModel() {
   if (state.peopleShow === 'live') return liveModel();
   const service = state.service;
   const standard = standardFor(service);
   const shown = bestTimes(service, state.zonesNow);
   const weights = data.weights[state.group];
-  const cap = data.meta.routing_max_minutes || 60;
+  const cap = unreachable(service);
 
   // The map shows where the shortfall actually piles up: how many people, and
   // how far short each of them is. Somewhere three minutes over and somewhere
@@ -983,7 +995,7 @@ function liveModel() {
   const service = state.service;
   const standard = standardFor(service);
   const shown = bestTimes(service, state.zonesNow);
-  const cap = data.meta.routing_max_minutes || 60;
+  const cap = unreachable(service);
   const gaps = shortfalls(shown, standard, cap);
   const everyone = state.group === 'everyone';
   const weights = data.weights[state.group];
@@ -1031,7 +1043,9 @@ function liveModel() {
         : known(i)
           ? [`About ${count(weights[i])} ${noun}`, `${percent(data.pop[i] > 0 ? weights[i] / data.pop[i] : NaN, digits)} of residents`]
           : [`No census count of ${noun} here`];
-      if (!Number.isFinite(shown[i])) lines.push(`${SERVICE_SHORT[service]}: no route within ${cap} min`);
+      if (!Number.isFinite(shown[i])) {
+        lines.push(service === 'errands' ? 'No round within these limits' : `${SERVICE_SHORT[service]}: no route within ${cap} min`);
+      }
       else if (gaps[i] > 0) lines.push(`${SERVICE_SHORT[service]}: ${Math.round(gaps[i] * standard)} min over the standard`);
       else lines.push(`${SERVICE_SHORT[service]}: within ${standard} min`);
       return lines;
@@ -1356,7 +1370,9 @@ function requestChains() {
   }).catch((error) => {
     chainsLoading = null;
     console.warn('The errand rounds could not be loaded.', error);
-    $('view').replaceChildren(el('p', 'note', 'The errand rounds could not be loaded. Reload the page to try again.'));
+    if (state.service === 'errands' && state.measure !== 'score') {
+      $('view').replaceChildren(el('p', 'note', 'The errand rounds could not be loaded. Reload the page to try again.'));
+    }
   });
 }
 
@@ -1603,6 +1619,10 @@ function renderView(model) {
   $('service-field').hidden = score;
   $('tabs').hidden = score;
   if (model.waiting) {
+    if (!score) {
+      renderServicePicker($('service-picker'), state.service, set);
+      for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
+    }
     $('view').replaceChildren(el('p', 'note', 'Loading the rest of the data for this view…'));
     return;
   }
@@ -1693,6 +1713,12 @@ function renderMini() {
     const limit = panel ? panel.limit : jobsChoice().limit;
     const extra = panel && panel.priced ? panel.fare : (jobsChoice().mode === 'pt' ? whenClause('jobs') : '');
     mini.textContent = `Jobs · typical resident reaches ${figure} within ${limit} min${extra}`;
+    return;
+  }
+  if (state.service === 'errands') {
+    const share = data.chains ? weightedShare(meetsFlags(roundTimes(), standardFor('errands')), data.pop) : NaN;
+    const leg = state.errandLeg === 'any' ? '' : `, stretches ≤ ${state.errandLeg} min`;
+    mini.textContent = `Errand round · ${Number.isFinite(share) ? `${Math.round(share * 100)}%` : '…'} within ${standardFor('errands')} min${leg}`;
     return;
   }
   const standard = standardFor(state.service);

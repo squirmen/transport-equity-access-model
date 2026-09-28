@@ -410,6 +410,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "modes": {k: v.get("label", k) for k, v in settings.modes.items()},
         "standard_modes": settings.standard_modes,
         "chains": _chains_meta(settings),
+        # Where low-stress cycling's traffic stress comes from: SPAN's ratings
+        # written into the street file, or R5's own.
+        "cycling_stress": "span" if settings.raw["data"].get("osm_cycling") else "r5",
         "services": {
             k: {
                 "label": v["label"],

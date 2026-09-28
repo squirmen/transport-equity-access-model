@@ -73,7 +73,10 @@ export function renderAbout(root, meta) {
     el('h3', null, 'How it is built'),
     list([
       `Travel times come from R5 routing on OpenStreetMap streets and paths and the ${place.agency} timetable for ${date}. Public transport times are the median across the time window and include walking to the stop and waiting. The When control switches between the weekday peak, weekday off-peak and a Saturday.`,
-      'Low-stress routes are paths, protected lanes and quiet streets: level 2 or below on R5’s traffic-stress scale.',
+      meta.cycling_stress === 'span'
+        ? 'Low-stress routes are paths, protected lanes and quiet streets: traffic stress level 2 or below, rated by SPAN from Auckland’s speeds, traffic volumes and facilities.'
+        : 'Low-stress routes are paths, protected lanes and quiet streets: level 2 or below on R5’s traffic-stress scale.',
+      'Hills slow walking and cycling, from LINZ elevation models.',
       `Each hexagon covers about 0.1 km². There are ${count(meta.totals.cells)} with residents, holding ${count(meta.totals.population)} people from the 2023 Census.`,
       `Jobs are Stats NZ business demography employee counts (2024), ${count(meta.jobs.total)} in total, placed by where people work.`,
       'The reasons are screening rules. They show which kind of fix to look at first; they do not replace a local study.',
@@ -83,7 +86,7 @@ export function renderAbout(root, meta) {
     list([
       'The nearest service is not always one you can use: school zones, GP enrolment, opening hours and store size are not modelled.',
       'Times come from timetables, not real-world reliability or crowding.',
-      'Walking and cycling times ignore hills, lighting and footpath condition.',
+      'Walking and cycling times allow for hills, but not lighting, footpath condition or benches.',
       'Census shares describe small areas, not individual households. No car and lower income are shares of households, applied to residents.',
       'Incomes are area medians before tax, adjusted for household size and raised to 2026 by wage growth.',
     ]),

@@ -563,8 +563,10 @@ function renderLive(root, model, set) {
         + (model.group === 'older'
           ? 'Where older people gather like this without anyone planning it, it is sometimes called a naturally occurring retirement community.'
           : ''),
-      'Whether a place meets the standard is counted by the fastest of walking, low-stress cycling and public transport, '
-        + 'for the service, standard, time and any fare set above.',
+      model.round
+        ? 'Whether a place makes the round is counted by the way of travelling, pace and longest stretch chosen for the round.'
+        : 'Whether a place meets the standard is counted by the fastest of walking, low-stress cycling and public transport, '
+          + 'for the service, standard, time and any fare set above.',
       'Group figures come from census shares of the block around each hexagon, so they estimate people in an area rather than counting individuals.',
     ),
   );
@@ -591,9 +593,10 @@ function liveAreaSection(model, set) {
     const ofResidents = everyone ? '' : `, ${percent(row.ofResidents, model.digits)} of residents`;
     // With only the places that miss the standard shown, the list is ranked by
     // the people there who miss out, so that is the number it leads with.
+    const task = model.round ? `make the round in ${model.standard} min` : `reach ${model.noun} in ${model.standard} min`;
     const reason = model.missingOnly
-      ? `of ${count(row.people)} here${ofResidents}, can't reach ${model.noun} in ${model.standard} min`
-      : `${everyone ? '' : `${percent(row.ofResidents, model.digits)} of residents · `}${percent(row.share)} can't reach ${model.noun} in ${model.standard} min`;
+      ? `of ${count(row.people)} here${ofResidents}, can't ${task}`
+      : `${everyone ? '' : `${percent(row.ofResidents, model.digits)} of residents · `}${percent(row.share)} can't ${task}`;
     button.append(
       el('span', 'rank-name', row.name),
       el('span', 'rank-meta', count(model.missingOnly ? row.missing : row.people)),
@@ -953,9 +956,9 @@ export function renderErrands(root, model, set) {
         + 'off with a pharmacy next door.',
       'A limit on the longest stretch keeps only rounds where no single walk or ride is longer than that, because many '
         + 'people can manage several short walks and not one long one.',
-      `The slower pace is 3.6 km/h, about the walking speed of people in their eighties. Public transport is timed ${model.windowText}. `
-        + 'The way home is taken to be as long as the way out from the last stop, which holds for walking and cycling but not '
-        + 'always for a bus. Opening hours are not checked.',
+      `The slower pace is 3.6 km/h, about the walking speed of people in their eighties. Hills slow walking and cycling. `
+        + `Public transport is timed ${model.windowText}. The way home from the last stop is routed for walking and cycling, `
+        + 'so a climb home counts; by public transport it is taken as the way out. Opening hours are not checked.',
     ),
   );
   root.replaceChildren(...parts.filter(Boolean));

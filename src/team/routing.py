@@ -277,7 +277,7 @@ def run_tag(dataset: str, mode_id: str, window: str | None, transit: bool) -> st
 
 def _targets(settings: Settings, dataset: str, window: str | None):
     """The destinations one run routes to, as a table and as points."""
-    if dataset == "links":
+    if dataset in ("links", "returns"):
         table = chain_stops(settings)
         return table, _points(table)
     table = destinations.load_set(settings, dataset)
@@ -327,7 +327,11 @@ def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str, network: d
         saved = json.loads(record.read_text())
         previous = saved.get("destinations")
         # Batches routed on another network, such as before elevation was
-        # added, would mix two sets of times in one run.
+        # added, would mix two sets of times in one run. Records from before
+        # networks were noted were routed on this street file with no
+        # elevation, the same rule is_current applies.
+        if network is not None and "network" not in saved:
+            saved = {**saved, "network": {"osm": network["osm"], "elevation": None}}
         moved = network is not None and not _same_network(saved, network)
         if previous != digest or moved:
             stale = list(batch_dir.glob("origins_*.parquet")) + list(pairs_dir.glob("origins_*.parquet"))
@@ -362,6 +366,8 @@ def run(
     transit = mode["kind"] == "transit"
     if dataset == "links":
         return run_links(settings, mode_id, window, force=force)
+    if dataset == "returns":
+        return run_returns(settings, mode_id, force=force)
     if dataset == "jobs" and transit and window is None:
         window = settings.jobs["window"]
     if transit and window is None:
@@ -482,6 +488,15 @@ def chain_link_modes(settings: Settings) -> list[str]:
     return [m for m in dict.fromkeys(wanted) if m in settings.modes]
 
 
+def chain_return_modes(settings: Settings) -> list[str]:
+    """Modes whose way home from the last stop is routed rather than assumed.
+
+    With hills, a walk or ride home can take longer than the way out. Public
+    transport's way home is taken as the way out.
+    """
+    return [m for m in chain_link_modes(settings) if settings.modes[m]["kind"] in ("walk", "cycle")]
+
+
 def chain_stops(settings: Settings) -> pd.DataFrame:
     """The destinations an errand round can stop at."""
     stops = [str(s) for s in (settings.raw.get("chains") or {}).get("stops", [])]
@@ -543,6 +558,75 @@ def run_links(settings: Settings, mode_id: str, window: str | None, force: bool 
     return output
 
 
+def run_returns(settings: Settings, mode_id: str, force: bool = False) -> Path:
+    """The way home from each errand stop to the homes that could use it.
+
+    Routed from the stops to the hexagons, in batches of stops, and kept only
+    for pairs the way out already reached, which are the only ones a round can
+    use. Hills make the way home differ from the way out.
+    """
+    prepare_java(settings)
+    import r5py
+
+    mode = settings.modes[mode_id]
+    tag = run_tag("returns", mode_id, None, False)
+    output = settings.out("routing", f"{tag}.parquet")
+    stops = chain_stops(settings)
+    points = _points(stops)
+    homes = load_origins(settings)[["id", "geometry"]]
+    network_used = network_inputs(settings, mode)
+    max_minutes = int(settings.routing.get("max_minutes", 60))
+    departure, window_length = _departure(settings, None)
+
+    # The pairs the way out reached, turned round.
+    folder = settings.cache_dir / "pairs" / run_tag("services", mode_id, None, False)
+    out_pairs = pd.concat([pd.read_parquet(f) for f in sorted(folder.glob("origins_*[0-9].parquet"))], ignore_index=True)
+    wanted = set(stops["id"].astype(str))
+    out_pairs = out_pairs[out_pairs["destination"].astype(str).isin(wanted)]
+    reached = set(zip(out_pairs["destination"].astype(str), out_pairs["origin"].astype(str)))
+
+    gtfs, _ = prepare_gtfs(settings)
+    network = _network(r5py, settings, mode, gtfs)
+    started = time.monotonic()
+    kept = []
+    size = 50
+    for start in range(0, len(points), size):
+        chunk = points.iloc[start : start + size]
+        matrix = pd.DataFrame(
+            r5py.TravelTimeMatrix(
+                network,
+                origins=chunk,
+                destinations=homes,
+                departure=departure,
+                departure_time_window=window_length,
+                percentiles=[50],
+                max_time=dt.timedelta(minutes=max_minutes),
+                snap_to_network=True,
+                **_mode_kwargs(r5py, mode, settings.routing),
+            )
+        ).dropna(subset=["travel_time"])
+        pairs = list(zip(matrix["from_id"].astype(str), matrix["to_id"].astype(str)))
+        keep = np.fromiter((pair in reached for pair in pairs), dtype=bool, count=len(pairs))
+        part = matrix.loc[keep, ["from_id", "to_id", "travel_time"]]
+        kept.append(part.rename(columns={"from_id": "origin", "to_id": "destination", "travel_time": "minutes"}))
+        log.info("%s: %d/%d stops", tag, min(start + size, len(points)), len(points))
+    table = pd.concat(kept, ignore_index=True) if kept else pd.DataFrame(columns=["origin", "destination", "minutes"])
+    table = table.astype({"origin": str, "destination": str})
+    table["minutes"] = table["minutes"].astype("uint8")
+    table.to_parquet(output, index=False)
+    manifest = {
+        "tag": tag, "dataset": "returns", "mode": mode_id, "mode_settings": mode, "window": None,
+        "max_minutes": max_minutes, "origins": int(len(points)), "destinations": int(len(homes)),
+        "scope": scope_digest(points), "rows": int(len(table)), "osm": network_used["osm"], "network": network_used,
+        "r5py": getattr(r5py, "__version__", "unknown"),
+        "elapsed_seconds_this_session": round(time.monotonic() - started, 1),
+        "written": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    output.with_suffix(".json").write_text(json.dumps(manifest, indent=2, default=str))
+    log.info("%s: wrote %s (%d legs home)", tag, output, len(table))
+    return output
+
+
 def plan(settings: Settings) -> list[tuple[str, str, str | None]]:
     """Every routing run needed for a full build, cheapest first."""
     runs: list[tuple[str, str, str | None]] = []
@@ -564,6 +648,8 @@ def plan(settings: Settings) -> list[tuple[str, str, str | None]]:
         for mode_id in chain_link_modes(settings):
             transit = settings.modes[mode_id]["kind"] == "transit"
             runs.append(("links", mode_id, str(chains["window"]) if transit else None))
+        for mode_id in chain_return_modes(settings):
+            runs.append(("returns", mode_id, None))
     return runs
 
 

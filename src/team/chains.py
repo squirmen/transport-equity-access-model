@@ -25,8 +25,11 @@ Rounds are worked out for each way of travelling:
     pt_slow          the same at the slower pace
     bike_low_stress  low-stress cycling, every leg
 
-The way home is taken to be as long as the way out from the last stop. That
-holds for walking and cycling; public transport can differ.
+The way home from the last stop is routed for walking and cycling (the
+`returns` runs), because hills make it longer or shorter than the way out. By
+public transport, or at the slower pace, the way home by the faster of walking
+and public transport takes the walk home at that pace against the public
+transport trip out; a timetable home is not routed.
 
 Columns added to the cell table, for each set of stops S (named by its stops
 joined with '+'), way of travelling m and leg limit L (a number of minutes or
@@ -127,11 +130,14 @@ def best_rounds(
     links: np.ndarray,
     stop_orders: list[tuple[str, ...]],
     limits: list[float],
+    back: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """The quickest round for every hexagon under each limit on the longest leg.
 
     `home[stop]` holds the minutes and stop indexes of each hexagon's nearest
-    stops of that kind. Returns an array of shape (hexagons, limits).
+    stops of that kind; `back[stop]`, if given, the minutes from each of those
+    stops home again, which otherwise are taken as the way out. Returns an
+    array of shape (hexagons, limits).
     """
     n = next(iter(home.values()))[0].shape[0]
     best = np.full((n, len(limits)), INF, dtype="float32")
@@ -159,9 +165,10 @@ def best_rounds(
                 total = leg if total is None else total + leg
                 longest = leg if longest is None else np.maximum(longest, leg)
                 previous_ids = these_ids
-            back = home[order[-1]][0][start:stop].reshape(shape)
-            total = total + back
-            longest = np.maximum(longest, back)
+            last = back[order[-1]] if back is not None else home[order[-1]][0]
+            back_leg = last[start:stop].reshape(shape)
+            total = total + back_leg
+            longest = np.maximum(longest, back_leg)
             flat_total = total.reshape(stop - start, -1)
             flat_longest = longest.reshape(stop - start, -1)
             for j, limit in enumerate(limits):
@@ -171,23 +178,42 @@ def best_rounds(
 
 
 def _modes(settings: Settings, chains: dict) -> dict[str, dict]:
-    """How each way of travelling builds its legs from the routed runs."""
+    """How each way of travelling builds its legs from the routed runs.
+
+    Each run is (way out from home, legs between stops, way home or None for
+    the way out turned round, factor for the slower pace).
+    """
     window = str(chains["window"])
     usual = float(settings.routing.get("speed_walking_kmh", 4.8))
     slow_mode = settings.modes.get("pt_slow", {})
     slow = float(slow_mode.get("speed_walking_kmh", 3.6))
     factor = usual / slow
     wanted = list(chains.get("modes", ["walk"]))
-    out = {"walk": {"runs": [("services_walk", "links_walk", 1.0)]}}
+    walk = ("services_walk", "links_walk", "returns_walk")
+    out = {"walk": {"runs": [(*walk, 1.0)]}}
     if slow_mode:
-        out["walk_slow"] = {"runs": [("services_walk", "links_walk", factor)]}
+        out["walk_slow"] = {"runs": [(*walk, factor)]}
     if "pt" in wanted:
-        out["pt"] = {"runs": [("services_walk", "links_walk", 1.0), (f"services_{window}_pt", f"links_{window}_pt", 1.0)]}
+        out["pt"] = {"runs": [(*walk, 1.0), (f"services_{window}_pt", f"links_{window}_pt", None, 1.0)]}
         if slow_mode:
-            out["pt_slow"] = {"runs": [("services_walk", "links_walk", factor), (f"services_{window}_pt_slow", f"links_{window}_pt_slow", 1.0)]}
+            out["pt_slow"] = {"runs": [(*walk, factor), (f"services_{window}_pt_slow", f"links_{window}_pt_slow", None, 1.0)]}
     if "bike_low_stress" in wanted:
-        out["bike_low_stress"] = {"runs": [("services_bike_low_stress", "links_bike_low_stress", 1.0)]}
+        out["bike_low_stress"] = {"runs": [("services_bike_low_stress", "links_bike_low_stress", "returns_bike_low_stress", 1.0)]}
     return out
+
+
+def _back_times(back_pairs: pd.Series, ids: np.ndarray, times: np.ndarray, n: int) -> np.ndarray:
+    """Minutes home from each candidate stop, looked up by (stop, hexagon).
+
+    An empty candidate slot, or a stop the way home does not reach within the
+    routing limit, cannot end a round.
+    """
+    k = ids.shape[1]
+    keys = pd.MultiIndex.from_arrays([ids.ravel(), np.repeat(np.arange(n), k)])
+    values = back_pairs.reindex(keys).to_numpy(dtype="float64").reshape(n, k).astype("float32")
+    values[~np.isfinite(values)] = INF
+    values[~np.isfinite(times)] = INF
+    return values
 
 
 def build(settings: Settings, cells: pd.Index) -> pd.DataFrame:
@@ -210,17 +236,32 @@ def build(settings: Settings, cells: pd.Index) -> pd.DataFrame:
         # Each leg is the fastest of the runs this way of travelling can use.
         link = None
         home_pairs = []
-        for service_tag, link_tag, factor in how["runs"]:
+        back_pairs = []
+        for service_tag, link_tag, return_tag, factor in how["runs"]:
             matrix = _link_matrix(_links(settings, link_tag), index) * np.float32(factor)
             link = matrix if link is None else np.minimum(link, matrix)
             pairs = _pairs(settings, service_tag, stops)
             pairs["minutes"] = pairs["minutes"] * np.float32(factor)
             home_pairs.append(pairs)
+            # The way home: routed where it was, else the way out turned round.
+            if return_tag:
+                home_legs = _links(settings, return_tag).rename(columns={"origin": "stop", "destination": "cell"})
+            else:
+                home_legs = pairs.rename(columns={"destination": "stop", "origin": "cell"})[["stop", "cell", "minutes"]]
+            home_legs = home_legs.assign(minutes=home_legs["minutes"] * np.float32(factor if return_tag else 1.0))
+            back_pairs.append(home_legs[["stop", "cell", "minutes"]])
         pairs = pd.concat(home_pairs, ignore_index=True)
         pairs = pairs.groupby(["origin", "destination", "service"], as_index=False)["minutes"].min()
         home = {stop: _nearest(pairs, cells, stop, index, k) for stop in stops}
+        legs_home = pd.concat(back_pairs, ignore_index=True)
+        legs_home["stop"] = legs_home["stop"].astype(str).map(index)
+        legs_home["cell"] = cells.get_indexer(legs_home["cell"].astype(str))
+        legs_home = legs_home[legs_home["stop"].notna() & (legs_home["cell"] >= 0)]
+        legs_home = legs_home.groupby([legs_home["stop"].astype(int), "cell"])["minutes"].min()
+        back = {stop: _back_times(legs_home, home[stop][1], home[stop][0], len(cells)) for stop in stops}
         for stop_set in stop_sets(stops):
-            best = best_rounds({s: home[s] for s in stop_set}, link, orders(stop_set, after), limits)
+            best = best_rounds({s: home[s] for s in stop_set}, link, orders(stop_set, after), limits,
+                               back={s: back[s] for s in stop_set})
             for j, name in enumerate(limit_names):
                 values = np.where(np.isfinite(best[:, j]), np.round(best[:, j]), np.nan).astype("float32")
                 columns[f"round_{set_name(stop_set)}_{mode}_{name}"] = values
