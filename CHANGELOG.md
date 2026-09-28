@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (unreleased)
+## 0.7.0 (28 September 2026)
 
 - Errand rounds, under Everyday: whether someone can get from home to the GP,
   the pharmacy and the supermarket and home again without a car, not just to
