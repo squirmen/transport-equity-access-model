@@ -7,6 +7,40 @@
   <meta name="description" content="Who can reach everyday services and jobs without a car, who cannot, and what would change that.">
   <meta name="theme-color" content="#0c0c48">
   <link rel="icon" href="assets/team-mark.svg" type="image/svg+xml">
+  <script>
+    // The host is far away, so every request waits most of a second before it
+    // starts. Start the place's data now, while the scripts load, rather than
+    // after them; data.js picks these up.
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var city = params.get('city');
+      if (!city || !/^[a-z][a-z0-9_-]*$/.test(city) || params.has('data') || window.TEAM_DATA_BASE) return;
+      var base = 'data/' + city + '/';
+      var files = {};
+      ['cells', 'summary', 'places', 'destinations'].forEach(function (name) {
+        files[name] = fetch(base + name + '.json').then(function (response) {
+          if (!response.ok) throw new Error(name + '.json ' + response.status);
+          return response.json();
+        });
+        files[name].catch(function () {});
+      });
+      window.TEAM_PREFETCH = { base: base, files: files };
+    })();
+  </script>
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="modulepreload" href="js/data.js">
+  <link rel="modulepreload" href="js/panel.js">
+  <link rel="modulepreload" href="js/map.js">
+  <link rel="modulepreload" href="js/format.js">
+  <link rel="modulepreload" href="js/palette.js">
+  <link rel="modulepreload" href="js/equity.js">
+  <link rel="modulepreload" href="js/fares.js">
+  <link rel="modulepreload" href="js/place.js">
+  <link rel="modulepreload" href="js/charts.js">
+  <link rel="modulepreload" href="js/diagnose.js">
+  <link rel="modulepreload" href="js/areas.js">
+  <link rel="modulepreload" href="js/cities.js">
+  <link rel="modulepreload" href="js/about.js">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">

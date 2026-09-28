@@ -28,8 +28,16 @@ export async function fetchJson(base, name, { attempts = 3, pause = 600 } = {}) 
   }
 }
 
+/** A file the page began downloading before the scripts ran, if it did,
+ *  with a normal fetch (and its retries) should that have failed. */
+function early(base, name) {
+  const pre = typeof window !== 'undefined' ? window.TEAM_PREFETCH : null;
+  if (!pre || pre.base !== base || !pre.files[name]) return fetchJson(base, name);
+  return pre.files[name].catch(() => fetchJson(base, name));
+}
+
 export async function load(base) {
-  const [cells, summary, places, destinations] = await Promise.all(FILES.map((name) => fetchJson(base, name)));
+  const [cells, summary, places, destinations] = await Promise.all(FILES.map((name) => early(base, name)));
   const raw = { cells, summary, places, destinations };
   const data = prepare(raw);
   data.raw = raw;
