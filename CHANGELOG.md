@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 (unreleased)
+
+- Errand rounds, under Everyday: whether someone can get from home to the GP,
+  the pharmacy and the supermarket and home again without a car, not just to
+  each on its own. The pharmacy comes after the GP. Pick the stops, the way of
+  travelling, the pace and the longest single stretch; Who misses out and Where
+  they live work for rounds too.
+- Hills. Walking and cycling, and the walks to and from public transport, are
+  slowed on slopes (Tobler's hiking function), from LINZ's LiDAR and 8 m
+  elevation models.
+- A slower walking pace of 3.6 km/h, about the pace of people in their
+  eighties, for rounds and for public transport.
+- Auckland's cycling uses SPAN's traffic stress ratings, which know Auckland's
+  speeds, traffic volumes and facilities, in place of a rule written for US
+  streets.
+
 ## 0.6.0 (28 September 2026)
 
 - Every place is now built from Stats NZ's functional urban areas (2023): the
@@ -24,6 +40,8 @@
   them cannot reach a GP without a car.
 - Destination pins are coloured by kind, grow under the pointer and say they
   can be clicked, instead of hiding under the hexagon's tooltip.
+- Each place's data comes in two parts: what the map needs first, and the rest
+  straight after. Auckland draws in about four seconds instead of six to nine.
 - A layer ticked before the basemap has arrived now appears when it does.
 
 ## 0.5.0 (28 September 2026)

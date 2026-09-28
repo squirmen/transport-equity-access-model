@@ -110,8 +110,9 @@ transport and walking from timetable and network data in a similar way.
 
 | Mode | Settings |
 | --- | --- |
-| Walking | 4.8 km/h, the speed used in public transport accessibility levels (Transport for London, 2015) |
-| Low-stress cycling | 15 km/h, on streets at traffic stress level 2 or below |
+| Walking | 4.8 km/h, the speed used in public transport accessibility levels (Transport for London, 2015), slowed on slopes |
+| Walking at a slower pace | 3.6 km/h (1 m/s), about the pace of people in their eighties (Bohannon & Williams Andrews, 2011); used for errand rounds and for public transport at a slower pace |
+| Low-stress cycling | 15 km/h, on streets at traffic stress level 2 or below, slowed on slopes |
 | Cycling on any bikeable street | 15 km/h, traffic stress level 3 or below |
 | Public transport | walking up to 15 minutes to and from stops; median time over every departure minute in the window, including waiting |
 | Car | uncongested driving; for reference only |
@@ -134,11 +135,26 @@ shows as a lower score rather than being rescaled back to 100. Fares follow
 the time too: Wellington charges less off-peak and at weekends, and SuperGold
 travel is free after 9am on weekdays and all weekend.
 
+**Hills.** Walking and cycling, including the walks to and from public
+transport, are slowed on slopes by Tobler's hiking function, which R5 applies
+from an elevation model sampled along each street. Each place's elevation
+model is built from LINZ's national 1 m LiDAR elevation model where it has
+been flown and LINZ's 8 m model elsewhere, averaged to a 20 m grid
+(`scripts/build_dem.py`). LiDAR is bare earth, so a bridge takes the height of
+the ground beneath it; a walk over a gully bridge is counted as down and up
+again. Driving is not slowed by hills.
+
 **Traffic stress.** R5 classifies every street from its OpenStreetMap tags,
 following Mekuria, Furth & Nixon (2012). Level 2 or below covers off-road
 paths, protected lanes and quiet residential streets, which most people are
 willing to ride (Dill & McNeil, 2016). Level 3 adds streets a confident rider
-would use.
+would use. In Auckland the rating comes from SPAN, the lab's cycling
+investment model, which rates each street from its facility, road class,
+speed, lanes, traffic volume and intersections and Auckland Transport's
+facility records. It is written onto each OpenStreetMap way as an `lts` tag,
+which R5 uses in place of its own rating (`scripts/span_lts.py`); a way takes
+the stress covering most of its length. Streets SPAN does not rate, mostly
+footpaths and driveways, keep R5's rating.
 
 **Public transport.** A public transport trip can be a walk the whole way when
 the walk takes 15 minutes or less, the limit set for walking to and from stops.
@@ -150,6 +166,25 @@ minute, which is how frequency enters the measure.
 For each hexagon and service, TEAM keeps the minutes to the nearest destination
 by each mode, which destination that was, how many destinations are within 10,
 15, 20 and 30 minutes, and the straight-line distance to the nearest.
+
+**Errand rounds.** A single trip is not how most errands are run. A round
+starts at home, stops at a GP, a pharmacy and a supermarket, and comes home;
+the pharmacy comes after the GP, where the prescription is written, and the
+supermarket can come at any point. Its length is the travel time only, not
+the time spent inside. Legs from home are the service trips above; legs
+between stops are routed from every stop to every other. Each home tries the
+five nearest stops of each kind in every order allowed and keeps the quickest
+round, which finds a GP with a pharmacy next door even when a nearer GP has
+none. A round can also be limited on its longest stretch, since many people
+manage several short walks and not one long one. Rounds are worked out for
+walking, walking and public transport (the faster of the two on each leg),
+and low-stress cycling, at the usual pace and the slower one, and for any two
+or three of the stops. The way home is taken to be as long as the way out from
+the last stop, which holds for walking and cycling but not always for public
+transport. The standard is 30 minutes of travel for the round.
+
+This draws on time geography (Hägerstrand, 1970), which treats what a person
+can do as a path in space and time rather than a trip to one place.
 
 ## 4. Access standards
 
@@ -478,8 +513,9 @@ first. A local study is still needed to design one.
   can use.
 - Travel times come from timetables and street data, not observed journeys.
   Reliability, crowding and missed connections are not included.
-- Walking and cycling ignore hills, lighting, footpath condition and personal
-  safety.
+- Walking and cycling allow for hills, but not lighting, footpath condition,
+  benches or personal safety.
+- Errand rounds ignore opening hours, time spent inside and carrying shopping.
 - Census shares describe small areas. They do not say who in a hexagon misses
   out.
 - The car reference ignores congestion and parking, so it understates driving
@@ -495,6 +531,9 @@ Transport Agency. ISBN 978-0-478-40717-4.
 
 Atkinson, J., Salmond, C., & Crampton, P. (2024). *NZDep2023 Index of
 Deprivation*. University of Otago, Wellington.
+
+Bohannon, R. W., & Williams Andrews, A. (2011). Normal walking speed: a
+descriptive meta-analysis. *Physiotherapy*, 97(3), 182–189.
 
 Carruthers, R., Dick, M., & Saurkar, A. (2005). *Affordability of public transport in
 developing countries*. Transport Paper TP-3, World Bank, Washington DC.
@@ -524,6 +563,9 @@ Geography*, 12(2), 127–140.
 Guzman, L. A., & Oviedo, D. (2018). Accessibility, affordability and equity:
 Assessing 'pro-poor' public transport subsidies in Bogotá. *Transport Policy*,
 68, 37–51.
+
+Hägerstrand, T. (1970). What about people in regional science? *Papers of the
+Regional Science Association*, 24, 7–21.
 
 Karner, A., Pereira, R. H. M., & Farber, S. (2025). Advances and pitfalls in
 measuring transportation equity. *Transportation*, 52, 1399–1427.
