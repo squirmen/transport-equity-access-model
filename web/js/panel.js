@@ -8,7 +8,7 @@ import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.
 // Everyday errands first, then education in the order a child meets it, then
 // jobs. A service the build does not have is dropped by setServices.
 const PREFERRED_ORDER = [
-  'supermarket', 'gp', 'pharmacy',
+  'supermarket', 'gp', 'pharmacy', 'errands',
   'early_childhood', 'primary_school', 'intermediate_school', 'secondary_school',
   'jobs',
 ];
@@ -19,6 +19,7 @@ export const SERVICE_SHORT = {
   supermarket: 'Supermarket',
   gp: 'GP',
   pharmacy: 'Pharmacy',
+  errands: 'Errand round',
   early_childhood: 'Early childhood',
   primary_school: 'Primary school',
   intermediate_school: 'Intermediate',
@@ -30,6 +31,7 @@ export const SERVICE_NOUN = {
   supermarket: 'a supermarket',
   gp: 'a GP',
   pharmacy: 'a pharmacy',
+  errands: 'an errand round',
   early_childhood: 'an early childhood service',
   primary_school: 'a primary school',
   intermediate_school: 'an intermediate school',
@@ -48,6 +50,9 @@ export function setServices(meta) {
     if (!SERVICE_SHORT[id]) SERVICE_SHORT[id] = meta.services[id].label || id;
     if (!SERVICE_NOUN[id]) SERVICE_NOUN[id] = (meta.services[id].label || id).toLowerCase();
   }
+  // An errand round is a trip to several services, offered where the build
+  // worked the rounds out.
+  if (meta.chains) known.splice(known.indexOf('pharmacy') + 1 || known.length, 0, 'errands');
   SERVICE_ORDER = [...known, ...extra, 'jobs'].filter((id, i, all) => all.indexOf(id) === i);
 }
 
@@ -157,7 +162,7 @@ function legend(title, items, { note, divider } = {}) {
 // into a short one plus whatever belongs under it. Picking a kind picks its
 // first destination, so nobody has to click twice to get somewhere.
 const SERVICE_GROUPS = [
-  { key: 'everyday', label: 'Everyday', members: ['supermarket', 'gp', 'pharmacy'] },
+  { key: 'everyday', label: 'Everyday', members: ['supermarket', 'gp', 'pharmacy', 'errands'] },
   { key: 'education', label: 'Education', members: ['early_childhood', 'primary_school', 'intermediate_school', 'secondary_school'] },
   { key: 'jobs', label: 'Jobs', members: ['jobs'] },
 ];
@@ -512,7 +517,9 @@ function renderLive(root, model, set) {
   const everyone = model.group === 'everyone';
   const who = phrase(model.group);
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
-  const reach = `reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}`;
+  const reach = model.round
+    ? roundSentence({ ...model.round, standard: model.standard }).replace(/^can /, '').replace(/\.$/, '')
+    : `reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}`;
   const parts = [];
   if (everyone) {
     parts.push(hero(count(s.everyone), `people live in ${place.name}.`, `${percent(s.missingRate)} can't ${reach}.`));
@@ -639,7 +646,9 @@ export function renderPeople(root, model, set) {
   const parts = [
     hero(
       count(model.below),
-      `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`,
+      model.round
+        ? `${phrase(model.group)} ${roundSentence({ ...model.round, standard: model.standard }, true)}`
+        : `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`,
       depth,
     ),
   ];
@@ -864,4 +873,90 @@ export function renderTraveller(root, model, set) {
   }
   fields.push(el('p', 'note', model.timeNote));
   root.replaceChildren(...fields);
+}
+
+
+// ---------------------------------------------------------------- errand rounds
+
+const STOP_NAME = { gp: 'the GP', pharmacy: 'the pharmacy', supermarket: 'the supermarket' };
+const ROUND_HOW = {
+  walk: 'walk',
+  pt: 'walk or take public transport',
+  bike_low_stress: 'cycle on low-stress routes',
+};
+const ROUND_WAYS = [['walk', 'Walking'], ['pt', 'Walking and public transport'], ['bike_low_stress', 'Low-stress cycling']];
+
+/** "the GP, the pharmacy and the supermarket" */
+export function stopList(stops) {
+  const names = stops.map((s) => STOP_NAME[s] || SERVICE_NOUN[s] || s);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
+}
+
+/** Chips that turn on and off independently, for choosing the stops. */
+function toggles(label, options, selected, onToggle) {
+  const field = el('div', 'field');
+  const id = `f-${label.replace(/\W+/g, '-').toLowerCase()}`;
+  const title = el('span', 'field-label', label);
+  title.id = id;
+  const group = el('div', 'chips chips-compact');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-labelledby', id);
+  group.dataset.group = id;
+  for (const [value, text] of options) {
+    const on = selected.includes(value);
+    const button = el('button', 'chip', text);
+    button.type = 'button';
+    button.setAttribute('role', 'checkbox');
+    button.setAttribute('aria-checked', String(on));
+    button.dataset.value = value;
+    // A round needs two stops, so the last two cannot be turned off.
+    if (on && selected.length <= 2) {
+      button.disabled = true;
+      button.title = 'A round needs at least two stops';
+    }
+    button.addEventListener('click', () => onToggle(value));
+    group.append(button);
+  }
+  field.append(title, group);
+  return field;
+}
+
+export function roundSentence(model, negative = false) {
+  const pace = model.slow ? ' at a slower pace' : '';
+  const leg = model.leg === 'any' ? '' : `, with no stretch longer than ${model.leg} minutes`;
+  return `can${negative ? "'t" : ''} ${ROUND_HOW[model.mode]}${pace} to ${stopList(model.stops)} and home again within ${model.standard} minutes${leg}.`;
+}
+
+/** One trip from home to several services and back. */
+export function renderErrands(root, model, set) {
+  const parts = [
+    hero(percent(model.share), `of ${place.residents} ${roundSentence(model)}`, `${count(model.below)} people can't.`),
+  ];
+  if (model.single) {
+    parts.push(el('p', 'note', `For one trip on its own, ${percent(model.single.share)} can ${ROUND_HOW[model.mode]}${model.slow ? ' at the same pace' : ''} to ${STOP_NAME[model.single.stop] || SERVICE_NOUN[model.single.stop]} within ${model.single.standard} minutes.`));
+  }
+  parts.push(
+    toggles('Stops', model.allStops.map((s) => [s, SERVICE_SHORT[s] || s]), model.stops, (stop) => set({ errandToggle: stop })),
+    radios('Travel by', ROUND_WAYS.filter(([m]) => model.modes.includes(m)), model.mode, (errandMode) => set({ errandMode }), { compact: true }),
+    model.mode === 'bike_low_stress' || !model.slowKmh ? null : radios('Walking pace', [['usual', 'Usual, 4.8 km/h'], ['slow', `Slower, ${model.slowKmh} km/h`]],
+      model.slow ? 'slow' : 'usual', (pace) => set({ pace }), { compact: true }),
+    radios('Longest stretch', [...model.legLimits.map((m) => [String(m), `${m} min`]), ['any', 'No limit']], model.leg,
+      (errandLeg) => set({ errandLeg }), { compact: true }),
+    legend('Minutes of travel for the whole round', model.legend, { divider: 3 }),
+    method(
+      'How this is worked out',
+      'A round starts at home, stops at each place in turn and comes home again. Its length is the travel time only, '
+        + 'not the time spent inside. The pharmacy comes after the GP, where the prescription is written; the supermarket '
+        + 'can come at any point.',
+      `Each home tries the ${model.candidates} nearest of each kind of stop in every order allowed and keeps the quickest `
+        + 'round. The nearest GP and then the pharmacy nearest to it can miss a better round, such as a GP a little further '
+        + 'off with a pharmacy next door.',
+      'A limit on the longest stretch keeps only rounds where no single walk or ride is longer than that, because many '
+        + 'people can manage several short walks and not one long one.',
+      `The slower pace is 3.6 km/h, about the walking speed of people in their eighties. Public transport is timed ${model.windowText}. `
+        + 'The way home is taken to be as long as the way out from the last stop, which holds for walking and cycling but not '
+        + 'always for a bus. Opening hours are not checked.',
+    ),
+  );
+  root.replaceChildren(...parts.filter(Boolean));
 }

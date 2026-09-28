@@ -65,6 +65,12 @@ CORE_CELL_KEYS = (
 )
 
 
+def _chains_meta(settings: Settings) -> dict | None:
+    from . import chains
+
+    return chains.meta(settings)
+
+
 def split_cells(payload: dict) -> tuple[dict, dict]:
     """The cell payload as the part sent first and the part that follows."""
     core = {k: v for k, v in payload.items() if k in CORE_CELL_KEYS}
@@ -194,6 +200,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "m_rail": _ints(table["m_rail_ferry"]),
         "m_bike": _ints(table["m_low_stress_route"]),
         "t": {s: {m: _ints(table[f"t_{s}_{m}"]) for m in WEB_MODES if f"t_{s}_{m}" in table} for s in services},
+        # Public transport at the slower walking pace, usual time only; read by
+        # the errand round's single-trip comparison, so it follows the map.
+        "ts": {s: _ints(table[f"t_{s}_pt_slow"]) for s in services if f"t_{s}_pt_slow" in table},
         "choice": choice_payload(settings, table),
         # Whether each hexagon is in an urban area, sent only where some are not.
         "urban": [int(v) for v in table["urban"]] if "urban" in table and not table["urban"].all() else None,
@@ -378,6 +387,13 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
     _dump(data / "cells_more.json", more)
     _dump(data / "places.json", places)
     _dump(data / "destinations.json", dests)
+    # Errand rounds are only read when that view is opened, so they travel
+    # in a file of their own.
+    from . import chains
+
+    rounds = chains.payload(settings, table, _ints)
+    if rounds is not None:
+        _dump(data / "chains.json", rounds)
 
     from . import context
 
@@ -393,6 +409,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "windows": settings.routing["windows"],
         "modes": {k: v.get("label", k) for k, v in settings.modes.items()},
         "standard_modes": settings.standard_modes,
+        "chains": _chains_meta(settings),
         "services": {
             k: {
                 "label": v["label"],

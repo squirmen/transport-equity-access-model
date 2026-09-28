@@ -19,6 +19,7 @@ naming:
 
 data:
   osm: raw/whakatane/osm/whakatane_bbox.osm.pbf
+  elevation: raw/whakatane/elevation/whakatane_dem_20m.tif
   gtfs: raw/tauranga/gtfs/baybus_gtfs_2026-09-26.zip
   grid: processed/whakatane/grid/whakatane_h3_r9_population.parquet
   jobs_grid: processed/whakatane/grid/whakatane_h3_r9_v2_opportunities.parquet
@@ -44,6 +45,8 @@ routing:
   batch_size: 2000
   speed_walking_kmh: 4.8
   speed_cycling_kmh: 15
+  # Hills slow walking and cycling by Tobler's hiking function; driving is unaffected.
+  elevation_cost: tobler
   # Public transport is timed in each of these. Walking, cycling and driving
   # do not depend on the clock. A window can name its own date, because a
   # Saturday cannot be modelled on the Tuesday the rest of the model uses.
@@ -56,6 +59,9 @@ routing:
     bike_low_stress: {kind: cycle, max_traffic_stress: 2, label: Cycling on low-stress routes}
     bike: {kind: cycle, max_traffic_stress: 3, label: Cycling on any bikeable street}
     pt: {kind: transit, max_walk_minutes: 15, label: Public transport}
+    # The same trips for someone who walks at 3.6 km/h (1 m/s), about the pace of
+    # people in their eighties (Bohannon and Williams Andrews, 2011).
+    pt_slow: {kind: transit, max_walk_minutes: 15, speed_walking_kmh: 3.6, label: Public transport at a slower walking pace}
     car: {kind: car, label: Car}
 
 # Modes that count towards an access standard. Cycling counts only on
@@ -229,3 +235,17 @@ fares:
     - {key: community_connect, label: Community Services Card, ages: "any"}
     - {key: accessible, label: Accessibility concession, ages: "any"}
     - {key: supergold, label: SuperGold, ages: "65 and over"}
+
+# Errand rounds: one trip from home to several services and back, without a
+# car. The legs from home come from the service runs; the legs between stops
+# are routed as `links`. The pharmacy comes after the GP, where a prescription
+# is written; the supermarket can come at any point. Each home tries the
+# nearest few of each kind in every allowed order and keeps the quickest.
+chains:
+  stops: [gp, pharmacy, supermarket]
+  after: {pharmacy: gp}
+  candidates: 5
+  leg_limits: [10, 15, 20]
+  modes: [walk, pt, bike_low_stress]
+  window: interpeak
+  standard_minutes: 30

@@ -95,6 +95,8 @@ function prepare(raw) {
     mRail: numeric(c.m_rail),
     mBike: numeric(c.m_bike),
     t: mapValues(c.t, (modes) => mapValues(modes, numeric)),
+    // Public transport for someone walking at the slower pace, usual time only.
+    tSlow: mapValues(c.ts, numeric),
     km: mapValues(c.km, numeric),
     nearest: c.nearest,
     jobs: mapValues(c.jobs, (byLimit) => mapValues(byLimit, numeric)),

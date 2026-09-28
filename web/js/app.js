@@ -2,7 +2,7 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, decileBands, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
+  byQuintile, decileBands, fetchJson, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
   choiceWithin, reasons as reasonCodes, setUrban, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare,
   windowOf, windowsFor,
 } from './data.js';
@@ -26,7 +26,7 @@ import {
   PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
 } from './palette.js';
 import {
-  renderAccess, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
+  renderAccess, renderErrands, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
   renderBurden, renderChips, renderChoice, renderPeople, renderScore, renderServicePicker, renderTraveller, renderWhenPicker, SERVICE_NOUN,
   SERVICE_ORDER, SERVICE_SHORT, setServices,
 } from './panel.js';
@@ -154,6 +154,12 @@ const state = {
   // that map keeps only the places that miss the standard.
   peopleShow: 'short',
   liveMissing: false,
+  // The errand round: which stops (null for all of them), how, the longest
+  // stretch allowed, and the walking pace.
+  errandStops: null,
+  errandMode: 'walk',
+  errandLeg: '10',
+  pace: 'usual',
 };
 
 let data;
@@ -165,7 +171,8 @@ const cache = { best: new Map(), routed: new Map() };
 // ---------------------------------------------------------------- state and URL
 
 function standardFor(service) {
-  return state.standard[service] ?? data.meta.services[service]?.standard_minutes ?? 20;
+  const fallback = service === 'errands' ? data.meta.chains?.standard_minutes : data.meta.services[service]?.standard_minutes;
+  return state.standard[service] ?? fallback ?? 20;
 }
 
 function readHash() {
@@ -195,6 +202,12 @@ function readHash() {
   if (cost[3]) state.returnTrip = cost[3] !== '1';
   if (cost[4] === 'i') state.budgetUnit = 'income';
   if (params.get('u') === '1') state.urbanOnly = true;
+  const round = (params.get('e') || '').split('.');
+  // A '+' typed into an address arrives as a space.
+  if (round[0]) state.errandStops = round[0].split(/[+ ]/).filter((s) => /^[a-z_]+$/.test(s));
+  if (['walk', 'pt', 'bike_low_stress'].includes(round[1])) state.errandMode = round[1];
+  if (/^(\d+|any)$/.test(round[2] || '')) state.errandLeg = round[2];
+  if (round[3] === 'slow') state.pace = 'slow';
   const live = (params.get('p') || '').split('.');
   if (live[0] === 'live') {
     state.peopleShow = 'live';
@@ -234,6 +247,9 @@ function hashNow() {
   if (state.when) params.set('h', state.when);
   if (state.urbanOnly) params.set('u', '1');
   if (state.peopleShow === 'live') params.set('p', state.liveMissing ? 'live.m' : 'live');
+  if (state.service === 'errands') {
+    params.set('e', [errandStops().join('+'), state.errandMode, state.errandLeg, state.pace === 'slow' ? 'slow' : ''].join('.'));
+  }
   if (state.group !== 'everyone') params.set('g', state.group);
   if (state.basemap !== 'light') params.set('b', state.basemap);
   if (map) {
@@ -274,6 +290,13 @@ function set(patch) {
     return;
   }
   if ('service' in patch && patch.service !== state.service) state.reason = null;
+  if ('errandToggle' in patch) {
+    const stop = patch.errandToggle;
+    delete patch.errandToggle;
+    const now = errandStops();
+    const next = now.includes(stop) ? now.filter((s) => s !== stop) : [...now, stop];
+    if (next.length >= 2) patch.errandStops = next;
+  }
   Object.assign(state, patch);
   schedule();
   writeHash();
@@ -297,6 +320,8 @@ function subject() {
  *  thing the time of day changes. */
 function transitShown() {
   if (state.measure === 'score') return scoreChoice().mode === 'pt';
+  // A round is timed off-peak on a weekday only, and priced nowhere.
+  if (state.service === 'errands') return false;
   if (state.service === 'jobs') return jobsChoice().mode === 'pt';
   return state.view !== 'access' || state.mode === 'best' || state.mode === 'pt';
 }
@@ -378,6 +403,7 @@ function zonesKey(zones) {
 }
 
 function bestTimes(service, zones) {
+  if (service === 'errands') return roundTimes();
   const key = `${service}|${zonesKey(zones)}`;
   if (!cache.best.has(key)) cache.best.set(key, times(data, service, 'best', zones));
   return cache.best.get(key);
@@ -923,7 +949,8 @@ function peopleModel() {
       lean,
       leanText: shortfallLeaning(lean),
       rate: overall.rate,
-      modeNote: state.mode !== 'best' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
+      round: roundSummary(),
+      modeNote: state.mode !== 'best' && state.service !== 'errands' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
       q1: quintiles[0].share,
       q5: quintiles[4].share,
       // Both charts show the share missing, so they read the same way.
@@ -1017,12 +1044,13 @@ function liveModel() {
       groups: groupChips(),
       fare: fareClause(),
       missingOnly: state.liveMissing,
+      round: roundSummary(),
       summary,
       digits,
       concentrated: CONCENTRATED,
       legend: legendItems,
       divider,
-      modeNote: state.mode !== 'best' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
+      modeNote: state.mode !== 'best' && state.service !== 'errands' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
       areas: liveAreas(gaps, weights, pop, standard),
     },
   };
@@ -1291,6 +1319,113 @@ function incomeRange(share) {
   return [at(0.1) * share / 100, at(0.9) * share / 100];
 }
 
+// ---------------------------------------------------------------- errand rounds
+
+let chainsLoading = null;
+
+/** The stops of the round on screen, in the order the build lists them. */
+function errandStops() {
+  const all = data?.meta?.chains?.stops || [];
+  const chosen = (state.errandStops || all).filter((s) => all.includes(s));
+  return chosen.length >= 2 ? all.filter((s) => chosen.includes(s)) : all;
+}
+
+function slowPace() {
+  return state.pace === 'slow' && state.errandMode !== 'bike_low_stress' && Boolean(data.meta.chains?.slower_pace_kmh);
+}
+
+/** Minutes of travel for the quickest round from each hexagon, as chosen. */
+function roundTimes() {
+  const set = errandStops().join('+');
+  const mode = state.errandMode + (slowPace() ? '_slow' : '');
+  const key = `round|${set}|${mode}|${state.errandLeg}`;
+  if (!cache.best.has(key)) {
+    const values = data.chains?.sets?.[set]?.[mode]?.[state.errandLeg];
+    cache.best.set(key, values ? Float32Array.from(values, (v) => (v == null ? NaN : v)) : new Float32Array(data.n).fill(NaN));
+  }
+  return cache.best.get(key);
+}
+
+/** The rounds are read only when the view is opened. */
+function requestChains() {
+  if (chainsLoading) return;
+  chainsLoading = fetchJson(`${DATA_BASE}${CITY}/`, 'chains').then((chains) => {
+    data.chains = chains;
+    cache.best.clear();
+    update();
+  }).catch((error) => {
+    chainsLoading = null;
+    console.warn('The errand rounds could not be loaded.', error);
+    $('view').replaceChildren(el('p', 'note', 'The errand rounds could not be loaded. Reload the page to try again.'));
+  });
+}
+
+/** One trip on its own to the first stop, the same way and at the same pace,
+ *  to set the round against. */
+function singleTrip(stop) {
+  const t = data.t[stop];
+  if (!t) return null;
+  const factor = slowPace() ? (data.meta.chains.usual_pace_kmh || 4.8) / data.meta.chains.slower_pace_kmh : 1;
+  const walk = t.walk ? Float32Array.from(t.walk, (v) => v * factor) : null;
+  let shown;
+  if (state.errandMode === 'walk') shown = walk;
+  else if (state.errandMode === 'bike_low_stress') shown = t.bike_low_stress;
+  else {
+    const pt = slowPace() ? data.tSlow?.[stop] : data.usual.t[stop];
+    if (!pt || !walk) return null;
+    shown = Float32Array.from(walk, (v, i) => Math.min(Number.isFinite(v) ? v : Infinity, Number.isFinite(pt[i]) ? pt[i] : Infinity));
+  }
+  if (!shown) return null;
+  const standard = standardFor(stop);
+  return { stop, standard, share: weightedShare(meetsFlags(shown, standard), data.pop) };
+}
+
+/** How the round on screen is made, for the sentences of other views. */
+function roundSummary() {
+  if (state.service !== 'errands') return null;
+  return { stops: errandStops(), mode: state.errandMode, slow: slowPace(), leg: state.errandLeg };
+}
+
+function errandModel() {
+  const standard = standardFor('errands');
+  const shown = roundTimes();
+  const edges = accessBreaks(standard);
+  const classes = new Int8Array(data.n);
+  for (let i = 0; i < data.n; i += 1) {
+    const v = shown[i];
+    classes[i] = Number.isFinite(v) ? classify(v, edges) : data.pop[i] > 0 ? 5 : -1;
+  }
+  const flags = meetsFlags(shown, standard);
+  const top = edges[4] >= 60 ? 'over 60' : `over ${edges[4]}`;
+  const labels = [`${edges[0]} or less`, `${edges[0]}–${edges[1]}`, `${edges[1]}–${standard}`, `${standard}–${edges[3]}`,
+    edges[4] > edges[3] ? `${edges[3]}–${edges[4]}` : null, `${top} or none`];
+  const spec = data.meta.chains;
+  const stops = errandStops();
+  const windowSpec = (data.meta.windows || {})[spec.window] || {};
+  return {
+    classes,
+    colours: ACCESS,
+    tooltip: (i) => [Number.isFinite(shown[i]) ? `Round: ${Math.round(shown[i])} min of travel` : 'No round within reach', `Standard: within ${standard} min`],
+    panel: {
+      standard,
+      stops,
+      allStops: spec.stops,
+      mode: state.errandMode,
+      modes: spec.modes,
+      slow: slowPace(),
+      slowKmh: spec.slower_pace_kmh,
+      leg: state.errandLeg,
+      legLimits: spec.leg_limits,
+      candidates: data.chains?.candidates || 5,
+      windowText: windowSpec.phrase || 'off-peak on a weekday',
+      share: weightedShare(flags, data.pop),
+      below: peopleBelow(flags, data.pop),
+      single: singleTrip(stops.includes('gp') ? 'gp' : stops[0]),
+      legend: labels.map((label, k) => (label ? { colour: ACCESS[k], label } : null)).filter(Boolean),
+    },
+  };
+}
+
 /** Whether what is on screen reads the part of the data sent after the map. */
 function needsMore() {
   if (data.complete) return false;
@@ -1299,8 +1434,17 @@ function needsMore() {
 }
 
 function compute() {
-  if (needsMore()) {
-    return { waiting: true, classes: new Int8Array(data.n).fill(-1), colours: ACCESS, tooltip: () => ['Loading…'], panel: {} };
+  const waiting = { waiting: true, classes: new Int8Array(data.n).fill(-1), colours: ACCESS, tooltip: () => ['Loading…'], panel: {} };
+  if (needsMore()) return waiting;
+  if (state.service === 'errands' && state.measure !== 'score') {
+    state.zonesNow = null;
+    if (!data.chains) {
+      requestChains();
+      return waiting;
+    }
+    if (state.view === 'access') return errandModel();
+    if (state.view === 'people') return peopleModel();
+    return { classes: new Int8Array(data.n).fill(-1), colours: ACCESS, tooltip: () => [], panel: { note: true } };
   }
   state.zonesNow = zonesFor(state.service);
   if (state.measure === 'score') {
@@ -1351,7 +1495,7 @@ function renderStandard() {
   field.hidden = jobs;
   if (jobs) return;
   const value = standardFor(state.service);
-  const fallback = data.meta.services[state.service].standard_minutes;
+  const fallback = state.service === 'errands' ? data.meta.chains.standard_minutes : data.meta.services[state.service].standard_minutes;
   $('standard').value = String(value);
   $('standard-value').textContent = `within ${value} min`;
   $('standard').setAttribute('aria-valuetext', `within ${value} minutes`);
@@ -1474,6 +1618,12 @@ function renderView(model) {
     if (state.view === 'access') renderJobsAccess(root, model.panel, set);
     else if (state.view === 'people') renderJobsPeople(root, model.panel);
     else renderJobsFixes(root);
+    return;
+  }
+  if (state.service === 'errands') {
+    if (state.view === 'access') renderErrands(root, model.panel, set);
+    else if (state.view === 'people') renderPeople(root, model.panel, set);
+    else root.replaceChildren(el('p', 'note', 'What would help is worked out for single trips. Pick one of the stops to see it.'));
     return;
   }
   if (state.view === 'access') {
@@ -1603,7 +1753,7 @@ function update() {
   announce();
   window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2) };
   try {
-    showDestinationsFor(map, state.service === 'jobs' || state.measure === 'score' ? null : state.service);
+    showDestinationsFor(map, state.service === 'jobs' || state.service === 'errands' || state.measure === 'score' ? null : state.service);
   } catch (error) {
     console.warn('Destination pins are not ready yet.', error);
   }
@@ -2125,6 +2275,7 @@ async function init() {
     // rebuilt with the settings already chosen, and whatever is open is drawn
     // again, including a view that was waiting for it.
     loadMore(`${DATA_BASE}${CITY}/`, data).then((full) => {
+      full.chains = data.chains;
       data = full;
       if (state.urbanOnly) setUrban(data, true);
       setWindow(data, state.when);

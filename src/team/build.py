@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from . import context, diagnosis, equity, export, fares, gravity, measures, people, routing
+from . import chains, context, diagnosis, equity, export, fares, gravity, measures, people, routing
 from .config import Settings
 
 log = logging.getLogger("team.build")
@@ -50,6 +50,10 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, di
     log.info("fares")
     cost, fare_record = fares.build(settings, index, origins)
     table = table.join(cost)
+
+    if chains.spec(settings):
+        log.info("errand rounds")
+        table = table.join(chains.build(settings, index))
 
     log.info("diagnosis")
     table = diagnosis.diagnose(table, settings)
