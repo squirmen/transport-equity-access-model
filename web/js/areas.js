@@ -57,10 +57,13 @@ export function areaCsv(rows, label) {
   const live = rows.some((r) => r.residents != null);
   const head = [label, 'people', 'missing', 'share_missing', 'minutes_short', 'mean_nzdep'];
   if (live) head.push('residents', 'share_of_residents');
+  const norc = rows.some((r) => r.norc != null);
+  if (norc) head.push('norc');
   const lines = [head.join(',')];
   for (const r of rows) {
     const cells = [quote(r.name), round(r.people), round(r.missing), round(r.share, 3), round(r.minutesShort, 1), round(r.nzdep, 1)];
     if (live) cells.push(round(r.residents), round(r.ofResidents, 3));
+    if (norc) cells.push(r.norc ? '1' : '0');
     lines.push(cells.join(','));
   }
   return `${lines.join('\n')}\n`;

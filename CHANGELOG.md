@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 (29 September 2026)
+
+- Where they live, for people aged 65 and over, sets rest homes and
+  retirement villages apart and leaves them out of the figures unless put
+  back, so the map shows where people have aged in their own homes. A census
+  block counts as one when at least 60% of its residents are 65 or over, or
+  when it holds an aged care facility on Health New Zealand's register and at
+  least 30% are.
+- Suburbs that are naturally occurring retirement communities (NORCs) are
+  tagged in the suburb list, counted, and marked in the CSV download.
+- Walking at the slower pace of 3.6 km/h is a way of travelling on the Access
+  view and on each place's card, next to walking.
+
 ## 0.8.0 (29 September 2026)
 
 - Libraries, and banks and post shops, are destinations of their own, under

@@ -29,6 +29,7 @@ export function metres(m) {
 export const MODES = {
   best: { label: 'Best without a car', short: 'best option' },
   walk: { label: 'Walking', short: 'walking' },
+  walk_slow: { label: 'Walking, slower pace', short: 'walking at 3.6 km/h' },
   bike_low_stress: { label: 'Low-stress cycling', short: 'low-stress cycling' },
   bike: { label: 'Any bike route', short: 'cycling on any street' },
   pt: { label: 'Public transport', short: 'public transport' },
@@ -37,7 +38,8 @@ export const MODES = {
 
 export const MODE_NOTES = {
   best: 'The fastest of walking, low-stress cycling and public transport. Car and busy-road cycling never count.',
-  walk: 'Walking at 4.8 km/h on footpaths and paths.',
+  walk: 'Walking at 4.8 km/h on footpaths and paths, slowed on slopes.',
+  walk_slow: 'Walking at 3.6 km/h, about the pace of people in their eighties, slowed on slopes.',
   bike_low_stress: 'Cycling at 15 km/h on paths, protected lanes and quiet streets only.',
   bike: 'Cycling at 15 km/h on any street a bike is allowed on, including busy roads. Shown for comparison; it does not count towards the standard.',
   pt: 'Public transport with walking at each end, median over the time window. A walk of up to 15 minutes also counts.',

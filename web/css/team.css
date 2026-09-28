@@ -721,3 +721,20 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .robust-body { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
 .robust-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: baseline; font-size: 13px; }
 .robust-row strong { color: var(--navy); font-size: 17px; font-variant-numeric: tabular-nums; }
+
+/* Rest homes and villages, and NORC suburbs, on Where they live ---------- */
+
+.village-key { display: flex; align-items: flex-start; gap: 8px; }
+.village-swatch { width: 12px; height: 12px; flex: none; border-radius: 2px; margin-top: 2px; }
+.rank-name .tag {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 16px;
+  vertical-align: 1px;
+}

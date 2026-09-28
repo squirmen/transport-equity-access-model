@@ -60,7 +60,8 @@ export function serviceVerdict(data, i, service, standard, viewMode, zones = nul
   const shown = mode ? timeFor(data, service, mode, i, zones) : NaN;
   // With no route at all within the routing limit, the place misses the
   // standard; it is not a mode that "doesn't count".
-  const counts = mode ? data.meta.standard_modes.includes(mode) : true;
+  // Walking at the slower pace is walking, so it counts like walking does.
+  const counts = mode ? data.meta.standard_modes.includes(mode) || mode === 'walk_slow' : true;
   const meets = counts && Number.isFinite(shown) && shown <= standard;
   const pricedOut = mode === 'pt' && zones != null
     && Number.isFinite(data.t[service]?.pt?.[i]) && !Number.isFinite(shown);
@@ -115,7 +116,9 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
     details.append(el('p', 'service-reason', `${group.label}. ${group.fix}.`));
   }
   const grid = el('div', 'mode-grid');
-  for (const m of DETAIL_MODES) {
+  // The slower pace sits under walking, for places built with one.
+  const modes = data.t[service]?.walk_slow ? ['walk', 'walk_slow', ...DETAIL_MODES.slice(1)] : DETAIL_MODES;
+  for (const m of modes) {
     const t = timeFor(data, service, m, i, zones);
     grid.append(el('span', 'mode-name', MODES[m].label), el('span', 'mode-time', minutes(t)));
   }

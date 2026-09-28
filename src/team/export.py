@@ -61,7 +61,7 @@ def _clean(value):
 # a second.
 CORE_CELL_KEYS = (
     "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
-    "freq", "t", "tw", "nearest", "urban", "zone",
+    "freq", "t", "tw", "nearest", "urban", "zone", "vil",
 )
 
 
@@ -69,6 +69,21 @@ def _chains_meta(settings: Settings) -> dict | None:
     from . import chains
 
     return chains.meta(settings)
+
+
+def _villages(table: pd.DataFrame) -> dict | None:
+    if "village_pop" not in table:
+        return None
+    held = np.flatnonzero(table["village_pop"].fillna(0).to_numpy() > 0)
+    if not len(held):
+        return None
+    rows = table.iloc[held]
+    return {
+        "i": [int(i) for i in held],
+        "pop": [round(float(v), 1) for v in rows["village_pop"]],
+        "older": [round(float(v), 1) for v in rows["village_older"]],
+        "home": [round(float(v), 1) for v in rows["home_older"]],
+    }
 
 
 def split_cells(payload: dict) -> tuple[dict, dict]:
@@ -206,6 +221,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "choice": choice_payload(settings, table),
         # Whether each hexagon is in an urban area, sent only where some are not.
         "urban": [int(v) for v in table["urban"]] if "urban" in table and not table["urban"].all() else None,
+        # Rest homes and retirement villages, for the hexagons that hold part
+        # of one: residents there, 65+ there, and 65+ in the rest of the hexagon.
+        "vil": _villages(table),
         "tw": by_window,
         "km": {s: _floats(table[f"km_{s}"], 2) for s in services},
         "nearest": nearest,
@@ -503,6 +521,10 @@ FIELD_NOTES = {
     "costshare_": "The same, as a share of all of them in the region.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",
+    "village_pop": "Residents of census blocks taken to be rest homes or retirement villages (at least 60% aged 65+, "
+                   "or 30% with a registered aged care facility), spread by area; blank where none.",
+    "village_older": "Residents aged 65+ of those blocks.",
+    "home_older": "Residents aged 65+ of the rest of the cell, where it holds part of a rest home or village block.",
 }
 
 

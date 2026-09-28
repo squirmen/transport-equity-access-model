@@ -83,6 +83,9 @@ same rule.
 | Supermarket | OpenStreetMap | `shop=supermarket` |
 | GP or medical centre | OpenStreetMap | `amenity=doctors`, `healthcare=doctor`, `healthcare=centre`; `amenity=clinic` unless tagged with a non-GP specialty |
 | Pharmacy | OpenStreetMap | `amenity=pharmacy`, `healthcare=pharmacy` |
+| Library | OpenStreetMap | `amenity=library`, leaving out libraries tagged private or for students or customers only |
+| Bank or post shop | OpenStreetMap | `amenity=bank`, `amenity=post_office` |
+| Early childhood service | Ministry of Education early learning directory | centres, kindergartens, playcentres and kōhanga reo; home-based networks left out |
 | Primary school | Ministry of Education school directory | open contributing, full primary and composite schools |
 | Intermediate school | Ministry of Education school directory | open schools that teach Years 7–8 |
 | Secondary school | Ministry of Education school directory | open schools that teach Years 9 and up |
@@ -111,7 +114,7 @@ transport and walking from timetable and network data in a similar way.
 | Mode | Settings |
 | --- | --- |
 | Walking | 4.8 km/h, the speed used in public transport accessibility levels (Transport for London, 2015), slowed on slopes |
-| Walking at a slower pace | 3.6 km/h (1 m/s), about the pace of people in their eighties (Bohannon & Williams Andrews, 2011); used for errand rounds and for public transport at a slower pace |
+| Walking at a slower pace | 3.6 km/h (1 m/s), about the pace of people in their eighties (Bohannon & Williams Andrews, 2011); used for errand rounds, for public transport at a slower pace, and as its own way of travelling on the Access view (walking times scaled by 4.8/3.6) |
 | Low-stress cycling | 15 km/h, on streets at traffic stress level 2 or below, slowed on slopes |
 | Cycling on any bikeable street | 15 km/h, traffic stress level 3 or below |
 | Public transport | walking up to 15 minutes to and from stops; median time over every departure minute in the window, including waiting |
@@ -475,6 +478,30 @@ giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
 Figures are summarised for each SA2 and, in Auckland, each of the 21 local boards.
 
+**Where they live.** The same view can show where a group lives rather than
+how it fares: each hexagon coloured by the group's share of residents against
+its share across the place, with the places that miss the standard picked out
+if wanted. A concentration is a hexagon where the group is at least one and a
+half times as common as across the place.
+
+For people aged 65 and over, rest homes and retirement villages are set
+apart. A census block counts as one when at least 60% of its residents are 65
+or over, or when it holds an aged care facility on Health New Zealand's
+register and at least 30% are (about 17% of New Zealanders are 65 or over).
+In a hexagon that holds part of such a block, its residents and its 65+ are
+counted block by block, spread by area, and scaled to the hexagon's
+population. Unless put back, they are left out, so the figures are for
+everyone else, most of them in their own homes; hexagons that are mostly such
+blocks, and hold ten or more of their residents, are marked on the map. A suburb (SA2) is then flagged as a naturally
+occurring retirement community, or NORC (Hunt & Gunter-Hunt, 1986), when
+people 65 and over outside rest homes and villages are at least one and a
+half times as common there as across the place and number at least 300.
+
+The thresholds are TEAM's own; there is no agreed New Zealand definition. A
+whole block is set apart, so ordinary homes that share a block with a rest
+home go with it, and a small village inside a large block of ordinary homes is
+missed.
+
 ## 10. Why a place misses a standard
 
 For every hexagon that misses a standard, TEAM records the first of these
@@ -567,6 +594,9 @@ Assessing 'pro-poor' public transport subsidies in Bogotá. *Transport Policy*,
 
 Hägerstrand, T. (1970). What about people in regional science? *Papers of the
 Regional Science Association*, 24, 7–21.
+
+Hunt, M. E., & Gunter-Hunt, G. (1986). Naturally occurring retirement
+communities. *Journal of Housing for the Elderly*, 3(3–4), 3–22.
 
 Karner, A., Pereira, R. H. M., & Farber, S. (2025). Advances and pitfalls in
 measuring transportation equity. *Transportation*, 52, 1399–1427.

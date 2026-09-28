@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "team-access"
-version = "0.8.0"
+version = "0.9.0"
 description = "Transport Equity and Access Model: who can reach everyday needs without a car, and what would change that."
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,6 +19,7 @@ dependencies = [
   "h3>=4.0",
   "pyyaml>=6.0",
   "scipy>=1.10",
+  "openpyxl>=3.1",  # Health New Zealand's facility register is a spreadsheet
 ]
 
 [project.optional-dependencies]

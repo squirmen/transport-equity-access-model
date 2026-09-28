@@ -227,6 +227,8 @@ function accessSentence(model) {
   switch (mode) {
     case 'walk':
       return `of ${place.residents} can walk to ${noun} within ${standard} minutes.`;
+    case 'walk_slow':
+      return `of ${place.residents} can walk to ${noun} within ${standard} minutes at a slower pace.`;
     case 'bike_low_stress':
       return `of ${place.residents} can cycle to ${noun} within ${standard} minutes on low-stress routes.`;
     case 'bike':
@@ -258,9 +260,11 @@ function fareLine(model) {
  *  never do, and are kept for comparison, so they sit apart and say so rather
  *  than sitting in the same row looking like equals.
  */
-function modePicker(current, set, standardModes) {
+function modePicker(current, set, standardModes, slowWalk = false) {
   const counts = ['best', ...standardModes];
-  const compare = Object.keys(MODES).filter((m) => !counts.includes(m));
+  // Walking at the slower pace sits beside walking, where it is looked for.
+  if (slowWalk) counts.splice(counts.indexOf('walk') + 1 || counts.length, 0, 'walk_slow');
+  const compare = Object.keys(MODES).filter((m) => !counts.includes(m) && m !== 'walk_slow');
   const field = el('div', 'field');
   const title = el('span', 'field-label', 'Travel by');
   field.append(title, chipRow(counts.map((m) => [m, MODES[m].label]), current, (mode) => set({ mode }), ' chips-compact', 'Travel by'));
@@ -346,7 +350,7 @@ export function renderAccess(root, model, set) {
       model.compare ? el('p', 'note is-fare', model.compare) : null,
       fareLine(model),
       showSwitch('minutes', set, model.canShowFare, model.canShowBurden, model.canShowChoice),
-      modePicker(model.mode, set, model.standardModes),
+      modePicker(model.mode, set, model.standardModes, model.slowWalk),
       legend('Minutes to the nearest', model.legend, { divider: 3, note: MODE_NOTES[model.mode] }),
       robustSection(model),
     ].filter(Boolean),
@@ -529,9 +533,13 @@ function renderLive(root, model, set) {
   if (everyone) {
     parts.push(hero(count(s.everyone), `people live in ${place.name}.`, `${percent(s.missingRate)} can't ${reach}.`));
   } else {
+    // With rest homes and villages left out, every figure is for the rest.
+    const outside = model.villages && model.villages.out ? ' outside rest homes and retirement villages' : '';
     parts.push(hero(
       count(s.group),
-      `${who} live in ${place.name}, ${percent(s.share, model.digits)} of residents.`,
+      outside
+        ? `${who} live in ${place.name}${outside}, ${percent(s.share, model.digits)} of the residents there.`
+        : `${who} live in ${place.name}, ${percent(s.share, model.digits)} of residents.`,
       s.concentrated > 0
         ? `${count(s.concentrated)} of them (${percent(s.concentratedShare)}) live where they are at least one and a half times as common as across ${place.name}.`
         : null,
@@ -542,7 +550,7 @@ function renderLive(root, model, set) {
       const better = s.concentratedMissingRate < s.missingRate - 0.02;
       line.append(
         el('span', `lean-dot ${worse ? 'is-away' : better ? 'is-toward' : 'is-even'}`),
-        el('span', null, `There, ${percent(s.concentratedMissingRate)} can't ${reach}, against ${percent(s.missingRate)} of all ${who}.`),
+        el('span', null, `There, ${percent(s.concentratedMissingRate)} can't ${reach}, against ${percent(s.missingRate)} of all ${who}${outside}.`),
       );
       parts.push(line);
     }
@@ -553,10 +561,15 @@ function renderLive(root, model, set) {
     radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     radios('Map', [['all', everyone ? 'Everyone' : 'All of them'], ['missing', 'Only where they miss the standard']],
       model.missingOnly ? 'missing' : 'all', (value) => set({ liveMissing: value === 'missing' }), { compact: true }),
+    model.villages
+      ? radios('Rest homes and villages', [['out', 'Leave out'], ['in', 'Include']],
+        model.villages.out ? 'out' : 'in', (value) => set({ liveVillages: value === 'in' }), { compact: true })
+      : null,
     legend(everyone ? 'People per hexagon' : `${capitalise(who)}, as a share of residents`, model.legend, {
       divider: model.divider,
-      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(s.share, model.digits)}.`,
+      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(s.share, model.digits)}${model.villages && model.villages.out ? ', outside rest homes and villages' : ''}.`,
     }),
+    model.villages ? villageKey(model.villages) : null,
     liveAreaSection(model, set),
     method(
       'How this is worked out',
@@ -572,10 +585,34 @@ function renderLive(root, model, set) {
         ? 'Whether a place makes the round is counted by the way of travelling, pace and longest stretch chosen for the round.'
         : 'Whether a place meets the standard is counted by the fastest of walking, low-stress cycling and public transport, '
           + 'for the service, standard, time and any fare set above.',
+      model.group === 'older'
+        ? (model.villages
+          ? 'A census block counts as a rest home or retirement village when at least 60% of its residents are 65 or over, '
+            + 'or when it holds an aged care facility on Health New Zealand\'s register and at least 30% are. '
+            + 'Left out, the figures are for everyone else, most of them in their own homes. '
+          : '')
+          + `A suburb is marked NORC, a naturally occurring retirement community, when people 65 and over${model.villages ? ' outside rest homes and villages' : ''} `
+          + `are at least one and a half times as common there as across ${place.name} and number at least 300.`
+        : '',
       'Group figures come from census shares of the block around each hexagon, so they estimate people in an area rather than counting individuals.',
     ),
   );
   root.replaceChildren(...parts.filter(Boolean));
+}
+
+/** The rest home and village mark, apart from the share scale. */
+function villageKey(villages) {
+  const line = el('p', 'note village-key');
+  const swatch = el('span', 'village-swatch');
+  swatch.style.background = villages.colour;
+  line.append(
+    swatch,
+    el('span', null, villages.out
+      ? `Mostly rest homes or retirement villages. About ${count(villages.people)} people aged 65+ live in them, left out of these figures.`
+      : `About ${count(villages.people)} people aged 65+ live in rest homes and retirement villages, counted here with everyone else.`),
+  );
+  if (!villages.out) swatch.remove();
+  return line;
 }
 
 function liveAreaSection(model, set) {
@@ -590,6 +627,11 @@ function liveAreaSection(model, set) {
   if (!everyone) {
     box.append(chipRow([['missing', 'Most people'], ['share', 'Highest share']], a.sort, (areaSort) => set({ areaSort }), ' chips-compact chips-quiet', 'Sort by'));
   }
+  if (a.norcs != null) {
+    box.append(el('p', 'note', a.norcs > 0
+      ? `${a.norcs} ${a.norcs === 1 ? 'suburb is a' : 'suburbs are'} naturally occurring retirement ${a.norcs === 1 ? 'community' : 'communities'} (NORC), with ${count(a.norcPeople)} people aged 65+.`
+      : 'No suburb here is a naturally occurring retirement community (NORC) by this measure.'));
+  }
   const list = el('ol', 'rank-list');
   for (const row of a.rows) {
     const item = el('li');
@@ -602,8 +644,10 @@ function liveAreaSection(model, set) {
     const reason = model.missingOnly
       ? `of ${count(row.people)} here${ofResidents}, can't ${task}`
       : `${everyone ? '' : `${percent(row.ofResidents, model.digits)} of residents · `}${percent(row.share)} can't ${task}`;
+    const name = el('span', 'rank-name', row.name);
+    if (row.norc) name.append(' ', el('span', 'tag', 'NORC'));
     button.append(
-      el('span', 'rank-name', row.name),
+      name,
       el('span', 'rank-meta', count(model.missingOnly ? row.missing : row.people)),
       el('span', 'rank-reason', reason),
     );

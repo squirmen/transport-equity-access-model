@@ -14,6 +14,9 @@ export const PEOPLE = ['#fecbb4', '#f0986f', '#d56326', '#933d09'];
 // so the eye goes to the concentrations.
 export const CONCENTRATION = ['#e4e2dc', '#c9c6be', '#c7b8e6', '#8f71c9', '#4b2a7a'];
 
+// Rest homes and retirement villages, marked apart from the 65+ scale.
+export const VILLAGE = '#5f9e94';
+
 // People per hexagon, when the group is everyone: one hue, light to dark.
 export const DENSITY = ['#ddd3ee', '#a58ed1', '#6f4fb0', '#43287a'];
 

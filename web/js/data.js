@@ -62,6 +62,17 @@ export function loadOverlays(base) {
   return fetchJson(base, 'overlays');
 }
 
+function villages(vil, n) {
+  if (!vil || !vil.i || !vil.i.length) return null;
+  const out = { cells: Int32Array.from(vil.i), pop: new Float32Array(n), older: new Float32Array(n), home: new Float32Array(n) };
+  vil.i.forEach((cell, k) => {
+    out.pop[cell] = vil.pop[k];
+    out.older[cell] = vil.older[k];
+    out.home[cell] = vil.home[k];
+  });
+  return out;
+}
+
 function mapValues(object, fn) {
   return Object.fromEntries(Object.entries(object || {}).map(([k, v]) => [k, fn(v)]));
 }
@@ -127,6 +138,18 @@ function prepare(raw) {
     access: data.access.pt,
     cost: { ...data.cost },
   };
+  // Rest homes and retirement villages: for each hexagon holding part of one,
+  // its residents there, its 65+ there, and its 65+ in the rest of the hexagon.
+  data.vil = villages(c.vil, n);
+  // Walking at the slower pace, for places built with one: the same routes,
+  // timed at 3.6 km/h instead of 4.8.
+  const chains = raw.summary.meta.chains;
+  if (chains?.slower_pace_kmh) {
+    const factor = (chains.usual_pace_kmh || 4.8) / chains.slower_pace_kmh;
+    for (const byMode of Object.values(data.t)) {
+      if (byMode.walk) byMode.walk_slow = Float32Array.from(byMode.walk, (v) => v * factor);
+    }
+  }
   setWindow(data, null);
   data.quintile = Int8Array.from(data.nzdep, (v) => (Number.isFinite(v) ? Math.floor((v + 1) / 2) : 0));
   data.weights = { everyone: data.pop };

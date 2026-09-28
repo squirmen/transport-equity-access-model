@@ -158,6 +158,104 @@ def urban_flag(table: pd.DataFrame) -> pd.Series:
     return (~rural & (size >= URBAN_MINIMUM)).fillna(False).astype(bool)
 
 
+# A census block is taken to be a rest home or retirement village when far more
+# of its residents are 65 or over than ageing in place produces, or when it
+# holds a registered aged care facility large enough to shape the block.
+# Nationally about 17% of people are 65 or over.
+VILLAGE_SHARE = 0.6
+CARE_HOME_SHARE = 0.3
+
+
+def _age_counts(settings: Settings) -> pd.DataFrame:
+    """Residents and residents aged 65 and over in each census block."""
+    key = "census_equity" if "census_equity" in settings.raw["data"] else "census_age"
+    table = _records(settings.data(key))
+    if OLDER in table.columns:
+        total, older = _count(table[AGE_TOTAL]), _count(table[OLDER])
+    else:
+        total = _count(table["VAR_1_68"])
+        older = sum(_count(table[c]).fillna(0) for c in [f"VAR_1_{n}" for n in range(62, 68)])
+    return pd.DataFrame({"sa1": table["sa1"], "residents": total, "older": older})
+
+
+def _care_blocks(settings: Settings, blocks) -> set[str]:
+    """Census blocks holding an aged care facility on Health New Zealand's register."""
+    import geopandas as gpd
+
+    if "health_facilities" not in settings.raw["data"]:
+        return set()
+    path = settings.data("health_facilities")
+    if not path.exists():
+        return set()
+    register = pd.read_excel(path)
+    register = register[register["Fac Type"].astype(str).str.strip() == "agedcare"].dropna(subset=["NZGD2K X", "NZGD2K Y"])
+    points = gpd.GeoDataFrame(geometry=gpd.points_from_xy(register["NZGD2K X"], register["NZGD2K Y"]), crs="EPSG:4326")
+    held = gpd.sjoin(points.to_crs(blocks.crs), blocks[["sa1", "geometry"]], predicate="within")
+    return set(held["sa1"])
+
+
+def villages(settings: Settings, cells: pd.DataFrame) -> pd.DataFrame:
+    """Residents of rest homes and retirement villages in each hexagon.
+
+    Their residents are counted by the census where they live, so a suburb with
+    a rest home can look like one where older people have aged in place. The
+    web page leaves them out to find naturally occurring retirement
+    communities.
+
+    A block is a rest home or village when at least 60% of its residents are 65
+    or over, or when it holds an aged care facility on Health New Zealand's
+    register and at least 30% are. Each hexagon touching such a block is split
+    by area: the residents and 65+ living in village blocks, and the 65+ living
+    in the rest of the hexagon, both scaled to the hexagon's population.
+    Returned for those hexagons only.
+    """
+    import geopandas as gpd
+    import h3
+    from shapely.geometry import Polygon
+
+    columns = ["village_pop", "village_older", "home_older"]
+    empty = pd.DataFrame(columns=columns, dtype="float32")
+    blocks = gpd.read_file(settings.data("census_sa1"))
+    blocks["sa1"] = blocks["SA12023_code"].astype(str).str.replace(r"\.0$", "", regex=True)
+    blocks = blocks[["sa1", "geometry"]].to_crs("EPSG:2193").merge(_age_counts(settings), on="sa1", how="left")
+    blocks = blocks[blocks["residents"] > 0]
+    share = blocks["older"] / blocks["residents"]
+    care = blocks["sa1"].isin(_care_blocks(settings, blocks))
+    blocks["village"] = (share >= VILLAGE_SHARE) | (care & (share >= CARE_HOME_SHARE))
+    if not blocks["village"].any():
+        return empty
+    blocks["block_area"] = blocks.geometry.area
+
+    ids = [str(c) for c in cells.index]
+    hexes = gpd.GeoDataFrame(
+        {"h3": ids},
+        geometry=[Polygon([(lng, lat) for lat, lng in h3.cell_to_boundary(c)]) for c in ids],
+        crs="EPSG:4326",
+    ).to_crs("EPSG:2193")
+    touched = gpd.sjoin(hexes, blocks[blocks["village"]][["geometry"]], predicate="intersects")["h3"].unique()
+    if not len(touched):
+        return empty
+    parts = gpd.overlay(hexes[hexes["h3"].isin(touched)], blocks, how="intersection", keep_geom_type=True)
+    fraction = parts.geometry.area / parts["block_area"]
+    parts["pop"] = parts["residents"] * fraction
+    parts["old"] = parts["older"].fillna(0) * fraction
+    parts["v_pop"] = parts["pop"].where(parts["village"], 0.0)
+    parts["v_old"] = parts["old"].where(parts["village"], 0.0)
+    parts["h_old"] = parts["old"].where(~parts["village"], 0.0)
+    sums = parts.groupby("h3")[["pop", "v_pop", "v_old", "h_old"]].sum()
+    population = cells["population"].reindex(sums.index).astype(float)
+    scale = (population / sums["pop"].where(sums["pop"] > 0)).fillna(0.0)
+    out = pd.DataFrame({
+        "village_pop": sums["v_pop"] * scale,
+        "village_older": sums["v_old"] * scale,
+        "home_older": sums["h_old"] * scale,
+    })
+    out = out[out["village_pop"] > 0]
+    log.info("rest homes and villages: %d blocks, touching %d hexagons, about %.0f people aged 65+",
+             int(blocks["village"].sum()), len(out), out["village_older"].sum())
+    return out.astype("float32")
+
+
 def assign_areas(points, areas, field: str, max_distance: float = COAST_METRES) -> pd.Series:
     """The `field` value of the area each point falls in, indexed by point id.
 

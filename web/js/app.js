@@ -23,7 +23,7 @@ import {
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
   FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
-  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS,
+  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
 } from './palette.js';
 import {
   renderAccess, renderErrands, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
@@ -154,6 +154,8 @@ const state = {
   // that map keeps only the places that miss the standard.
   peopleShow: 'short',
   liveMissing: false,
+  // Rest homes and retirement villages are left out of the 65+ counts unless put back.
+  liveVillages: false,
   // The errand round: which stops (null for all of them), how, the longest
   // stretch allowed, and the walking pace.
   errandStops: null,
@@ -211,7 +213,8 @@ function readHash() {
   const live = (params.get('p') || '').split('.');
   if (live[0] === 'live') {
     state.peopleShow = 'live';
-    state.liveMissing = live[1] === 'm';
+    state.liveMissing = live.includes('m');
+    state.liveVillages = live.includes('v');
   }
   const when = params.get('h');
   if (when && /^[a-z_]+$/.test(when)) state.when = when;
@@ -246,7 +249,9 @@ function hashNow() {
   }
   if (state.when) params.set('h', state.when);
   if (state.urbanOnly) params.set('u', '1');
-  if (state.peopleShow === 'live') params.set('p', state.liveMissing ? 'live.m' : 'live');
+  if (state.peopleShow === 'live') {
+    params.set('p', ['live', state.liveMissing ? 'm' : '', state.liveVillages ? 'v' : ''].filter(Boolean).join('.'));
+  }
   if (state.service === 'errands') {
     params.set('e', [errandStops().join('+'), state.errandMode, state.errandLeg, state.pace === 'slow' ? 'slow' : ''].join('.'));
   }
@@ -482,6 +487,7 @@ function accessModel() {
       canShowFare: fareAvailable() && Boolean(data.cost[service]),
       canShowBurden: fareAvailable() && Boolean(data.cost[service]) && incomeAvailable(),
       standardModes: data.meta.standard_modes,
+      slowWalk: Boolean(data.t[service]?.walk_slow),
       fare: fareClause(),
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
@@ -725,7 +731,8 @@ function downloadAreas() {
   const text = areaCsv(lastAreas.rows, label);
   const name = [
     'team', data.meta.naming.slug, state.service, `${standardFor(state.service)}min`,
-    state.group, lastAreas.live ? 'where-they-live' : null, lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
+    state.group, lastAreas.live ? 'where-they-live' : null, lastAreas.villagesOut ? 'without-rest-homes' : null,
+    lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
     state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
   ].filter(Boolean).join('_');
   const link = document.createElement('a');
@@ -999,13 +1006,34 @@ function liveModel() {
   const cap = unreachable(service);
   const gaps = shortfalls(shown, standard, cap);
   const everyone = state.group === 'everyone';
-  const weights = data.weights[state.group];
+  // Rest homes and retirement villages house people 65 and over by design.
+  // Left out, what remains is where people have aged in their own homes.
+  const older = state.group === 'older';
   // Where the census suppresses a group's count there is no share to draw, and
   // those residents are left out of the place's share rather than counted as
   // having none of the group.
   const shares = everyone ? null : data.shares[state.group];
   const known = (i) => everyone || Number.isFinite(shares && shares[i]);
   const pop = everyone ? data.pop : Float32Array.from(data.pop, (p, i) => (known(i) ? p : 0));
+  const weights = Float32Array.from(data.weights[state.group]);
+  // Rest homes and retirement villages house people 65 and over by design.
+  // In a hexagon holding part of one, the 65+ are counted block by block, so
+  // they can be left out and what remains is where people have aged in place.
+  const vil = older ? data.vil : null;
+  const villagesOut = Boolean(vil) && !state.liveVillages;
+  let inVillages = 0;
+  if (vil) {
+    for (const i of vil.cells) {
+      if (!known(i)) continue;
+      inVillages += vil.older[i];
+      weights[i] = villagesOut ? vil.home[i] : vil.home[i] + vil.older[i];
+      if (villagesOut) pop[i] = Math.max(0, pop[i] - vil.pop[i]);
+    }
+  }
+  // A hexagon mostly made up of them is marked rather than shaded. A large
+  // rural block spreads a few residents thinly over many hexagons, so it takes
+  // ten or more to mark one.
+  const village = (i) => villagesOut && vil.pop[i] >= 10 && vil.pop[i] >= 0.5 * data.pop[i];
   const summary = whereTheyLive(weights, pop, gaps);
   const keep = state.liveMissing ? Array.from(gaps, (g) => g > 0) : null;
   const noun = GROUP_NOUN[state.group] || 'people';
@@ -1033,6 +1061,14 @@ function liveModel() {
       label: k === 0 ? `under ${percent(breaks[0], digits)}` : `${percent(breaks[k - 1], digits)}+`,
     }));
     divider = 2;
+    if (villagesOut) {
+      // Marked in a colour of their own, after the scale.
+      const mark = CONCENTRATION.length;
+      colours = [...CONCENTRATION, VILLAGE];
+      for (const i of vil.cells) {
+        if (village(i) && (!keep || keep[i])) classes[i] = mark;
+      }
+    }
   }
 
   return {
@@ -1042,8 +1078,12 @@ function liveModel() {
       const lines = everyone
         ? [`About ${count(data.pop[i])} people`]
         : known(i)
-          ? [`About ${count(weights[i])} ${noun}`, `${percent(data.pop[i] > 0 ? weights[i] / data.pop[i] : NaN, digits)} of residents`]
+          ? [`About ${count(weights[i])} ${noun}`, `${percent(pop[i] > 0 ? weights[i] / pop[i] : NaN, digits)} of residents`]
           : [`No census count of ${noun} here`];
+      if (vil && vil.pop[i] > 0) {
+        lines.push(`${villagesOut ? 'Not counted: ' : 'Counted: '}about ${count(vil.older[i])} ${noun} in a rest home or retirement village`);
+        if (villagesOut) lines[0] = `About ${count(weights[i])} ${noun} outside it`;
+      }
       if (!Number.isFinite(shown[i])) {
         lines.push(service === 'errands' ? 'No round within these limits' : `${SERVICE_SHORT[service]}: no route within ${cap} min`);
       }
@@ -1066,13 +1106,25 @@ function liveModel() {
       legend: legendItems,
       divider,
       modeNote: state.mode !== 'best' && state.service !== 'errands' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
-      areas: liveAreas(gaps, weights, pop, standard),
+      villages: vil ? { out: villagesOut, people: inVillages, colour: VILLAGE } : null,
+      // Suburbs are flagged as NORCs only on the 65+ outside rest homes and
+      // villages; a place with none has nothing to leave out.
+      areas: liveAreas(gaps, weights, pop, standard, older && !(vil && !villagesOut) ? summary.share : null),
     },
   };
 }
 
-/** Areas by how many of the group live there, or by their share of residents. */
-function liveAreas(gaps, weights, pop, standard) {
+// A suburb is taken to be a naturally occurring retirement community when
+// people 65 and over in ordinary homes are at least one and a half times as
+// common there as across the place, and number at least this many.
+const NORC_PEOPLE = 300;
+
+/** Areas by how many of the group live there, or by their share of residents.
+ *
+ *  `norcShare` is the place's 65+ share in ordinary homes, given only when
+ *  rest homes and villages are left out; suburbs are then flagged as NORCs.
+ */
+function liveAreas(gaps, weights, pop, standard, norcShare = null) {
   const levels = areaLevels();
   const level = levels.some(([k]) => k === state.areaLevel) ? state.areaLevel : 'sa2';
   const areaOf = level === 'board'
@@ -1085,6 +1137,10 @@ function liveAreas(gaps, weights, pop, standard) {
     residents: residents.get(row.area) || 0,
     ofResidents: residents.get(row.area) > 0 ? row.people / residents.get(row.area) : NaN,
   }));
+  const flagNorcs = norcShare != null && Number.isFinite(norcShare) && level === 'sa2';
+  if (flagNorcs) {
+    for (const row of rows) row.norc = row.people >= NORC_PEOPLE && row.ofResidents >= CONCENTRATED * norcShare * (1 - 1e-6);
+  }
   // Everyone is all of the residents, so a share of them sorts nothing.
   const sort = state.group !== 'everyone' && state.areaSort === 'share' ? 'share' : 'missing';
   // An area of a few dozen people can be almost all one group; a share means
@@ -1096,11 +1152,13 @@ function liveAreas(gaps, weights, pop, standard) {
   const sorted = [...eligible]
     .filter((r) => r[by] > 0)
     .sort((a, b) => (sort === 'share' ? b.ofResidents - a.ofResidents : b[by] - a[by]) || b[by] - a[by]);
-  lastAreas = { rows: sorted, level, live: true, missingOnly: state.liveMissing };
+  lastAreas = { rows: sorted, level, live: true, missingOnly: state.liveMissing, norc: flagNorcs, villagesOut: norcShare != null && Boolean(data.vil) };
   return {
     level,
     levels,
     sort,
+    norcs: flagNorcs ? rows.filter((r) => r.norc).length : null,
+    norcPeople: flagNorcs ? rows.reduce((sum, r) => sum + (r.norc ? r.people : 0), 0) : null,
     total: sorted.length,
     showAll: state.areaAll,
     rows: state.areaAll ? sorted : sorted.slice(0, 10),
@@ -2289,6 +2347,8 @@ async function init() {
   const profiles = ((data.meta.fares || {}).profiles || []).map((p) => p.key);
   if (profiles.length && !profiles.includes(state.profile)) state.profile = profiles.includes('adult') ? 'adult' : profiles[0];
   if (!MODES[state.mode]) state.mode = 'best';
+  // A link to the slower pace, opened on a place built without one.
+  if (state.mode === 'walk_slow' && !Object.values(data.t)[0]?.walk_slow) state.mode = 'walk';
   setWindow(data, state.when);
 
   // A network names its own ways of paying, so start on one this one has
