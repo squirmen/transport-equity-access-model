@@ -61,7 +61,7 @@ def _clean(value):
 # a second.
 CORE_CELL_KEYS = (
     "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
-    "freq", "t", "tw", "nearest", "urban", "zone", "vil",
+    "freq", "t", "tw", "nearest", "urban", "zone", "vil", "areas",
 )
 
 
@@ -69,6 +69,20 @@ def _chains_meta(settings: Settings) -> dict | None:
     from . import chains
 
     return chains.meta(settings)
+
+
+def _areas(table: pd.DataFrame) -> dict | None:
+    out = {}
+    for level, column in (("council", "council"), ("ward", "ward"), ("board", "local_board")):
+        if column not in table:
+            continue
+        values = table[column]
+        names = sorted({v for v in values.dropna() if isinstance(v, str) and v})
+        if not names:
+            continue
+        index = {name: i for i, name in enumerate(names)}
+        out[level] = {"names": names, "cell": [index.get(v) if isinstance(v, str) else None for v in values]}
+    return out or None
 
 
 def _villages(table: pd.DataFrame) -> dict | None:
@@ -224,6 +238,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         # Rest homes and retirement villages, for the hexagons that hold part
         # of one: residents there, 65+ there, and 65+ in the rest of the hexagon.
         "vil": _villages(table),
+        # Council, ward and (in Auckland) local board of each hexagon, as an
+        # index into a list of names, for figures by area.
+        "areas": _areas(table),
         "tw": by_window,
         "km": {s: _floats(table[f"km_{s}"], 2) for s in services},
         "nearest": nearest,
@@ -521,6 +538,9 @@ FIELD_NOTES = {
     "costshare_": "The same, as a share of all of them in the region.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",
+    "council": "Council (territorial authority) the cell's centre falls in, Stats NZ 2026 boundaries.",
+    "ward": "Council ward the cell's centre falls in (general wards), Stats NZ 2026 boundaries.",
+    "local_board": "Auckland local board the cell's centre falls in.",
     "village_pop": "Residents of census blocks taken to be rest homes or retirement villages (at least 60% aged 65+, "
                    "or 30% with a registered aged care facility), spread by area; blank where none.",
     "village_older": "Residents aged 65+ of those blocks.",

@@ -65,6 +65,7 @@ export function renderAbout(root, meta) {
       'Jobs: how many jobs are within 30 or 45 minutes, for a typical resident and by deprivation.',
       'Access score: every destination counted, with nearer ones counting for more. 100 is the city average.',
     ]),
+    para(`Zoomed out, the figures in the panel are for all of ${place.name}. Zoom in and they are for the council, ward, local board or suburb in the middle of the map, whichever fills the view, with the larger areas around it on a line underneath. The map's colours and key stay the same.`),
     el('h3', null, 'Settings'),
     para('Who is counted can leave out rural land. When picks the weekday peak, weekday off-peak or a Saturday for public transport. A fare budget counts public transport only when the trip fits the budget, in dollars or as a share of local income. Traveller sets who is paying and how, and the fare burden can count a week of daily trips after fare caps.'),
     el('h3', null, 'Standards'),

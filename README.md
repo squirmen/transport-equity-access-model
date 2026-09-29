@@ -47,6 +47,9 @@ country at the 2023 Census.
 - **What would help.** The main reason each place misses a standard: an
   indirect walk, no low-stress bike route, infrequent or slow public transport,
   or nothing within reach. Each points to a different kind of fix.
+- **Any part of a place.** Zoom in and every figure is for the council, ward,
+  Auckland local board or suburb in the middle of the map, with the larger
+  areas around it alongside.
 - **How much is within reach.** A gravity score that counts every opportunity
   and discounts each one by how long it takes to get to, on the impedance
   travel time parameters the NZ Transport Agency published for the New Zealand

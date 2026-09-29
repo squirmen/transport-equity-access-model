@@ -137,6 +137,39 @@ function method(summary, ...paragraphs) {
   return box;
 }
 
+// Who the figures are for: everyone in the place, or in the part of it the
+// map is on (a council, ward, local board or suburb).
+function residentsOf(model) {
+  return model && model.where ? `people in ${model.where}` : place.residents;
+}
+
+function placeOf(model) {
+  return model && model.where ? model.where : place.name;
+}
+
+// How many can't, or that everyone can: likely enough for one suburb.
+function cant(below) {
+  const n = Math.round(below);
+  return n === 0 ? 'Everyone can.' : n === 1 ? "1 person can't." : `${count(below)} people can't.`;
+}
+
+const GROUP_ONE = {
+  everyone: 'person',
+  no_car: 'person in a household without a car',
+  children: 'child under 15',
+  older: 'person aged 65 and over',
+  low_income: 'person in a household under $70,000',
+  maori: 'Māori person',
+  pacific: 'Pacific person',
+  asian: 'Asian resident',
+  disabled: 'disabled person',
+};
+
+// The group's phrase, for one of them or for any other number.
+function peopleWord(n, group = 'everyone') {
+  return Math.round(n) === 1 ? GROUP_ONE[group] || 'person' : phrase(group);
+}
+
 function hero(figure, text, sub) {
   const box = el('div', 'hero');
   box.append(el('div', 'hero-figure', figure), el('p', 'hero-text', text));
@@ -226,19 +259,19 @@ function accessSentence(model) {
   const { noun, standard, mode, fare = '' } = model;
   switch (mode) {
     case 'walk':
-      return `of ${place.residents} can walk to ${noun} within ${standard} minutes.`;
+      return `of ${residentsOf(model)} can walk to ${noun} within ${standard} minutes.`;
     case 'walk_slow':
-      return `of ${place.residents} can walk to ${noun} within ${standard} minutes at a slower pace.`;
+      return `of ${residentsOf(model)} can walk to ${noun} within ${standard} minutes at a slower pace.`;
     case 'bike_low_stress':
-      return `of ${place.residents} can cycle to ${noun} within ${standard} minutes on low-stress routes.`;
+      return `of ${residentsOf(model)} can cycle to ${noun} within ${standard} minutes on low-stress routes.`;
     case 'bike':
-      return `of ${place.residents} could cycle to ${noun} within ${standard} minutes on any street.`;
+      return `of ${residentsOf(model)} could cycle to ${noun} within ${standard} minutes on any street.`;
     case 'pt':
-      return `of ${place.residents} can reach ${noun} within ${standard} minutes by public transport${fare}.`;
+      return `of ${residentsOf(model)} can reach ${noun} within ${standard} minutes by public transport${fare}.`;
     case 'car':
-      return `of ${place.residents} can drive to ${noun} within ${standard} minutes.`;
+      return `of ${residentsOf(model)} can drive to ${noun} within ${standard} minutes.`;
     default:
-      return `of ${place.residents} can reach ${noun} within ${standard} minutes without a car${fare}.`;
+      return `of ${residentsOf(model)} can reach ${noun} within ${standard} minutes without a car${fare}.`;
   }
 }
 
@@ -330,7 +363,7 @@ export function renderChoice(root, model, set) {
     ? el('p', 'note', `Counted within ${model.minutes} minutes, the nearest step at or under the ${model.standard}-minute standard.`)
     : null;
   root.replaceChildren(...[
-    hero(percent(model.twoOrMore), `of ${place.residents} have two or more ${model.plural} within ${model.minutes} minutes without a car.`,
+    hero(percent(model.twoOrMore), `of ${residentsOf(model)} have two or more ${model.plural} within ${model.minutes} minutes without a car.`,
       `${percent(model.none)} have none. A choice matters where a practice's books are closed or the nearest one is small.`),
     step,
     showSwitch('choice', set, model.canShowFare, model.canShowBurden),
@@ -346,7 +379,7 @@ export function renderChoice(root, model, set) {
 export function renderAccess(root, model, set) {
   root.replaceChildren(
     ...[
-      hero(percent(model.share), accessSentence(model), model.mode === 'best' ? `${count(model.below)} people can't.` : null),
+      hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null),
       model.compare ? el('p', 'note is-fare', model.compare) : null,
       fareLine(model),
       showSwitch('minutes', set, model.canShowFare, model.canShowBurden, model.canShowChoice),
@@ -367,12 +400,12 @@ export function renderFareSurface(root, model, set) {
   root.replaceChildren(
     hero(
       percent(model.freeShare),
-      `of ${place.residents} can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
+      `of ${residentsOf(model)} can reach ${model.noun} within ${model.standard} minutes without paying a fare.`,
       model.paid > 0 ? `${count(model.paid)} more can, but only by paying.` : null,
     ),
     showSwitch('fare', set, true, model.canShowBurden, true),
     legend(`Cheapest way to reach ${model.noun}, ${model.trip}`, model.legend, { divider: 1, note: model.note }),
-    el('p', 'note', `${count(model.none)} people cannot reach ${model.noun} within ${model.standard} minutes at any price without a car.`),
+    el('p', 'note', `${count(model.none)} ${peopleWord(model.none)}${model.where ? ` in ${model.where}` : ''} cannot reach ${model.noun} within ${model.standard} minutes at any price without a car.`),
   );
 }
 
@@ -442,18 +475,21 @@ export function renderBurden(root, model, set) {
   const period = model.week ? "a week's income" : "a day's income";
   const what = model.week ? 'a week of daily return trips' : `a ${model.trip} fare`;
   let figure = '–';
-  let text = `Nobody here needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
+  let text = `Nobody ${model.where ? `in ${model.where}` : 'here'} needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
+    const areas = model.where ? `parts of ${model.where}` : 'areas';
     text = ratio >= 1.05
-      ? `as much of ${period} goes on the fare to ${model.noun} in the most deprived areas as in the least deprived.`
+      ? `as much of ${period} goes on the fare to ${model.noun} in the most deprived ${areas} as in the least deprived.`
       : ratio <= 0.95
-        ? `the share of ${period} the fare to ${model.noun} takes in the most deprived areas, against the least deprived.`
-        : `The fare to ${model.noun} takes about the same share of ${period} in more and less deprived areas.`;
+        ? `the share of ${period} the fare to ${model.noun} takes in the most deprived ${areas}, against the least deprived.`
+        : `The fare to ${model.noun} takes about the same share of ${period} in more and less deprived ${areas}.`;
+  } else if (model.paying > 0 && !Number.isFinite(model.overall)) {
+    text = `Too few people in ${placeOf(model)} would ride public transport there to give an average.`;
   } else if (model.paying > 0) {
     // A city with no areas in one end of the deprivation scale has no ratio.
     figure = share(model.overall);
-    text = `of ${period} goes on ${what} to ${model.noun}, on average.`;
+    text = `of ${period} goes on ${what} to ${model.noun}, on average${model.where ? `, in ${model.where}` : ''}.`;
   }
   const sub = model.paying > 0
     ? (Number.isFinite(ratio)
@@ -531,15 +567,15 @@ function renderLive(root, model, set) {
     : `reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}`;
   const parts = [];
   if (everyone) {
-    parts.push(hero(count(s.everyone), `people live in ${place.name}.`, `${percent(s.missingRate)} can't ${reach}.`));
+    parts.push(hero(count(s.everyone), `people live in ${placeOf(model)}.`, `${percent(s.missingRate)} can't ${reach}.`));
   } else {
     // With rest homes and villages left out, every figure is for the rest.
     const outside = model.villages && model.villages.out ? ' outside rest homes and retirement villages' : '';
     parts.push(hero(
       count(s.group),
       outside
-        ? `${who} live in ${place.name}${outside}, ${percent(s.share, model.digits)} of the residents there.`
-        : `${who} live in ${place.name}, ${percent(s.share, model.digits)} of residents.`,
+        ? `${who} live in ${placeOf(model)}${outside}, ${percent(s.share, model.digits)} of the residents there.`
+        : `${who} live in ${placeOf(model)}, ${percent(s.share, model.digits)} of residents.`,
       s.concentrated > 0
         ? `${count(s.concentrated)} of them (${percent(s.concentratedShare)}) live where they are at least one and a half times as common as across ${place.name}.`
         : null,
@@ -550,7 +586,7 @@ function renderLive(root, model, set) {
       const better = s.concentratedMissingRate < s.missingRate - 0.02;
       line.append(
         el('span', `lean-dot ${worse ? 'is-away' : better ? 'is-toward' : 'is-even'}`),
-        el('span', null, `There, ${percent(s.concentratedMissingRate)} can't ${reach}, against ${percent(s.missingRate)} of all ${who}${outside}.`),
+        el('span', null, `There, ${percent(s.concentratedMissingRate)} can't ${reach}, against ${percent(s.missingRate)} of all ${who}${model.where ? ` in ${model.where}` : ''}${outside}.`),
       );
       parts.push(line);
     }
@@ -567,7 +603,7 @@ function renderLive(root, model, set) {
       : null,
     legend(everyone ? 'People per hexagon' : `${capitalise(who)}, as a share of residents`, model.legend, {
       divider: model.divider,
-      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(s.share, model.digits)}${model.villages && model.villages.out ? ', outside rest homes and villages' : ''}.`,
+      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(model.whole ? model.whole.summary.share : s.share, model.digits)}${model.villages && model.villages.out ? ', outside rest homes and villages' : ''}.`,
     }),
     model.villages ? villageKey(model.villages) : null,
     liveAreaSection(model, set),
@@ -691,7 +727,7 @@ export function renderPeople(root, model, set) {
   });
 
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
-  const depth = Number.isFinite(model.minutesShort)
+  const depth = model.below >= 0.5 && Number.isFinite(model.minutesShort)
     ? `Those who miss out are ${Math.round(model.minutesShort)} minutes over it, on average.`
     : null;
 
@@ -699,8 +735,8 @@ export function renderPeople(root, model, set) {
     hero(
       count(model.below),
       model.round
-        ? `${phrase(model.group)} ${roundSentence({ ...model.round, standard: model.standard }, true)}`
-        : `${phrase(model.group)} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`,
+        ? `${peopleWord(model.below, model.group)}${model.where ? ` in ${model.where}` : ''} ${roundSentence({ ...model.round, standard: model.standard }, true)}`
+        : `${peopleWord(model.below, model.group)}${model.where ? ` in ${model.where}` : ''} can't reach ${model.noun} within ${model.standard} minutes${withoutCar}${model.fare || ''}.`,
       depth,
     ),
   ];
@@ -786,15 +822,15 @@ export function renderFixes(root, model, set) {
     item.append(button);
     ranked.append(item);
   }
-  root.replaceChildren(
-    hero(count(model.below), `${phrase(model.group)} miss the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
+  root.replaceChildren(...[
+    hero(count(model.below), `${peopleWord(model.below, model.group)}${model.where ? ` in ${model.where}` : ''} ${Math.round(model.below) === 1 ? 'misses' : 'miss'} the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
     radios('People', chipLabels(model.groups), model.group, (group) => set({ group }), { compact: true }),
     el('span', 'field-label', 'Main reason, and what would help'),
     list,
     el('p', 'note', 'Screening rules, not a verdict: they show which kind of fix to look at first. Pick a reason to show only those places.'),
-    el('span', 'field-label', 'Where most people miss out'),
-    ranked,
-  );
+    model.ranked.length ? el('span', 'field-label', 'Where most people miss out') : null,
+    model.ranked.length ? ranked : null,
+  ].filter(Boolean));
 }
 
 export function renderJobsAccess(root, model, set) {
@@ -807,8 +843,8 @@ export function renderJobsAccess(root, model, set) {
   const byMode = model.priced ? 'public transport' : MODES[model.mode].short;
   const figure = model.fair ? `${model.median.toFixed(2)}×` : Number.isFinite(jobsCount) ? count(jobsCount) : shareText;
   const text = model.fair
-    ? `the average: job access for a typical resident by ${byMode} within ${model.limit} minutes${model.when || ''}, allowing for everyone else who could reach the same jobs.`
-    : `jobs within ${model.limit} minutes by ${byMode}${model.priced ? model.fare : model.when || ''}, for a typical resident. That is ${shareText} of ${place.possessive} jobs.`;
+    ? `the ${place.name} average: job access for a typical resident${model.where ? ` of ${model.where}` : ''} by ${byMode} within ${model.limit} minutes${model.when || ''}, allowing for everyone else who could reach the same jobs.`
+    : `jobs within ${model.limit} minutes by ${byMode}${model.priced ? model.fare : model.when || ''}, for a typical resident${model.where ? ` of ${model.where}` : ''}. That is ${shareText} of ${place.possessive} jobs.`;
   const toggle = el('label', 'check');
   const box = document.createElement('input');
   box.type = 'checkbox';
@@ -847,8 +883,10 @@ export function renderJobsPeople(root, model) {
   // The least-served 40% can reach nothing at all on a tight budget, and then
   // there is no ratio to give.
   const heroBox = Number.isFinite(model.palma)
-    ? hero(`${model.palma.toFixed(1)}×`, `as many jobs for the best-served tenth of residents as for the least-served 40%.`, how)
-    : hero('0', `jobs within reach for the least-served 40% of residents.`, how);
+    ? hero(`${model.palma.toFixed(1)}×`, `as many jobs for the best-served tenth of ${residentsOf(model)} as for the least-served 40%.`, how)
+    : model.lowNothing
+      ? hero('0', `jobs within reach for the least-served 40% of ${residentsOf(model)}.`, how)
+      : hero('–', `Too few hexagons in ${placeOf(model)} to set the best-served tenth against the least-served 40%.`, how);
   let lean = null;
   if (model.leanText) {
     lean = el('p', 'lean');
@@ -878,13 +916,14 @@ export function renderScore(root, model, set) {
   const modeLabel = MODES[mode] ? MODES[mode].short : mode;
   const figure = Number.isFinite(median) ? String(Math.round(median)) : '–';
   const text = model.when
-    ? `is the typical score for ${noun} by ${modeLabel}${model.when}, where 100 is the ${place.name} average at the usual time.`
-    : `is the typical score for ${noun} by ${modeLabel}, where 100 is the ${place.name} average.`;
+    ? `is the typical score${model.where ? ` in ${model.where}` : ''} for ${noun} by ${modeLabel}${model.when}, where 100 is the ${place.name} average at the usual time.`
+    : `is the typical score${model.where ? ` in ${model.where}` : ''} for ${noun} by ${modeLabel}, where 100 is the ${place.name} average.`;
   const sub = Number.isFinite(palma)
-    ? `The best-served tenth of residents score ${palma.toFixed(1)} times the least-served 40%.`
+    ? `The best-served tenth of ${residentsOf(model)} score ${palma.toFixed(1)} times the least-served 40%.`
     : null;
   const chart = el('div', 'chart');
   bars(chart, byQuintile, {
+    max: Math.max(1, ...byQuintile.map((row) => row.value).filter(Number.isFinite)),
     format: (v) => (Number.isFinite(v) ? String(Math.round(v)) : '–'),
     caption: 'Typical score by neighbourhood deprivation',
     label: 'Score by NZDep quintile',
@@ -989,7 +1028,7 @@ export function roundSentence(model, negative = false) {
 /** One trip from home to several services and back. */
 export function renderErrands(root, model, set) {
   const parts = [
-    hero(percent(model.share), `of ${place.residents} ${roundSentence(model)}`, `${count(model.below)} people can't.`),
+    hero(percent(model.share), `of ${residentsOf(model)} ${roundSentence(model)}`, cant(model.below)),
   ];
   if (model.single) {
     parts.push(el('p', 'note', `For one trip on its own, ${percent(model.single.share)} can ${ROUND_HOW[model.mode]}${model.slow ? ' at the same pace' : ''} to ${STOP_NAME[model.single.stop] || SERVICE_NOUN[model.single.stop]} within ${model.single.standard} minutes.`));

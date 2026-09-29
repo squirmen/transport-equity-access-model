@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0 (30 September 2026)
+
+- The panel's figures follow the map. Zoomed out they are for the whole place;
+  zoomed in, for the council, ward, local board or suburb in the middle of the
+  map, with the areas around it and the whole place on a line underneath. Each
+  of those is a link to it. Links carry the area, so they open on the same
+  figures on any screen.
+- Councils and wards come from Stats NZ's 2026 boundaries, for all twenty
+  places.
+- Fixes: bars in the access score's deprivation chart were all full width; a
+  rural hexagon's card said "about 0 residents" when only urban areas were
+  counted; local board lists placed each suburb by its first hexagon.
+
 ## 0.9.0 (29 September 2026)
 
 - Where they live, for people aged 65 and over, sets rest homes and

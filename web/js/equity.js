@@ -210,9 +210,11 @@ export function concentrationClasses(weights, pop, breaks, keep = null) {
  *
  *  `gaps` is each hexagon's shortfall against the standard (0 where it is
  *  met). A concentration is a hexagon where the group's share of residents is
- *  at least CONCENTRATED times its share across the place.
+ *  at least CONCENTRATED times its share across the place. For part of a
+ *  place, `placeShare` is the whole place's share, so a concentration means
+ *  the same as on the map.
  */
-export function whereTheyLive(weights, pop, gaps) {
+export function whereTheyLive(weights, pop, gaps, placeShare = null) {
   let group = 0;
   let everyone = 0;
   for (let i = 0; i < weights.length; i += 1) {
@@ -228,7 +230,7 @@ export function whereTheyLive(weights, pop, gaps) {
     if (!(w > 0) || !(pop[i] > 0)) continue;
     const short = gaps[i] > 0;
     if (short) missing += w;
-    if ((w / pop[i]) * (1 + 1e-6) >= CONCENTRATED * share) {
+    if ((w / pop[i]) * (1 + 1e-6) >= CONCENTRATED * (placeShare ?? share)) {
       concentrated += w;
       if (short) concentratedMissing += w;
     }

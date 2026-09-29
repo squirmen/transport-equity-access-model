@@ -74,7 +74,11 @@ falls in (or the nearest block within 500 m, for coastal cells):
 
 These are properties of small areas, not of the people in a given hexagon.
 Local boards come from Auckland Council's 2025 local board boundaries, by the
-same rule.
+same rule, and councils and wards from Stats NZ's 2026 territorial authority
+and general ward boundaries (`scripts/fetch_boundaries.py`). A hexagon takes
+the area its centre falls in, and only a ward of its own council: Upper Hutt
+and Carterton, elected at large, have none. Two councils in one place that
+each have a ward of the same name have the council added to it.
 
 ## 2. Destinations
 
@@ -477,6 +481,28 @@ Results are also broken down by NZDep quintile (deciles 1–2 through 9–10),
 giving the population share that meets the standard in each. The gap between
 the least and most deprived quintiles is reported in percentage points.
 Figures are summarised for each SA2 and, in Auckland, each of the 21 local boards.
+
+**Figures for part of a place.** Every figure in the web app's panel can be
+given for a council (where a place has more than one), a ward, an Auckland
+local board or a suburb (SA2), as well as the whole place. The app picks the
+smallest of these under the middle of the map that is at least 40% of the way
+across a view a thousand pixels wide at that zoom, so the choice depends on
+the zoom and the map's position, not the screen; a link carries the area. An
+area's size is the geometric mean of its width and height, or, where few
+people live in a large area, the size of its populated hexagons. A level that
+holds the same people as the one above it, such as Auckland's single council,
+is skipped.
+
+For an area, everything is counted over the people who live in it, with the
+same travel times. Definitions set against the whole place stay set against
+it: the map's colours and key, the 100 of an access score, the share of a
+place's jobs, and the share of people 65 and over behind a concentration or a
+NORC. A NORC is judged on the whole suburb, so a suburb split by a ward
+boundary keeps its status inside either ward. Lists of suburbs inside a ward
+or board count the people inside it and mark a split suburb "(part)". Inside
+one suburb, how the shortfall leans across deprivation is not reported. A
+breakdown by NZDep fifth or by group, or an average fare burden, that rests on
+fewer than 100 people is left blank.
 
 **Where they live.** The same view can show where a group lives rather than
 how it fares: each hexagon coloured by the group's share of residents against

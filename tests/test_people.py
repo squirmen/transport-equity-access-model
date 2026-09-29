@@ -83,3 +83,46 @@ def test_villages_split_a_hexagon_by_block(tmp_path):
     assert out.loc[cell, "home_older"] == pytest.approx(10, rel=0.02)
     assert out.loc[far, "village_older"] == pytest.approx(35, rel=0.02)  # held a registered facility
     assert ordinary not in out.index  # 35% alone is not a village
+
+
+def test_named_areas_take_the_area_a_point_falls_in(tmp_path):
+    from shapely.geometry import Point, box
+
+    from team.config import Settings
+    from team.people import named_areas
+
+    wards = gpd.GeoDataFrame(
+        {"Ward_name": ["Takapū/Northern General Ward", "Central Ward"]},
+        geometry=[box(0, 0, 1000, 1000), box(1000, 0, 2000, 1000)],
+        crs="EPSG:2193",
+    )
+    wards.to_file(tmp_path / "wards.gpkg", driver="GPKG")
+    points = gpd.GeoDataFrame({"id": ["a", "b", "c"]}, geometry=[Point(500, 500), Point(1500, 500), Point(9000, 9000)], crs="EPSG:2193")
+    settings = Settings(raw={"data": {"wards": "wards.gpkg"}}, config_path=tmp_path / "c.yml",
+                        data_root=tmp_path, output_dir=tmp_path, cache_dir=tmp_path)
+    names = named_areas(settings, points, "wards", "Ward_name")
+    assert names["a"] == "Takapū/Northern Ward"  # "General" dropped
+    assert names["b"] == "Central Ward"
+    assert pd.isna(names["c"])
+    none = Settings(raw={"data": {}}, config_path=tmp_path / "c.yml", data_root=tmp_path, output_dir=tmp_path, cache_dir=tmp_path)
+    assert named_areas(none, points, "wards", "Ward_name").isna().all()
+
+
+def test_a_ward_belongs_to_its_own_council(tmp_path):
+    from shapely.geometry import Point, box
+
+    from team.config import Settings
+    from team.people import councils_and_wards
+
+    gpd.GeoDataFrame({"TA_code": ["045", "046"], "TA_name": ["Upper Hutt City", "Lower Hutt City"]},
+                     geometry=[box(0, 0, 1000, 1000), box(1000, 0, 2000, 1000)], crs="EPSG:2193").to_file(tmp_path / "c.gpkg", driver="GPKG")
+    # Upper Hutt has no wards; Lower Hutt's Northern Ward runs up to the boundary.
+    gpd.GeoDataFrame({"Ward_code": ["04601"], "Ward_name": ["Northern General Ward"]},
+                     geometry=[box(1000, 0, 2000, 1000)], crs="EPSG:2193").to_file(tmp_path / "w.gpkg", driver="GPKG")
+    points = gpd.GeoDataFrame({"id": ["upper", "lower"]}, geometry=[Point(900, 500), Point(1500, 500)], crs="EPSG:2193")
+    settings = Settings(raw={"data": {"councils": "c.gpkg", "wards": "w.gpkg"}}, config_path=tmp_path / "x.yml",
+                        data_root=tmp_path, output_dir=tmp_path, cache_dir=tmp_path)
+    out = councils_and_wards(settings, points)
+    assert out.loc["upper", "council"] == "Upper Hutt City"
+    assert pd.isna(out.loc["upper", "ward"])  # 100 m from Lower Hutt's ward, but not in it
+    assert out.loc["lower", "ward"] == "Northern Ward"

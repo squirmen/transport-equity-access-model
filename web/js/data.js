@@ -88,6 +88,8 @@ function prepare(raw) {
     destinations: raw.destinations,
     n,
     h3: c.h3,
+    // Council, ward and local board of each hexagon, for figures by area.
+    areas: c.areas || null,
     place: c.place,
     pop: numeric(c.pop),
     nzdep: numeric(c.nzdep),
@@ -419,10 +421,16 @@ export function peopleBelow(flags, weights) {
   return total;
 }
 
+// A share of fewer people than this says more about chance than about a
+// place, so it is left blank.
+export const FEWEST = 100;
+
 export function byQuintile(data, flags, weights) {
   return [1, 2, 3, 4, 5].map((q) => {
     const mask = Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0));
-    return { quintile: q, share: weightedShare(flags, weights, mask) };
+    let people = 0;
+    for (let i = 0; i < mask.length; i += 1) if (mask[i] && weights[i] > 0) people += weights[i];
+    return { quintile: q, people, share: people >= FEWEST ? weightedShare(flags, weights, mask) : NaN };
   });
 }
 

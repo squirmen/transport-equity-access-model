@@ -2,7 +2,7 @@
 
 import { renderAbout } from './about.js';
 import {
-  byQuintile, decileBands, fetchJson, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
+  byQuintile, decileBands, FEWEST, fetchJson, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
   choiceWithin, reasons as reasonCodes, setUrban, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare,
   windowOf, windowsFor,
 } from './data.js';
@@ -33,6 +33,7 @@ import {
 import { areaCsv, areaTable, sortAreas } from './areas.js';
 import { nearestCity } from './cities.js';
 import { renderPlace } from './place.js';
+import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 
 function dataBase() {
   // `?data=` accepts relative folders only, so a link cannot point the page at
@@ -156,6 +157,9 @@ const state = {
   liveMissing: false,
   // Rest homes and retirement villages are left out of the 65+ counts unless put back.
   liveVillages: false,
+  // The area the panel's figures are for, when set by a link or a click rather
+  // than by where the map is: {level, name}, or {level: 'place'} for all of it.
+  areaPin: null,
   // The errand round: which stops (null for all of them), how, the longest
   // stretch allowed, and the walking pace.
   errandStops: null,
@@ -167,6 +171,21 @@ const state = {
 let data;
 let map;
 let current = null;
+// What the panel shows: the figures for the area the map is on, or `current`.
+let shown = null;
+// Which council, ward, local board and suburb each hexagon is in.
+let scope = null;
+let cellOf = null;
+// The whole place's figures, while the panel's are worked out for an area.
+let placeRef = null;
+// The level of that area, and the area, while they are.
+let scopeLevel = null;
+let scopeArea = null;
+let areaKey = '';
+// Set while only a headline figure is wanted, to skip the slower extras.
+let figureOnly = false;
+let userMoved = false;
+const figureCache = new Map();
 let frame = 0;
 const cache = { best: new Map(), routed: new Map() };
 
@@ -210,6 +229,11 @@ function readHash() {
   if (['walk', 'pt', 'bike_low_stress'].includes(round[1])) state.errandMode = round[1];
   if (/^(\d+|any)$/.test(round[2] || '')) state.errandLeg = round[2];
   if (round[3] === 'slow') state.pace = 'slow';
+  const region = params.get('r');
+  if (region) {
+    const dot = region.indexOf('.');
+    state.areaPin = dot < 0 ? { level: region } : { level: region.slice(0, dot), name: region.slice(dot + 1) };
+  }
   const live = (params.get('p') || '').split('.');
   if (live[0] === 'live') {
     state.peopleShow = 'live';
@@ -256,6 +280,9 @@ function hashNow() {
     params.set('e', [errandStops().join('+'), state.errandMode, state.errandLeg, state.pace === 'slow' ? 'slow' : ''].join('.'));
   }
   if (state.group !== 'everyone') params.set('g', state.group);
+  const where = areaNow();
+  if (where) params.set('r', `${where.area.level}.${where.area.name}`);
+  else if (state.areaPin && state.areaPin.level === 'place') params.set('r', 'place');
   if (state.basemap !== 'light') params.set('b', state.basemap);
   if (map) {
     const c = map.getCenter();
@@ -282,12 +309,18 @@ function set(patch) {
   }
   if ('zoomTo' in patch) {
     const place = data.places[patch.zoomTo];
-    if (place) fitPlace(map, place.bbox);
+    if (place) {
+      goToArea({ level: 'suburb', name: place.name }, place.bbox);
+    }
     return;
   }
   if ('zoomBoard' in patch) {
-    const box = boardBox(patch.zoomBoard);
-    if (box) fitPlace(map, box);
+    const found = scope && areaNamed(scope, 'board', patch.zoomBoard);
+    if (found) goToArea({ level: found.area.level, name: found.area.name }, found.area.bbox);
+    else {
+      const box = boardBox(patch.zoomBoard);
+      if (box) fitPlace(map, box);
+    }
     return;
   }
   if ('download' in patch) {
@@ -492,7 +525,7 @@ function accessModel() {
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
       compare: compareNote(service, state.mode, standard, weightedShare(flags, data.pop)),
-      robust: state.mode === 'best' ? robustModel(service, standard) : null,
+      robust: state.mode === 'best' && !figureOnly ? robustModel(service, standard) : null,
       canShowChoice: Boolean(data.choice[service]),
       legend,
     },
@@ -564,6 +597,14 @@ function fareSurfaceModel() {
 /** How far the answer holds: at every time of day, by more than one way of
  *  travelling, and as the standard moves. Only for the fastest way without a
  *  car, which is what a standard is about. */
+/** A figure for part of the population, or NaN when fewer than FEWEST
+ *  people are in it: a suburb's most deprived fifth can be a few dozen. */
+function ifEnough(weights, mask, value) {
+  let people = 0;
+  for (let i = 0; i < weights.length; i += 1) if ((!mask || mask[i]) && weights[i] > 0) people += weights[i];
+  return people >= FEWEST ? value() : NaN;
+}
+
 function robustModel(service, standard) {
   const counting = data.meta.standard_modes;
   const zones = state.zonesNow;
@@ -599,7 +640,7 @@ function robustModel(service, standard) {
   // The share meeting it as the standard moves, for everyone and each end of
   // the deprivation scale.
   const xs = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
-  const curve = (mask) => xs.map((x) => weightedShare(meetsFlags(best, x), data.pop, mask));
+  const curve = (mask) => xs.map((x) => ifEnough(data.pop, mask, () => weightedShare(meetsFlags(best, x), data.pop, mask)));
   return {
     everyTime,
     now: weightedShare(meetsFlags(best, standard), data.pop),
@@ -647,7 +688,7 @@ function choiceModel() {
       canShowBurden: fareAvailable() && Boolean(data.cost[service]) && incomeAvailable(),
       byQuintile: [1, 2, 3, 4, 5].map((k, j) => ({
         label: labels[j],
-        value: weightedShare(two, data.pop, Uint8Array.from(data.quintile, (v) => (v === k ? 1 : 0))),
+        value: ((mask) => ifEnough(data.pop, mask, () => weightedShare(two, data.pop, mask)))(Uint8Array.from(data.quintile, (v) => (v === k ? 1 : 0))),
         emphasis: k === 5,
       })),
       legend: ['None', '1', '2', '3–4', '5 or more'].map((label, k) => ({ colour: colours[k], label })),
@@ -700,18 +741,31 @@ function areaLevels() {
   return levels;
 }
 
+/** The name of the area being worked out, while one is. */
+function scopeName() {
+  if (!scopeLevel) return null;
+  const where = areaNow();
+  return where ? where.area.name : null;
+}
+
+/** Each hexagon's local board, by where its centre falls. */
+function boardOfCells() {
+  const board = data.areas && data.areas.board;
+  if (board) return Array.from(board.cell, (b) => (b == null ? null : board.names[b]));
+  return Array.from(data.place, (p) => (p != null && data.places[p] ? data.places[p].board || null : null));
+}
+
 function areaModel(gaps, weights, standard) {
-  const levels = areaLevels();
+  if (scopeLevel === 'suburb') return null;
+  const levels = scopeLevel ? [['sa2', 'Suburb']] : areaLevels();
   const level = levels.some(([k]) => k === state.areaLevel) ? state.areaLevel : 'sa2';
-  const areaOf = level === 'board'
-    ? Array.from(data.place, (p) => (p != null && data.places[p] ? data.places[p].board || null : null))
-    : data.place;
+  const areaOf = level === 'board' ? boardOfCells() : data.place;
   const rows = areaTable(areaOf, gaps, weights, data.nzdep, standard).map((row) => ({
     ...row,
-    name: level === 'board' ? row.area : (data.places[row.area] ? data.places[row.area].name : 'Unnamed area'),
+    name: level === 'board' ? row.area : suburbName(row.area),
   }));
   const sorted = sortAreas(rows, state.areaSort === 'share' ? 'share' : 'missing').filter((r) => r.missing > 0);
-  lastAreas = { rows: sorted, level };
+  lastAreas = { rows: sorted, level, where: scopeName() };
   return {
     level,
     levels,
@@ -731,7 +785,8 @@ function downloadAreas() {
   const text = areaCsv(lastAreas.rows, label);
   const name = [
     'team', data.meta.naming.slug, state.service, `${standardFor(state.service)}min`,
-    state.group, lastAreas.live ? 'where-they-live' : null, lastAreas.villagesOut ? 'without-rest-homes' : null,
+    state.group, lastAreas.where ? lastAreas.where.toLowerCase().replace(/[^a-z0-9]+/g, '-') : null,
+    lastAreas.live ? 'where-they-live' : null, lastAreas.villagesOut ? 'without-rest-homes' : null,
     lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
     state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
   ].filter(Boolean).join('_');
@@ -813,7 +868,8 @@ function burdenModel() {
       total += w;
       sum += w * values[i];
     }
-    return total > 0 ? sum / total : NaN;
+    // An average over fewer riders than this is too thin to show.
+    return total >= FEWEST ? sum / total : NaN;
   };
   const meanBurden = (weights, mask) => meanOf(burden, weights, mask);
   // Children and people 65 and over mostly pay their own concession, so their
@@ -978,12 +1034,14 @@ function peopleModel() {
       groups: groupChips(),
       byGroup: groups.map((row) => ({
         label: row.label,
-        value: row.rate,
+        value: row.people >= FEWEST ? row.rate : NaN,
         emphasis: row.key === state.group,
-        detail: row.rate > 0 && Number.isFinite(row.minutesShort) ? `${Math.round(row.minutesShort)} min` : null,
-        title: Number.isFinite(row.minutesShort) && row.rate > 0
-          ? `${row.label}: those who miss out are ${Math.round(row.minutesShort)} minutes short on average`
-          : row.label,
+        detail: row.people >= FEWEST && row.rate > 0 && Number.isFinite(row.minutesShort) ? `${Math.round(row.minutesShort)} min` : null,
+        title: row.people < FEWEST
+          ? `${row.label}: fewer than ${FEWEST} here, too few to give a share`
+          : Number.isFinite(row.minutesShort) && row.rate > 0
+            ? `${row.label}: those who miss out are ${Math.round(row.minutesShort)} minutes short on average`
+            : row.label,
       })),
       areas,
       legend: [
@@ -1024,7 +1082,9 @@ function liveModel() {
   let inVillages = 0;
   if (vil) {
     for (const i of vil.cells) {
-      if (!known(i)) continue;
+      // Only hexagons being counted: outside an area, or rural ones when only
+      // urban areas are counted, have no people here.
+      if (!known(i) || !(data.pop[i] > 0)) continue;
       inVillages += vil.older[i];
       weights[i] = villagesOut ? vil.home[i] : vil.home[i] + vil.older[i];
       if (villagesOut) pop[i] = Math.max(0, pop[i] - vil.pop[i]);
@@ -1034,7 +1094,13 @@ function liveModel() {
   // rural block spreads a few residents thinly over many hexagons, so it takes
   // ten or more to mark one.
   const village = (i) => villagesOut && vil.pop[i] >= 10 && vil.pop[i] >= 0.5 * data.pop[i];
-  const summary = whereTheyLive(weights, pop, gaps);
+  // For part of the place, a concentration is still set against the whole
+  // place's share, as the map is.
+  const placeShare = placeRef && placeRef.summary ? placeRef.summary.share : null;
+  const summary = whereTheyLive(weights, pop, gaps, placeShare);
+  const norcs = older && !(vil && !villagesOut)
+    ? (placeRef && placeRef.norcSet) || norcSuburbs(weights, pop, placeShare ?? summary.share)
+    : null;
   const keep = state.liveMissing ? Array.from(gaps, (g) => g > 0) : null;
   const noun = GROUP_NOUN[state.group] || 'people';
   // Small groups need a decimal, or a 3% share and its edges round together.
@@ -1106,10 +1172,13 @@ function liveModel() {
       legend: legendItems,
       divider,
       modeNote: state.mode !== 'best' && state.service !== 'errands' ? 'Counted by the fastest of walking, low-stress cycling and public transport.' : null,
-      villages: vil ? { out: villagesOut, people: inVillages, colour: VILLAGE } : null,
+      villages: vil && inVillages >= 10 ? { out: villagesOut, people: inVillages, colour: VILLAGE } : null,
       // Suburbs are flagged as NORCs only on the 65+ outside rest homes and
       // villages; a place with none has nothing to leave out.
-      areas: liveAreas(gaps, weights, pop, standard, older && !(vil && !villagesOut) ? summary.share : null),
+      // NORCs are whole suburbs, judged on the whole place: inside a ward, a
+      // suburb split by its boundary keeps the status it has on its own.
+      norcSet: norcs,
+      areas: liveAreas(gaps, weights, pop, standard, norcs),
     },
   };
 }
@@ -1124,22 +1193,47 @@ const NORC_PEOPLE = 300;
  *  `norcShare` is the place's 65+ share in ordinary homes, given only when
  *  rest homes and villages are left out; suburbs are then flagged as NORCs.
  */
-function liveAreas(gaps, weights, pop, standard, norcShare = null) {
-  const levels = areaLevels();
+/** Suburbs that are naturally occurring retirement communities: people 65 and
+ *  over outside rest homes and villages at least one and a half times as
+ *  common there as across the place, and at least NORC_PEOPLE of them. */
+function norcSuburbs(weights, pop, share) {
+  const older = new Float64Array(data.places.length);
+  const people = new Float64Array(data.places.length);
+  for (let i = 0; i < data.n; i += 1) {
+    const p = data.place[i];
+    if (p == null) continue;
+    if (weights[i] > 0) older[p] += weights[i];
+    if (pop[i] > 0) people[p] += pop[i];
+  }
+  const out = new Set();
+  for (let p = 0; p < older.length; p += 1) {
+    if (older[p] >= NORC_PEOPLE && people[p] > 0 && older[p] / people[p] >= CONCENTRATED * share * (1 - 1e-6)) out.add(p);
+  }
+  return out;
+}
+
+/** A suburb's name in a list for part of the place, marked when only part of
+ *  the suburb is inside it. */
+function suburbName(p) {
+  const name = data.places[p] ? data.places[p].name : 'Unnamed area';
+  return scopeArea && scopeArea.partial && scopeArea.partial.has(p) ? `${name} (part)` : name;
+}
+
+function liveAreas(gaps, weights, pop, standard, norcSet = null) {
+  if (scopeLevel === 'suburb') return null;
+  const levels = scopeLevel ? [['sa2', 'Suburb']] : areaLevels();
   const level = levels.some(([k]) => k === state.areaLevel) ? state.areaLevel : 'sa2';
-  const areaOf = level === 'board'
-    ? Array.from(data.place, (p) => (p != null && data.places[p] ? data.places[p].board || null : null))
-    : data.place;
+  const areaOf = level === 'board' ? boardOfCells() : data.place;
   const residents = new Map(areaTable(areaOf, gaps, pop, data.nzdep, standard).map((row) => [row.area, row.people]));
   const rows = areaTable(areaOf, gaps, weights, data.nzdep, standard).map((row) => ({
     ...row,
-    name: level === 'board' ? row.area : (data.places[row.area] ? data.places[row.area].name : 'Unnamed area'),
+    name: level === 'board' ? row.area : suburbName(row.area),
     residents: residents.get(row.area) || 0,
     ofResidents: residents.get(row.area) > 0 ? row.people / residents.get(row.area) : NaN,
   }));
-  const flagNorcs = norcShare != null && Number.isFinite(norcShare) && level === 'sa2';
+  const flagNorcs = norcSet != null && level === 'sa2';
   if (flagNorcs) {
-    for (const row of rows) row.norc = row.people >= NORC_PEOPLE && row.ofResidents >= CONCENTRATED * norcShare * (1 - 1e-6);
+    for (const row of rows) row.norc = norcSet.has(row.area);
   }
   // Everyone is all of the residents, so a share of them sorts nothing.
   const sort = state.group !== 'everyone' && state.areaSort === 'share' ? 'share' : 'missing';
@@ -1152,7 +1246,7 @@ function liveAreas(gaps, weights, pop, standard, norcShare = null) {
   const sorted = [...eligible]
     .filter((r) => r[by] > 0)
     .sort((a, b) => (sort === 'share' ? b.ofResidents - a.ofResidents : b[by] - a[by]) || b[by] - a[by]);
-  lastAreas = { rows: sorted, level, live: true, missingOnly: state.liveMissing, norc: flagNorcs, villagesOut: norcShare != null && Boolean(data.vil) };
+  lastAreas = { rows: sorted, level, live: true, missingOnly: state.liveMissing, norc: flagNorcs, villagesOut: norcSet != null && Boolean(data.vil), where: scopeName() };
   return {
     level,
     levels,
@@ -1183,7 +1277,8 @@ function fixesModel() {
     colour: REASON_PALETTE[g.cls],
     people: g.codes.reduce((sum, code) => sum + (byCode[code] || 0), 0),
   }));
-  const ranked = rankPlaces(data, flags, codes, weights, 10).map((row) => {
+  // Inside one suburb, a list of suburbs has one row.
+  const ranked = (scopeLevel === 'suburb' ? [] : rankPlaces(data, flags, codes, weights, 10)).map((row) => {
     const byClass = {};
     for (const [code, people] of Object.entries(row.reasons)) {
       const cls = REASON_CLASS[code];
@@ -1192,7 +1287,7 @@ function fixesModel() {
     const [main] = Object.entries(byClass).sort((a, b) => b[1] - a[1]);
     const cls = main ? Number(main[0]) : 3;
     const place = data.places[row.place];
-    return { index: row.place, name: place ? place.name : 'Unnamed area', below: row.below, colour: REASON_PALETTE[cls], reasonLabel: REASON_GROUPS[cls].label };
+    return { index: row.place, name: place ? suburbName(row.place) : 'Unnamed area', below: row.below, colour: REASON_PALETTE[cls], reasonLabel: REASON_GROUPS[cls].label };
   });
   return {
     classes,
@@ -1234,6 +1329,25 @@ function palma(values, weights) {
   return lowW > 0 && low > 0 && highW > 0 ? high / highW / (low / lowW) : NaN;
 }
 
+/** Whether the least-served 40% reach nothing at all, as opposed to there
+ *  being too few hexagons to split them off. */
+function leastServedNothing(values, weights) {
+  const idx = [];
+  for (let i = 0; i < values.length; i += 1) if (Number.isFinite(values[i]) && weights[i] > 0) idx.push(i);
+  idx.sort((a, b) => values[a] - values[b]);
+  const total = idx.reduce((s, i) => s + weights[i], 0);
+  let running = 0;
+  let low = 0;
+  let lowW = 0;
+  for (const i of idx) {
+    running += weights[i];
+    if (running / total > 0.4) break;
+    low += values[i] * weights[i];
+    lowW += weights[i];
+  }
+  return lowW > 0 && low === 0;
+}
+
 function jobsModel() {
   const choice = jobsChoice();
   const zones = state.zonesNow;
@@ -1253,10 +1367,10 @@ function jobsModel() {
   const quintileLabels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   const byQ = [1, 2, 3, 4, 5].map((q, k) => ({
     label: quintileLabels[k],
-    value: weightedMedian(share, data.pop, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
+    value: ((mask) => ifEnough(data.pop, mask, () => weightedMedian(share, data.pop, mask)))(Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
     emphasis: k === 4,
   }));
-  const byGroup = groupChips().map(([g, label]) => ({ label, value: weightedMedian(share, data.weights[g]) }));
+  const byGroup = groupChips().map(([g, label]) => ({ label, value: ifEnough(data.weights[g], null, () => weightedMedian(share, data.weights[g])) }));
   const max = Math.max(...byQ.map((r) => r.value || 0), ...byGroup.map((r) => r.value || 0)) * 1.1 || 1;
   // Which way job access leans with deprivation: the ordered measure, where
   // the Palma ratio only says how spread out it is.
@@ -1282,6 +1396,7 @@ function jobsModel() {
       byGroup,
       max,
       palma: palma(share, data.pop),
+      lowNothing: leastServedNothing(share, data.pop),
       lean,
       leanText: leaning(lean, { noun: 'Job access', groupNoun: 'more deprived areas' }),
       lowShare: weightedMedian(share, data.pop),
@@ -1342,7 +1457,7 @@ function scoreModel() {
       legend,
       byQuintile: [1, 2, 3, 4, 5].map((q, k) => ({
         label: quintileLabels[k],
-        value: weightedMedian(values, data.pop, Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
+        value: ((mask) => ifEnough(data.pop, mask, () => weightedMedian(values, data.pop, mask)))(Uint8Array.from(data.quintile, (v) => (v === q ? 1 : 0))),
         emphasis: k === 4,
       })),
       note: 'Every opportunity counts, discounted by how long it takes to reach. The curves for walking '
@@ -1541,6 +1656,12 @@ function errandModel() {
 }
 
 /** Whether what is on screen reads the part of the data sent after the map. */
+/** Whether this view has figures that can be given for part of the place. */
+function hasFigures() {
+  if (state.view === 'fixes' && (state.service === 'jobs' || state.service === 'errands') && state.measure !== 'score') return false;
+  return true;
+}
+
 function needsMore() {
   if (data.complete) return false;
   return state.measure === 'score' || state.service === 'jobs' || state.view === 'fixes'
@@ -1573,6 +1694,238 @@ function compute() {
     if (model) return model;
   }
   return accessModel();
+}
+
+// ---------------------------------------------------------------- areas
+
+/** Which council, ward, local board and suburb each hexagon is in. Built on
+ *  everyone, so the areas do not change when only urban areas are counted. */
+function prepareScope() {
+  const centres = data.h3.map((id) => h3.cellToLatLng(id));
+  cellOf = new Map(data.h3.map((id, i) => [id, i]));
+  scope = buildAreas({ n: data.n, pop: data.everywhere.pop, place: data.place, places: data.places, areas: data.areas }, centres);
+  figureCache.clear();
+}
+
+/** The hexagon at a point, or the nearest one within two rings of it. */
+function cellNear(lat, lng) {
+  if (!cellOf) return null;
+  const id = h3.latLngToCell(lat, lng, 9);
+  if (cellOf.has(id)) return cellOf.get(id);
+  for (const k of [1, 2]) {
+    for (const near of h3.gridDisk(id, k)) if (cellOf.has(near)) return cellOf.get(near);
+  }
+  return null;
+}
+
+/** The middle of the part of the map the panel leaves clear. It uses the
+ *  same margins whether a phone's panel is open or folded, so opening it does
+ *  not change which area the figures are for. */
+function visibleCentre() {
+  const box = map.getContainer().getBoundingClientRect();
+  const pad = placePadding();
+  return map.unproject([(pad.left + box.width - pad.right) / 2, (pad.top + box.height - pad.bottom) / 2]);
+}
+
+/** The area the panel's figures are for, with the areas around it, largest
+ *  first; or null for the whole place. */
+function areaNow() {
+  if (!scope || !map) return null;
+  const pin = state.areaPin;
+  if (pin) {
+    if (pin.level === 'place') return null;
+    const found = pin.name ? areaNamed(scope, pin.level, pin.name) : null;
+    if (found) return found;
+    state.areaPin = null;
+  }
+  const centre = visibleCentre();
+  const chain = chainAt(scope, cellNear(centre.lat, centre.lng));
+  const area = pickArea(chain, map.getZoom(), centre.lat);
+  // The areas around it are the ones most of its people live in, as they
+  // would be for a link to it.
+  return area ? chainOf(scope, area.level, area.id) : null;
+}
+
+// How an area is named in a sentence, and on its own.
+function areaPhrase(area) {
+  return area.level === 'board' ? `the ${area.name} Local Board area` : area.name;
+}
+
+function areaLabel(area) {
+  return area.level === 'board' ? `${area.name} Local Board` : area.name;
+}
+
+/** Go to an area and show its figures until the map is moved by hand. */
+function goToArea(pin, bbox) {
+  state.areaPin = pin;
+  userMoved = false;
+  if (bbox) {
+    const pad = placePadding();
+    map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+      padding: { top: pad.top + 30, bottom: pad.bottom + 30, left: pad.left + 30, right: pad.right + 30 }, maxZoom: 15, duration: 600,
+    });
+  }
+  schedule();
+}
+
+function goToPlace() {
+  state.areaPin = { level: 'place' };
+  userMoved = false;
+  map.fitBounds(regionBounds(), { padding: placePadding(), duration: 600 });
+  schedule();
+}
+
+/** Room around the whole place when it is fitted to the map, clear of the panel. */
+function placePadding() {
+  return window.matchMedia('(max-width: 760px)').matches
+    ? { top: 120, bottom: 110, left: 16, right: 16 }
+    : { top: 30, bottom: 30, left: 390, right: 30 };
+}
+
+/** When the map settles somewhere with a different area, redraw the panel. */
+function refreshArea() {
+  if (userMoved) state.areaPin = null;
+  userMoved = false;
+  const where = areaNow();
+  const key = where ? `${where.area.level}:${where.area.id}` : '';
+  if (key !== areaKey) schedule();
+}
+
+// Population and group counts outside an area set to nothing. Cached for the
+// arrays they were made from, which change with the urban setting and when
+// the rest of the data arrives.
+const maskedCache = new WeakMap();
+
+function maskedArrays(area) {
+  if (!maskedCache.has(data.pop)) maskedCache.set(data.pop, new Map());
+  const byArea = maskedCache.get(data.pop);
+  const key = `${area.level}:${area.id}`;
+  if (!byArea.has(key)) {
+    const mask = maskFor(scope, area);
+    const cut = (w) => Float32Array.from(w, (v, i) => (mask[i] ? v : 0));
+    const pop = cut(data.pop);
+    const weights = Object.fromEntries(Object.entries(data.weights).map(([k, w]) => [k, k === 'everyone' ? pop : cut(w)]));
+    let people = 0;
+    for (let i = 0; i < pop.length; i += 1) if (pop[i] > 0) people += pop[i];
+    // Suburbs with some of their people outside the area.
+    const inside = new Float64Array(data.places.length);
+    const all = new Float64Array(data.places.length);
+    for (let i = 0; i < data.n; i += 1) {
+      const p = data.place[i];
+      if (p == null || !(scope.pop[i] > 0)) continue;
+      all[p] += scope.pop[i];
+      if (mask[i]) inside[p] += scope.pop[i];
+    }
+    const partial = new Set();
+    for (let p = 0; p < all.length; p += 1) if (inside[p] > 0 && inside[p] < 0.98 * all[p]) partial.add(p);
+    byArea.set(key, { pop, weights, people, partial });
+  }
+  return byArea.get(key);
+}
+
+/** The model worked out for the people in an area only. The map keeps the
+ *  whole place's colours and key; definitions that are set against the whole
+ *  place, such as a concentration of older people, stay set against it. */
+function scopedModel(area, whole) {
+  const masked = maskedArrays(area);
+  if (!(masked.people > 0)) return { empty: true, panel: { where: areaPhrase(area) } };
+  const base = { pop: data.pop, weights: data.weights };
+  data.pop = masked.pop;
+  data.weights = masked.weights;
+  placeRef = whole.panel;
+  scopeLevel = area.level;
+  scopeArea = { ...area, partial: masked.partial };
+  let model;
+  try {
+    model = compute();
+  } finally {
+    data.pop = base.pop;
+    data.weights = base.weights;
+    placeRef = null;
+    scopeLevel = null;
+    scopeArea = null;
+  }
+  if (model.waiting) return model;
+  return {
+    ...model,
+    panel: {
+      ...model.panel,
+      legend: whole.panel.legend,
+      divider: whole.panel.divider,
+      digits: whole.panel.digits ?? model.panel.digits,
+      where: areaPhrase(area),
+      small: area.level === 'suburb',
+      whole: whole.panel,
+      // Within one suburb, which end of the deprivation scale gets more is a
+      // question of a few blocks, so it is not asked.
+      ...(area.level === 'suburb' ? { lean: NaN, leanText: null } : {}),
+    },
+  };
+}
+
+/** A view's headline figure, as its panel would show it. */
+function figureOf(model) {
+  if (!model || model.waiting || model.empty) return null;
+  const box = el('div');
+  try {
+    renderInto(box, model);
+  } catch (error) {
+    return null;
+  }
+  return box.querySelector('.hero-figure')?.textContent || null;
+}
+
+/** The same figure for the areas around this one and for the whole place,
+ *  nearest first, each a link to go there. */
+function aroundFigures(where) {
+  const sig = `${JSON.stringify(state, (k, v) => (k === 'selected' || k === 'areaPin' ? undefined : v))}|${data.complete}`;
+  if (figureCache.size > 200) figureCache.clear();
+  const cached = (key, make) => {
+    const full = `${sig}|${key}`;
+    if (!figureCache.has(full)) figureCache.set(full, make());
+    return figureCache.get(full);
+  };
+  const rows = where.chain.slice(0, -1).reverse().map((area) => ({
+    label: areaLabel(area),
+    figure: cached(`${area.level}:${area.id}`, () => {
+      // Working these out redraws the area lists; the download keeps the one shown.
+      const kept = lastAreas;
+      figureOnly = true;
+      try {
+        return figureOf(scopedModel(area, current));
+      } finally {
+        figureOnly = false;
+        lastAreas = kept;
+      }
+    }),
+    go: () => goToArea({ level: area.level, name: area.name }, area.bbox),
+  }));
+  rows.push({ label: place.name, figure: cached('place', () => figureOf(current)), go: goToPlace });
+  return rows.filter((row) => row.figure);
+}
+
+/** The line under the headline with the areas around this one. */
+function renderAround(rows) {
+  const heroBox = $('view').querySelector('.hero');
+  if (!heroBox) return;
+  // A view can lead with a ratio in one area and an average in another (the
+  // fare burden does, where one end of the deprivation scale is missing).
+  // Only figures of the same kind as the headline sit beside it.
+  const kind = (text) => (/×$/.test(text) ? 'times' : /%$/.test(text) ? 'share' : /^[\d,.]+$/.test(text) ? 'number' : 'other');
+  const own = kind(heroBox.querySelector('.hero-figure')?.textContent || '');
+  rows = rows.filter((row) => kind(row.figure) === own && own !== 'other');
+  if (!rows.length) return;
+  const line = el('p', 'hero-whole');
+  rows.forEach((row, k) => {
+    if (k) line.append(document.createTextNode(' · '));
+    const button = el('button', 'hero-whole-item');
+    button.type = 'button';
+    button.title = `Show the figures for ${row.label}`;
+    button.append(el('span', null, `${row.label} `), el('strong', null, row.figure));
+    button.addEventListener('click', row.go);
+    line.append(button);
+  });
+  heroBox.append(line);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -1721,14 +2074,25 @@ function renderView(model) {
     $('view').replaceChildren(el('p', 'note', 'Loading the rest of the data for this view…'));
     return;
   }
-  if (score) {
-    renderScore($('view'), model.panel, set);
+  if (!score) {
+    renderServicePicker($('service-picker'), state.service, set);
+    for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
+    $('view').setAttribute('aria-labelledby', `tab-${state.view}`);
+  }
+  if (model.empty) {
+    $('view').replaceChildren(el('div', 'hero', null));
+    $('view').firstChild.append(el('p', 'hero-text', `Nobody in ${model.panel.where} is counted with these settings.`));
     return;
   }
-  renderServicePicker($('service-picker'), state.service, set);
-  for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
-  $('view').setAttribute('aria-labelledby', `tab-${state.view}`);
-  const root = $('view');
+  renderInto($('view'), model);
+}
+
+/** The panel for a model, drawn into any element. */
+function renderInto(root, model) {
+  if (state.measure === 'score') {
+    renderScore(root, model.panel, set);
+    return;
+  }
   if (state.service === 'jobs') {
     if (state.view === 'access') renderJobsAccess(root, model.panel, set);
     else if (state.view === 'people') renderJobsPeople(root, model.panel);
@@ -1788,7 +2152,27 @@ function announce() {
   }, 600);
 }
 
-function renderMini() {
+function renderMini(area = null) {
+  if (area && shown && shown.empty) {
+    $('mini').textContent = `${areaLabel(area)} · nobody counted with these settings`;
+    return;
+  }
+  if (area) {
+    const masked = maskedArrays(area);
+    const base = data.pop;
+    data.pop = masked.pop;
+    try {
+      miniLine();
+    } finally {
+      data.pop = base;
+    }
+    $('mini').textContent = `${areaLabel(area)} · ${$('mini').textContent}`;
+    return;
+  }
+  miniLine();
+}
+
+function miniLine() {
   // One line shown in the header when the panel is folded away (and on phones at first).
   const mini = $('mini');
   if (state.measure === 'score' && scoreAvailable()) {
@@ -1800,7 +2184,7 @@ function renderMini() {
     return;
   }
   if (state.service === 'jobs') {
-    const panel = current && current.panel;
+    const panel = shown && shown.panel;
     const median = panel ? panel.median : NaN;
     const figure = panel && panel.fair
       ? `${Number.isFinite(median) ? median.toFixed(2) : '–'}× the average`
@@ -1859,20 +2243,30 @@ function update() {
   if (current.waiting) {
     // The controls for this view read the data still on its way; they are
     // drawn when it arrives.
+    shown = current;
     renderView(current);
     return;
   }
+  // Zoomed in on part of the place, the panel's figures are for that part,
+  // with the areas around it and the whole place on a line underneath.
+  const where = areaNow();
+  areaKey = where ? `${where.area.level}:${where.area.id}` : '';
+  const t3 = performance.now();
+  shown = where && hasFigures() ? scopedModel(where.area, current) : current;
+  if (shown.waiting) shown = current;
   renderWhere();
   renderWhen();
   renderStandard();
   renderBudget();
   renderTravellerLine();
-  renderView(current);
+  renderView(shown);
+  if (shown !== current) renderAround(aroundFigures(where));
+  const t4 = performance.now();
   renderSettings();
-  renderMini();
+  renderMini(shown !== current ? where.area : null);
   restoreFocus(focused);
   announce();
-  window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2) };
+  window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2), area: Math.round(t4 - t3) };
   try {
     showDestinationsFor(map, state.service === 'jobs' || state.service === 'errands' || state.measure === 'score' ? null : state.service);
   } catch (error) {
@@ -2089,7 +2483,18 @@ function wireControls() {
       showPlace(i);
     },
   });
-  map.on('moveend', writeHash);
+  // A move by hand lets the panel follow the map again.
+  const byHand = (event) => {
+    if (event.originalEvent) userMoved = true;
+  };
+  map.on('movestart', byHand);
+  map.on('zoomstart', byHand);
+  map.on('wheel', () => { userMoved = true; });
+  map.on('dragstart', () => { userMoved = true; });
+  map.on('moveend', () => {
+    refreshArea();
+    writeHash();
+  });
 }
 
 
@@ -2298,7 +2703,8 @@ async function init() {
   const at = readHash();
   map = createMap('map');
   // Exposed for browser tests and scripted tours.
-  window.team = { map, state };
+  // For checks from the console and tests: the area the panel is for.
+  window.team = { map, state, area: () => { const w = areaNow(); return w && { level: w.area.level, name: w.area.name, chain: w.chain.map((a) => a.name) }; } };
   // Start once the style is ready. The 'load' event also waits for every basemap
   // tile, which would hold up the whole app on a slow connection.
   //
@@ -2343,6 +2749,7 @@ async function init() {
   if (state.when && !(data.meta.windows || {})[state.when]) state.when = null;
   // A link can carry values this city does not have; fall back rather than fail.
   if (!data.weights[state.group]) state.group = 'everyone';
+  prepareScope();
   if (state.urbanOnly) setUrban(data, true);
   const profiles = ((data.meta.fares || {}).profiles || []).map((p) => p.key);
   if (profiles.length && !profiles.includes(state.profile)) state.profile = profiles.includes('adult') ? 'adult' : profiles[0];
@@ -2401,6 +2808,7 @@ async function init() {
       full.chains = data.chains;
       full.roundSets = data.roundSets;
       data = full;
+      prepareScope();
       if (state.urbanOnly) setUrban(data, true);
       setWindow(data, state.when);
       cache.best.clear();
@@ -2416,8 +2824,10 @@ async function init() {
     const [zoom, lat, lng] = at.split('/').map(Number);
     if ([zoom, lat, lng].every(Number.isFinite)) map.jumpTo({ center: [lng, lat], zoom });
   } else {
-    const padding = phone ? { top: 120, bottom: 110, left: 16, right: 16 } : { top: 30, bottom: 30, left: 390, right: 30 };
-    map.fitBounds(regionBounds(), { padding, duration: 0 });
+    // Opened on the whole place, its figures are the whole place's until the
+    // map is moved, however large the screen.
+    if (!state.areaPin) state.areaPin = { level: 'place' };
+    map.fitBounds(regionBounds(), { padding: placePadding(), duration: 0 });
   }
   $('loading').hidden = true;
   // Network lines only show when a layer is switched on, so they load after the first view.

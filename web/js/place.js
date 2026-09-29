@@ -135,7 +135,9 @@ export function renderPlace(root, data, i, state) {
   const placeIndex = data.place[i];
   const place = placeIndex != null ? data.places[placeIndex] : null;
   const bits = [];
-  if (Number.isFinite(data.pop[i])) bits.push(`about ${count(data.pop[i])} residents in this hexagon`);
+  // Everyone who lives here, even when only urban areas are being counted.
+  const living = (data.everywhere || data).pop[i];
+  if (Number.isFinite(living)) bits.push(`about ${count(living)} residents in this hexagon`);
   if (place && place.board) bits.push(place.board);
 
   const viewMode = state.measure === 'score' ? 'best' : state.mode;
@@ -177,7 +179,7 @@ export function renderPlace(root, data, i, state) {
 
   // A share of a small hexagon is hard to picture, so say how many people
   // that is as well.
-  const residents = data.pop[i];
+  const residents = (data.everywhere || data).pop[i];
   const group = (key, label) => {
     const share = data.shares[key]?.[i];
     if (!Number.isFinite(share)) return null;

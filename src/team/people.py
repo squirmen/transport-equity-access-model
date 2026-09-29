@@ -286,6 +286,39 @@ def local_boards(settings: Settings, points) -> pd.Series:
     return assign_areas(points, boards, LOCAL_BOARD_FIELD).astype("string")
 
 
+def named_areas(settings: Settings, points, key: str, field: str, code: str | None = None) -> pd.Series:
+    """Council or ward of each point, from a national boundary file, or missing
+    when none is configured. Ward names drop "General" (Wellington's
+    "Takapū/Northern General Ward" is shown as "Takapū/Northern Ward"). With
+    `code`, each value is "code|name"."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    path = settings.data(key) if key in settings.raw["data"] else None
+    if path is None or not path.exists():
+        return pd.Series(pd.NA, index=points["id"], dtype="string")
+    areas = gpd.read_file(path).to_crs(points.crs)
+    areas = areas[areas.intersects(box(*points.total_bounds))].copy()
+    names = areas[field].str.replace(r" General Ward$", " Ward", regex=True)
+    areas["_value"] = areas[code].astype(str) + "|" + names if code else names
+    return assign_areas(points, areas, "_value").astype("string")
+
+
+def councils_and_wards(settings: Settings, points) -> pd.DataFrame:
+    """Council and ward of each point. A ward belongs to one council (its code
+    starts with the council's), so a point near the edge of a council elected
+    at large, such as Upper Hutt, is not given a neighbour's ward."""
+    council = named_areas(settings, points, "councils", "TA_name", code="TA_code")
+    ward = named_areas(settings, points, "wards", "Ward_name", code="Ward_code")
+    council_code = council.str.split("|").str[0]
+    ward_code = ward.str.split("|").str[0]
+    own = ward_code.str[:3] == council_code
+    return pd.DataFrame({
+        "council": council.str.split("|", n=1).str[1],
+        "ward": ward.str.split("|", n=1).str[1].where(own.fillna(False)),
+    }, index=council.index)
+
+
 def build(settings: Settings, origins) -> pd.DataFrame:
     import geopandas as gpd
 
@@ -311,6 +344,15 @@ def build(settings: Settings, origins) -> pd.DataFrame:
         }
     )
     people["local_board"] = local_boards(settings, points).reindex(people["h3"]).to_numpy()
+    areas = councils_and_wards(settings, points).reindex(people["h3"])
+    people["council"] = areas["council"].to_numpy()
+    people["ward"] = areas["ward"].to_numpy()
+    # Two councils in one place can each have, say, a Central Ward.
+    shared = people.groupby("ward")["council"].nunique()
+    shared = set(shared[shared > 1].index)
+    if shared:
+        clash = people["ward"].isin(shared)
+        people.loc[clash, "ward"] = people.loc[clash, "ward"] + " (" + people.loc[clash, "council"].fillna("") + ")"
     people = people.merge(age_shares(settings), on="sa1", how="left")
     people = people.merge(household_shares(settings), on="sa1", how="left")
     people["working_age_share"] = (1.0 - people["children_share"].fillna(0) - people["older_share"].fillna(0)).clip(0, 1)
