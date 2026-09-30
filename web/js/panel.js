@@ -9,7 +9,7 @@ import { count, el, minutes, MODE_NOTES, MODES, percent, place } from './format.
 // jobs. A service the build does not have is dropped by setServices.
 const PREFERRED_ORDER = [
   'supermarket', 'gp', 'pharmacy', 'errands', 'library', 'bank_post',
-  'early_childhood', 'primary_school', 'intermediate_school', 'secondary_school',
+  'early_childhood', 'primary_school', 'intermediate_school', 'secondary_school', 'tertiary', 'trades_training',
   'jobs',
 ];
 
@@ -26,6 +26,8 @@ export const SERVICE_SHORT = {
   primary_school: 'Primary school',
   intermediate_school: 'Intermediate',
   secondary_school: 'Secondary school',
+  tertiary: 'Tertiary',
+  trades_training: 'Trades training',
   jobs: 'Jobs',
 };
 
@@ -40,6 +42,8 @@ export const SERVICE_NOUN = {
   primary_school: 'a primary school',
   intermediate_school: 'an intermediate school',
   secondary_school: 'a secondary school',
+  tertiary: 'a tertiary or trades training campus',
+  trades_training: 'a trades training campus',
 };
 
 /** Which services this build actually has, in the order to show them.
@@ -201,7 +205,7 @@ function legend(title, items, { note, divider } = {}) {
 const SERVICE_GROUPS = [
   { key: 'everyday', label: 'Everyday', members: ['supermarket', 'gp', 'pharmacy', 'errands'] },
   { key: 'community', label: 'Community', members: ['library', 'bank_post'] },
-  { key: 'education', label: 'Education', members: ['early_childhood', 'primary_school', 'intermediate_school', 'secondary_school'] },
+  { key: 'education', label: 'Education', members: ['early_childhood', 'primary_school', 'intermediate_school', 'secondary_school', 'tertiary', 'trades_training'] },
   { key: 'jobs', label: 'Jobs', members: ['jobs'] },
 ];
 
@@ -473,28 +477,37 @@ export function renderBurden(root, model, set) {
   const ratio = model.least > 0 ? model.most / model.least : NaN;
   // Per trip against a day's income, or per week against a week's.
   const period = model.week ? "a week's income" : "a day's income";
-  const what = model.week ? 'a week of daily return trips' : `a ${model.trip} fare`;
+  const what = model.commute ? 'five return trips to work' : model.week ? 'a week of daily return trips' : `a ${model.trip} fare`;
+  // What the fare pays for, as the subject of a sentence.
+  const the = model.commute ? 'commuting by public transport' : `the fare to ${model.noun}`;
   let figure = '–';
-  let text = `Nobody ${model.where ? `in ${model.where}` : 'here'} needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
+  let text = model.commute
+    ? `Public transport reaches no jobs within 45 minutes${model.where ? ` of ${model.where}` : ''}.`
+    : `Nobody ${model.where ? `in ${model.where}` : 'here'} needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
     const areas = model.where ? `parts of ${model.where}` : 'areas';
     text = ratio >= 1.05
-      ? `as much of ${period} goes on the fare to ${model.noun} in the most deprived ${areas} as in the least deprived.`
+      ? `as much of ${period} goes on ${the} in the most deprived ${areas} as in the least deprived.`
       : ratio <= 0.95
-        ? `the share of ${period} the fare to ${model.noun} takes in the most deprived ${areas}, against the least deprived.`
-        : `The fare to ${model.noun} takes about the same share of ${period} in more and less deprived ${areas}.`;
+        ? `the share of ${period} ${the} takes in the most deprived ${areas}, against the least deprived.`
+        : `${capitalise(the)} takes about the same share of ${period} in more and less deprived ${areas}.`;
   } else if (model.paying > 0 && !Number.isFinite(model.overall)) {
     text = `Too few people in ${placeOf(model)} would ride public transport there to give an average.`;
   } else if (model.paying > 0) {
     // A city with no areas in one end of the deprivation scale has no ratio.
     figure = share(model.overall);
-    text = `of ${period} goes on ${what} to ${model.noun}, on average${model.where ? `, in ${model.where}` : ''}.`;
+    text = model.commute
+      ? `of ${period} goes on commuting by public transport, on average${model.where ? `, in ${model.where}` : ''}.`
+      : `of ${period} goes on ${what} to ${model.noun}, on average${model.where ? `, in ${model.where}` : ''}.`;
   }
+  const counted = model.commute
+    ? `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who can reach jobs by public transport within 45 minutes.`
+    : `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who would ride public transport there within ${model.standard} minutes.`;
   const sub = model.paying > 0
     ? (Number.isFinite(ratio)
-      ? `${what[0].toUpperCase()}${what.slice(1)} takes ${share(model.most)} of ${period} in the most deprived fifth of areas and ${share(model.least)} in the least. `
-      : '') + `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who would ride public transport there within ${model.standard} minutes.`
+      ? `${what[0].toUpperCase()}${what.slice(1)} ${model.commute ? 'take' : 'takes'} ${share(model.most)} of ${period} in the most deprived fifth of areas and ${share(model.least)} in the least. `
+      : '') + counted
     : null;
   const chartQ = el('div', 'chart');
   bars(chartQ, model.byQuintile, {
@@ -513,11 +526,13 @@ export function renderBurden(root, model, set) {
   const meta = model.meta || {};
   root.replaceChildren(...[
     hero(figure, text, sub),
-    showSwitch('burden', set, true, true, true),
+    model.commute ? jobsShowSwitch('burden', set) : showSwitch('burden', set, true, true, true),
     model.canWeek
       ? radios('Counting', [['trip', 'One return trip'], ['week', 'Every day for a week']], model.basket, (basket) => set({ basket }), { compact: true })
       : null,
-    legend(`Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of ${period}`, model.legend, { divider: 1 }),
+    legend(model.commute
+      ? "Five return trips to work a week by public transport, as a share of a week's income"
+      : `Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of ${period}`, model.legend, { divider: 1 }),
     el('p', 'note', `${count(model.heavy)} ${peopleWord(model.heavy, model.group)} would spend 5% or more of ${period} on ${what}.`),
     model.week
       ? el('p', 'note', model.capped > 0
@@ -528,17 +543,23 @@ export function renderBurden(root, model, set) {
     chartG,
     method(
       'How this is worked out',
-      "Burden is the fare for the cheapest public transport trip that reaches the nearest one inside the standard, "
-        + "divided by a day's income where the traveller lives. It counts whether or not the traveller could walk "
-        + 'instead, but a trip short enough to be a walk the whole way needs no fare and is left out. The fare follows '
-        + 'the traveller, payment and time chosen above; children and people 65 and over are priced at their own '
-        + 'concession where the network has one.',
+      model.commute
+        ? 'A commute is five return trips a week at the morning peak. From each home, the fare is for the fewest fare '
+          + 'zones that take in half the jobs public transport reaches within 45 minutes, so it stands for the fare to a '
+          + "typical job within reach. The week is priced after the network's daily and weekly caps, where it has them "
+          + "and the way of paying qualifies, and divided by a week's income where the traveller lives. Homes where public "
+          + 'transport reaches no jobs within 45 minutes are shown apart. The fare follows the traveller and payment chosen above.'
+        : "Burden is the fare for the cheapest public transport trip that reaches the nearest one inside the standard, "
+          + "divided by a day's income where the traveller lives. It counts whether or not the traveller could walk "
+          + 'instead, but a trip short enough to be a walk the whole way needs no fare and is left out. The fare follows '
+          + 'the traveller, payment and time chosen above; children and people 65 and over are priced at their own '
+          + 'concession where the network has one.',
       "Income is the 2023 Census median household income of the area, divided by the square root of its average "
         + 'household size so a large household on the same income counts as less well off, and raised by '
         + `${((meta.uplift || 1) - 1) * 100 > 0 ? (((meta.uplift || 1) - 1) * 100).toFixed(1) : '0'}% for wage growth since `
         + 'then (average hourly earnings, March 2023 to June 2026). It is before tax, so against take-home pay the '
         + 'burden would be higher. Areas the census publishes above $200,000 are held at that figure.',
-      'A trip that takes a share of a day\'s income, made every day, takes that share of income over a month. That is '
+      model.commute ? null : 'A trip that takes a share of a day\'s income, made every day, takes that share of income over a month. That is '
         + 'the 60-trip month the World Bank uses to judge whether public transport is affordable (Carruthers, Dick and '
         + 'Saurkar, 2005). Every day for a week counts a return trip each day after the network\'s daily and weekly '
         + 'caps, where it has them and the way of paying qualifies, and sets it against a week\'s income.',
@@ -546,6 +567,12 @@ export function renderBurden(root, model, set) {
         + "area's income.",
     ),
   ].filter(Boolean));
+}
+
+/** On the jobs view: jobs within reach, or what commuting to them costs. */
+function jobsShowSwitch(current, set) {
+  return radios('Show', [['jobs', 'Jobs within reach'], ['burden', 'Commuting cost']], current,
+    (value) => set({ show: value === 'burden' ? 'burden' : 'minutes' }), { compact: true });
 }
 
 /** Who misses out, or where the group lives in the first place. */
@@ -863,6 +890,7 @@ export function renderJobsAccess(root, model, set) {
           ? 'On this budget no fare is affordable, so no job is reachable by public transport.'
           : `With a fare budget, jobs are counted within ${model.limit} minutes, on trips inside ${model.zones} fare ${model.zones === 1 ? 'zone' : 'zones'}.`)
         : null,
+      model.canCommute ? jobsShowSwitch('jobs', set) : null,
       radios('Travel by', modeOptions, model.mode, (jobsMode) => set({ jobsMode }), { compact: true }),
     ].filter(Boolean),
     ...(model.priced ? [] : [radios('Within', model.limits.map((l) => [String(l), `${l} min`]), String(model.limit), (jobsLimit) => set({ jobsLimit }), { compact: true })]),

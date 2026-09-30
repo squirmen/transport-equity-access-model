@@ -90,6 +90,8 @@ each have a ward of the same name have the council added to it.
 | Library | OpenStreetMap | `amenity=library`, leaving out libraries tagged private or for students or customers only |
 | Bank or post shop | OpenStreetMap | `amenity=bank`, `amenity=post_office` |
 | Early childhood service | Ministry of Education early learning directory | centres, kindergartens, playcentres and kōhanga reo; home-based networks left out |
+| Tertiary or trades training | Hand-kept list from NZQA and providers, on LINZ address points | teaching sites of universities, polytechnics, wānanga and trades training providers (see data-sources) |
+| Trades training | The same list | sites whose teaching is mainly trades |
 | Primary school | Ministry of Education school directory | open contributing, full primary and composite schools |
 | Intermediate school | Ministry of Education school directory | open schools that teach Years 7–8 |
 | Secondary school | Ministry of Education school directory | open schools that teach Years 9 and up |
@@ -421,6 +423,15 @@ for, set against a week's income. Auckland caps AT HOP at $50 a week;
 Christchurch, Gisborne, Hamilton and the Horizons towns publish their own.
 Wellington has no cap, only passes, which a traveller must choose to buy and
 TEAM does not assume.
+
+**Commuting.** Jobs have no nearest one to price, so the commuting fare
+burden prices a typical job within reach instead. From each home, it takes
+the fewest fare zones that include half the jobs public transport reaches
+within 45 minutes, and prices five return trips a week at the morning peak for
+that many zones, after the network's daily and weekly caps. That is set
+against a week's income. Homes where public transport reaches no jobs within
+45 minutes are shown apart. Where the network charges one flat fare, the zones
+do not matter and the burden is the week's flat fares against income.
 
 ## 8. How robust an answer is
 

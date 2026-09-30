@@ -258,6 +258,43 @@ def ece_services(settings: Settings) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def tertiary_services(settings: Settings) -> pd.DataFrame:
+    """Tertiary and trades training teaching sites, from the hand-kept list
+    that scripts/build_tertiary.py places on LINZ addresses.
+
+    A service takes every site (`tertiary_sites: all`) or only those whose
+    teaching is mainly trades (`tertiary_sites: trades`). Sites are not
+    weighted: nothing reliable gives the size of each one.
+    """
+    empty = pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+    wanted = {sid: spec["tertiary_sites"] for sid, spec in settings.services.items() if spec.get("tertiary_sites")}
+    if not wanted or "tertiary" not in settings.raw["data"]:
+        return empty
+    path = settings.data("tertiary")
+    if not path.exists():
+        log.warning("no tertiary site list at %s", path)
+        return empty
+    sites = pd.read_csv(path, dtype=str).fillna("")
+    sites["lon"] = pd.to_numeric(sites["lon"], errors="coerce")
+    sites["lat"] = pd.to_numeric(sites["lat"], errors="coerce")
+    sites = sites.dropna(subset=["lon", "lat"])
+    trades = sites["trades"].str.lower().isin(["true", "1", "yes"])
+    rows = []
+    for service, which in wanted.items():
+        chosen = sites[trades] if which == "trades" else sites
+        for site in chosen.to_dict("records"):
+            rows.append({
+                "source_id": f"tertiary:{site['site_id']}",
+                "service": service,
+                "name": f"{site['provider_name']}, {site['site_name']}" if site.get("site_name") and site["site_name"] != site["provider_name"] else site["provider_name"],
+                "source": "Tertiary teaching sites (NZQA and providers), placed on LINZ addresses",
+                "weight": 1.0,
+                "lon": float(site["lon"]),
+                "lat": float(site["lat"]),
+            })
+    return pd.DataFrame(rows) if rows else empty
+
+
 def build_services(settings: Settings) -> pd.DataFrame:
     """One row per (destination, service). A school can serve two year ranges."""
     facilities = facility_services(settings)
@@ -266,7 +303,7 @@ def build_services(settings: Settings) -> pd.DataFrame:
     osm = osm_services(settings)
     if covered:
         osm = osm[~osm["service"].isin(covered)]
-    table = pd.concat([osm, facilities, school_services(settings), ece_services(settings)], ignore_index=True)
+    table = pd.concat([osm, facilities, school_services(settings), ece_services(settings), tertiary_services(settings)], ignore_index=True)
     # School and early childhood directories come by region, and a region can
     # hold several towns. Keep what lies around this one: anything further
     # is beyond the routing limit anyway, and would only crowd the map.

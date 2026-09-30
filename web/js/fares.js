@@ -341,7 +341,7 @@ export function capValue(table, meta, profile, zones, column) {
 
 /** What a return trip every day for a week costs this traveller, after any
  *  daily and weekly caps their way of paying qualifies for. */
-export function weekCost(meta, zones, { profile = 'adult', payment = 'hop', hour, weekday = true } = {}) {
+export function weekCost(meta, zones, { profile = 'adult', payment = 'hop', hour, weekday = true, days = 7 } = {}) {
   if (!(zones > 0)) return 0;
   if (freeTravel(meta, profile, hour, weekday)) return 0;
   const column = paymentKey(meta, payment, hour, weekday);
@@ -350,7 +350,7 @@ export function weekCost(meta, zones, { profile = 'adult', payment = 'hop', hour
   const caps = meta.caps || {};
   const applies = !caps.payments || caps.payments.includes(payment);
   const day = Math.min(single * 2, applies ? capValue(caps.daily, meta, profile, zones, column) : Infinity);
-  return Math.min(day * 7, applies ? capValue(caps.weekly, meta, profile, zones, column) : Infinity);
+  return Math.min(day * days, applies ? capValue(caps.weekly, meta, profile, zones, column) : Infinity);
 }
 
 /** Whether this network caps anything, so a week can cost less than seven days. */

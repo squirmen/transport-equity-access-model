@@ -32,6 +32,7 @@ data:
   health_facilities: raw/nz/health/facility_code_table.xlsx
   councils: raw/nz/boundaries/nz_councils.gpkg
   wards: raw/nz/boundaries/nz_wards.gpkg
+  tertiary: raw/nz/education/tertiary_sites_2026-09-30.csv
   fare_table: raw/wellington/fares/metlink_fares_2026-09-26.json
   fare_zones: processed/wellington/fares/metlink_fare_zones.geojson
   fare_zone_meta: processed/wellington/fares/metlink_fare_zones.metadata.json
@@ -133,6 +134,18 @@ services:
     window: am_peak
     standard_minutes: 30
     school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
+  tertiary:
+    label: Tertiary or trades training
+    window: am_peak
+    standard_minutes: 45
+    # Hand-kept teaching sites: universities, polytechnics, wānanga and
+    # trades training providers (scripts/build_tertiary.py).
+    tertiary_sites: all
+  trades_training:
+    label: Trades training
+    window: am_peak
+    standard_minutes: 45
+    tertiary_sites: trades
 
 # Gravity access scores, the companion to the standards measures.
 gravity:
@@ -245,7 +258,7 @@ jobs:
 fares:
   mode: pt
   max_minutes: 45
-  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
+  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school, tertiary, trades_training]
   budget:
     min: 0
     max: 30

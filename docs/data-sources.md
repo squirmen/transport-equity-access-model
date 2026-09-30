@@ -68,11 +68,26 @@ publishes the fare zone of every stop.
 | Supermarkets | OpenStreetMap, `shop=supermarket` | Counter-intuitive but well evidenced: OpenStreetMap carries about 98% of New Zealand's full-service supermarket banners against the Commerce Commission's audited counts. |
 | Schools | Ministry of Education school directory | Authoritative, has rolls, updated nightly. |
 | Jobs | Stats NZ business demography, SA2 | SA2 is a confidentiality floor rather than a publishing choice, so nothing finer exists outside the Data Lab. |
+| Tertiary and trades training | A hand-kept list of teaching sites (`raw/nz/education/tertiary_sites_<date>.csv`), from NZQA delivery sites and the providers' campus pages, placed on LINZ NZ Addresses points (`scripts/build_tertiary.py`) | No register lists where post-school study happens. The Ministry of Education's provider directory gives head offices, and OpenStreetMap misses main campuses (the University of Canterbury's Ilam campus lost its tag in March 2026). |
 
 The health register is national and is cut to each city as it is built.
 
 Attribution: Facility data from Health New Zealand | Te Whatu Ora, Facility
-Code Table, CC BY 4.0.
+Code Table, CC BY 4.0. Tertiary teaching sites from NZQA (CC BY 4.0) and the
+providers' own pages; address points from LINZ NZ Addresses, CC BY 4.0.
+
+**Which tertiary sites count.** A site is in if scheduled teaching happens
+there on premises the provider runs and students travel to it. Universities,
+institutes of technology and polytechnics, wānanga, and private training
+establishments whose teaching is mainly trades are covered. Left out: head and
+liaison offices, distance and work-based providers (the Open Polytechnic and the
+former industry training organisations), apprenticeships and on-the-job
+training, trades academies inside secondary schools, marae and other venues
+used only for block courses, workplaces and clinical placements, halls of
+residence and research stations, and English language schools. Trades
+training is the subset whose teaching is mainly trades, including the trades
+campuses of polytechnics. The list dates quickly: polytechnics are being
+reorganised through 2027, so each row carries its source and date.
 
 ### Known weaknesses
 

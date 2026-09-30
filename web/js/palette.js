@@ -30,6 +30,8 @@ export const DESTINATION_COLOURS = {
   primary_school: '#b86e00',
   intermediate_school: '#b86e00',
   secondary_school: '#b86e00',
+  tertiary: '#b86e00',
+  trades_training: '#b86e00',
 };
 export const DESTINATION_OTHER = '#0c0c48';
 

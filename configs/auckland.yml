@@ -34,6 +34,7 @@ data:
   health_facilities: raw/nz/health/facility_code_table.xlsx
   councils: raw/nz/boundaries/nz_councils.gpkg
   wards: raw/nz/boundaries/nz_wards.gpkg
+  tertiary: raw/nz/education/tertiary_sites_2026-09-30.csv
   commute_share: processed/auckland/census/sa2_commute_car_share.csv
   cycling_network: raw/auckland/cycling/at_cycling_network.geojson
   local_boards: raw/auckland/geography/auckland_council_local_boards.geojson
@@ -138,6 +139,18 @@ services:
     window: am_peak
     standard_minutes: 30
     school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
+  tertiary:
+    label: Tertiary or trades training
+    window: am_peak
+    standard_minutes: 45
+    # Hand-kept teaching sites: universities, polytechnics, wānanga and
+    # trades training providers (scripts/build_tertiary.py).
+    tertiary_sites: all
+  trades_training:
+    label: Trades training
+    window: am_peak
+    standard_minutes: 45
+    tertiary_sites: trades
 
 # Gravity access scores, the companion to the standards measures.
 gravity:
@@ -246,7 +259,7 @@ jobs:
 fares:
   mode: pt                  # the only mode with a fare to model
   max_minutes: 45           # same cap as the gravity scores
-  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school]
+  purposes: [jobs, supermarket, gp, pharmacy, early_childhood, primary_school, intermediate_school, secondary_school, tertiary, trades_training]
   # Budget slider on the site: dollars for a return trip.
   budget:
     min: 0

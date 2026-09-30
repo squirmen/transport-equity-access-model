@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 (unreleased)
+
+- Tertiary or trades training, and trades training on its own, are
+  destinations under Education, with a 45-minute standard: the teaching sites of
+  universities, polytechnics, wānanga and trades training providers, from a
+  list kept by hand from NZQA and the providers and placed on LINZ addresses.
+  Fares and the fare burden cover them too.
+- Jobs have a commuting cost: five return trips a week by public transport to
+  a typical job within reach, as a share of a week's income, by deprivation and
+  group.
+
 ## 0.10.0 (30 September 2026)
 
 - The panel's figures follow the map. Zoomed out they are for the whole place;

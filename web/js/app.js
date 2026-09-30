@@ -699,6 +699,7 @@ function choiceModel() {
 const SERVICE_PLURAL = {
   supermarket: 'supermarkets', gp: 'GPs', pharmacy: 'pharmacies', early_childhood: 'early childhood services',
   primary_school: 'primary schools', intermediate_school: 'intermediate schools', secondary_school: 'secondary schools',
+  tertiary: 'tertiary campuses', trades_training: 'trades training campuses',
 };
 
 /** A line saying how the time or budget on screen compares with the usual
@@ -817,22 +818,62 @@ function boardBox(board) {
  *  someone could walk instead, because plenty of people cannot. The panel
  *  compares the most and least deprived areas, which a dollar map cannot.
  */
+/** Whether the commuting fare burden can be worked out here. */
+function commuteAvailable() {
+  const cost = data.cost && data.cost.jobs;
+  return fareAvailable() && incomeAvailable() && Boolean(cost && cost.z1) && Boolean(data.jobs.pt && data.jobs.pt['45']);
+}
+
+/** For a commute: in each hexagon, the fewest fare zones that take in half
+ *  the jobs within 45 minutes by public transport, a fair stand-in for where a
+ *  typical job reachable from there is. -2 where no job is in reach. */
+function commuteZones() {
+  const cost = data.cost.jobs;
+  const cap = zoneCap(data.meta.fares);
+  const within = data.jobs.pt['45'];
+  const out = new Int8Array(data.n).fill(-1);
+  for (let i = 0; i < data.n; i += 1) {
+    const total = within[i];
+    if (!Number.isFinite(total)) continue;
+    if (!(total > 0)) {
+      out[i] = -2;
+      continue;
+    }
+    let zones = cap;
+    for (let k = 1; k <= cap; k += 1) {
+      const reached = cost[`z${k}`] ? cost[`z${k}`][i] : NaN;
+      if (Number.isFinite(reached) && reached >= 0.5 * total * (1 - 1e-6)) {
+        zones = k;
+        break;
+      }
+    }
+    out[i] = zones;
+  }
+  return out;
+}
+
+// A working week of return trips.
+const WORK_DAYS = 5;
+
 function burdenModel() {
   const service = state.service;
-  const standard = standardFor(service);
+  // Commuting: the fare to work, five return trips a week at the peak.
+  const commute = service === 'jobs';
+  const standard = commute ? 45 : standardFor(service);
   const meta = data.meta.fares;
   const { hour, weekday } = tripWindow(service);
-  const zones = cheapestZones(data, service, standard, { walkable: false });
+  const zones = commute ? commuteZones() : cheapestZones(data, service, standard, { walkable: false });
   const trips = state.returnTrip ? 2 : 1;
-  const trip = state.returnTrip ? 'return' : 'one way';
+  const trip = commute ? 'return' : state.returnTrip ? 'return' : 'one way';
   // The fare for `z` zones for a traveller type; nothing when they ride free.
   // Over a week it is a return trip every day, after any caps, and set
   // against a week's income, so the two read on the same scale.
-  const week = state.basket === 'week' && hasCaps(meta);
+  const week = commute || (state.basket === 'week' && hasCaps(meta));
+  const days = commute ? WORK_DAYS : 7;
   const pricer = (profile) => {
     const column = paymentKey(meta, state.payment, hour, weekday);
     const free = freeTravel(meta, profile, hour, weekday);
-    if (week) return (z) => weekCost(meta, z, { profile, payment: state.payment, hour, weekday }) / 7;
+    if (week) return (z) => weekCost(meta, z, { profile, payment: state.payment, hour, weekday, days }) / 7;
     return (z) => (z <= 0 || free ? 0 : fare(meta, z, profile, column) * trips);
   };
   const costOf = pricer(state.profile);
@@ -902,7 +943,7 @@ function burdenModel() {
   let capped = 0;
   const uncapped = week ? ((z) => {
     const column = paymentKey(meta, state.payment, hour, weekday);
-    return freeTravel(meta, state.profile, hour, weekday) ? 0 : fare(meta, z, state.profile, column) * 2;
+    return freeTravel(meta, state.profile, hour, weekday) ? 0 : (fare(meta, z, state.profile, column) * 2 * days) / 7;
   }) : null;
   for (let i = 0; i < data.n; i += 1) {
     if (!(weights[i] > 0) || !Number.isFinite(burden[i])) continue;
@@ -915,6 +956,16 @@ function burdenModel() {
     classes,
     colours: FARE,
     tooltip: (i) => {
+      if (commute) {
+        if (classes[i] === 5) return ['Public transport reaches no jobs within 45 min'];
+        if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
+        if (burden[i] === 0) return ['Commuting: free for this traveller at the peak'];
+        return [
+          `Commuting: ${money(costOf(zones[i]) * 7)} a week, ${percentOf(burden[i])} of a week's income here`,
+          `${zones[i]} fare ${zones[i] === 1 ? 'zone' : 'zones'} takes in half the jobs within 45 min`,
+          `Income about $${Math.round(data.income[i] / 1000)}k a year per person, after household size`,
+        ];
+      }
       if (classes[i] === 5) return [`${SERVICE_SHORT[service]}: public transport can't get there within ${standard} min`];
       if (zones[i] === 0) return [`${SERVICE_SHORT[service]}: close enough to walk, so no fare is needed`];
       if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
@@ -928,7 +979,8 @@ function burdenModel() {
       ];
     },
     panel: {
-      noun: SERVICE_NOUN[service],
+      noun: commute ? 'work' : SERVICE_NOUN[service],
+      commute,
       standard,
       trip,
       group: state.group,
@@ -943,12 +995,12 @@ function burdenModel() {
       show: 'burden',
       week,
       capped,
-      canWeek: hasCaps(meta),
+      canWeek: !commute && hasCaps(meta),
       basket: week ? 'week' : 'trip',
       canShowFare: true,
       canShowBurden: true,
       meta: data.meta.affordability,
-      legend: ['No fare', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', 'Not in time'].map((label, k) => ({ colour: FARE[k], label })),
+      legend: ['No fare', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', commute ? 'No jobs in 45 min' : 'Not in time'].map((label, k) => ({ colour: FARE[k], label })),
     },
   };
 }
@@ -1685,7 +1737,10 @@ function compute() {
     if (model) return model;
     state.measure = 'standards';
   }
-  if (state.service === 'jobs') return jobsModel();
+  if (state.service === 'jobs') {
+    if (state.view === 'access' && state.show === 'burden' && commuteAvailable()) return burdenModel();
+    return jobsModel();
+  }
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
   if (state.show === 'fare' && fareAvailable() && data.cost[state.service]) return fareSurfaceModel();
@@ -2097,7 +2152,8 @@ function renderInto(root, model) {
     return;
   }
   if (state.service === 'jobs') {
-    if (state.view === 'access') renderJobsAccess(root, model.panel, set);
+    if (state.view === 'access' && model.panel.show === 'burden') renderBurden(root, model.panel, set);
+    else if (state.view === 'access') renderJobsAccess(root, { ...model.panel, canCommute: commuteAvailable() }, set);
     else if (state.view === 'people') renderJobsPeople(root, model.panel);
     else renderJobsFixes(root);
     return;
@@ -2184,6 +2240,10 @@ function miniLine() {
     const label = (data.meta.access.keys || {})[choice.key] || choice.key;
     const when = choice.mode === 'pt' ? whenClause() : '';
     mini.textContent = `${label} by ${MODES[choice.mode].short}${when} · typical score ${Math.round(median)} (${place.name} average 100)`;
+    return;
+  }
+  if (state.service === 'jobs' && shown && shown.panel && shown.panel.show === 'burden') {
+    mini.textContent = `Commuting by public transport · ${percentOf(shown.panel.overall)} of a week's income on average`;
     return;
   }
   if (state.service === 'jobs') {
