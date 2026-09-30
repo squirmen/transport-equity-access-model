@@ -500,9 +500,11 @@ place's jobs, and the share of people 65 and over behind a concentration or a
 NORC. A NORC is judged on the whole suburb, so a suburb split by a ward
 boundary keeps its status inside either ward. Lists of suburbs inside a ward
 or board count the people inside it and mark a split suburb "(part)". Inside
-one suburb, how the shortfall leans across deprivation is not reported. A
-breakdown by NZDep fifth or by group, or an average fare burden, that rests on
-fewer than 100 people is left blank.
+one suburb, how the shortfall leans across deprivation is not reported.
+
+Anywhere, for a whole place or part of one, a breakdown by NZDep fifth or by
+group that rests on fewer than 100 people is left blank, and the fare burden's
+ratio between the most and least deprived fifths needs 100 riders at each end.
 
 **Where they live.** The same view can show where a group lives rather than
 how it fares: each hexagon coloured by the group's share of residents against

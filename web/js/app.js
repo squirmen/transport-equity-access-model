@@ -785,7 +785,7 @@ function downloadAreas() {
   const text = areaCsv(lastAreas.rows, label);
   const name = [
     'team', data.meta.naming.slug, state.service, `${standardFor(state.service)}min`,
-    state.group, lastAreas.where ? lastAreas.where.toLowerCase().replace(/[^a-z0-9]+/g, '-') : null,
+    state.group, lastAreas.where ? lastAreas.where.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null,
     lastAreas.live ? 'where-they-live' : null, lastAreas.villagesOut ? 'without-rest-homes' : null,
     lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
     state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
@@ -858,7 +858,7 @@ function burdenModel() {
     if (z === 0) { classes[i] = 0; continue; }
     if (Number.isFinite(burden[i])) classes[i] = burdenClass(burden[i]);
   }
-  const meanOf = (values, weights, mask) => {
+  const meanOf = (values, weights, mask, floor = FEWEST) => {
     let total = 0;
     let sum = 0;
     for (let i = 0; i < data.n; i += 1) {
@@ -868,8 +868,9 @@ function burdenModel() {
       total += w;
       sum += w * values[i];
     }
-    // An average over fewer riders than this is too thin to show.
-    return total >= FEWEST ? sum / total : NaN;
+    // An average over fewer riders than this is too thin to show, except for
+    // the headline, which says how many it counts.
+    return total > 0 && total >= floor ? sum / total : NaN;
   };
   const meanBurden = (weights, mask) => meanOf(burden, weights, mask);
   // Children and people 65 and over mostly pay their own concession, so their
@@ -934,7 +935,7 @@ function burdenModel() {
       groups: groupChips(),
       least: byQuintile[0].value,
       most: byQuintile[4].value,
-      overall: meanBurden(weights),
+      overall: meanOf(burden, weights, null, 0),
       heavy,
       paying,
       byQuintile,
@@ -1800,6 +1801,8 @@ function maskedArrays(area) {
   if (!maskedCache.has(data.pop)) maskedCache.set(data.pop, new Map());
   const byArea = maskedCache.get(data.pop);
   const key = `${area.level}:${area.id}`;
+  // About a megabyte an area in Auckland: keep the few most recent.
+  if (!byArea.has(key) && byArea.size >= 12) byArea.delete(byArea.keys().next().value);
   if (!byArea.has(key)) {
     const mask = maskFor(scope, area);
     const cut = (w) => Float32Array.from(w, (v, i) => (mask[i] ? v : 0));

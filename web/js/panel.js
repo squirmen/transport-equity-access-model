@@ -428,7 +428,7 @@ function areaSection(model, set) {
     button.append(
       el('span', 'rank-name', row.name),
       el('span', 'rank-meta', `${count(row.missing)} · ${percent(row.share)}`),
-      el('span', 'rank-reason', `of ${count(row.people)} ${phrase(model.group)}${short}`),
+      el('span', 'rank-reason', `of ${count(row.people)} ${peopleWord(row.people, model.group)}${short}`),
     );
     button.addEventListener('click', () => set(a.level === 'board' ? { zoomBoard: row.area } : { zoomTo: row.area }));
     item.append(button);
@@ -494,7 +494,7 @@ export function renderBurden(root, model, set) {
   const sub = model.paying > 0
     ? (Number.isFinite(ratio)
       ? `${what[0].toUpperCase()}${what.slice(1)} takes ${share(model.most)} of ${period} in the most deprived fifth of areas and ${share(model.least)} in the least. `
-      : '') + `Counted for the ${count(model.paying)} people who would ride public transport there within ${model.standard} minutes.`
+      : '') + `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who would ride public transport there within ${model.standard} minutes.`
     : null;
   const chartQ = el('div', 'chart');
   bars(chartQ, model.byQuintile, {
@@ -518,7 +518,7 @@ export function renderBurden(root, model, set) {
       ? radios('Counting', [['trip', 'One return trip'], ['week', 'Every day for a week']], model.basket, (basket) => set({ basket }), { compact: true })
       : null,
     legend(`Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of ${period}`, model.legend, { divider: 1 }),
-    el('p', 'note', `${count(model.heavy)} ${phrase(model.group)} would spend 5% or more of ${period} on ${what}.`),
+    el('p', 'note', `${count(model.heavy)} ${peopleWord(model.heavy, model.group)} would spend 5% or more of ${period} on ${what}.`),
     model.week
       ? el('p', 'note', model.capped > 0
         ? `A fare cap lowers the week's cost for ${count(model.capped)} of them.`
@@ -568,6 +568,9 @@ function renderLive(root, model, set) {
   const parts = [];
   if (everyone) {
     parts.push(hero(count(s.everyone), `people live in ${placeOf(model)}.`, `${percent(s.missingRate)} can't ${reach}.`));
+  } else if (!(s.everyone > 0)) {
+    // The census suppresses a small group's count, and in a small area that can be all of it.
+    parts.push(hero('–', `The census gives no count of ${who} in ${placeOf(model)}.`));
   } else {
     // With rest homes and villages left out, every figure is for the rest.
     const outside = model.villages && model.villages.out ? ' outside rest homes and retirement villages' : '';
@@ -603,7 +606,7 @@ function renderLive(root, model, set) {
       : null,
     legend(everyone ? 'People per hexagon' : `${capitalise(who)}, as a share of residents`, model.legend, {
       divider: model.divider,
-      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(model.whole ? model.whole.summary.share : s.share, model.digits)}${model.villages && model.villages.out ? ', outside rest homes and villages' : ''}.`,
+      note: everyone ? null : `Purple is above the ${place.name} share of ${percent(model.whole ? model.whole.summary.share : s.share, model.digits)}${((model.whole || model).villages || {}).out ? ', outside rest homes and villages' : ''}.`,
     }),
     model.villages ? villageKey(model.villages) : null,
     liveAreaSection(model, set),
@@ -728,7 +731,7 @@ export function renderPeople(root, model, set) {
 
   const withoutCar = model.group === 'no_car' ? '' : ' without a car';
   const depth = model.below >= 0.5 && Number.isFinite(model.minutesShort)
-    ? `Those who miss out are ${Math.round(model.minutesShort)} minutes over it, on average.`
+    ? `Those who miss out are ${Math.round(model.minutesShort)} ${Math.round(model.minutesShort) === 1 ? 'minute' : 'minutes'} over it, on average.`
     : null;
 
   const parts = [
@@ -812,7 +815,7 @@ export function renderFixes(root, model, set) {
     const button = el('button', 'rank-row');
     button.type = 'button';
     const name = el('span', 'rank-name', place.name);
-    const meta = el('span', 'rank-meta', `${count(place.below)} ${phrase(model.group)}`);
+    const meta = el('span', 'rank-meta', `${count(place.below)} ${peopleWord(place.below, model.group)}`);
     const chip = el('span', 'rank-reason');
     const dot = el('span', 'reason-dot');
     dot.style.background = place.colour;

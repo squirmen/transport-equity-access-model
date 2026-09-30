@@ -147,6 +147,7 @@ export function areaNamed(scope, level, name) {
 /** 1 for the hexagons in an area. */
 export function maskFor(scope, area) {
   const key = `${area.level}:${area.id}`;
+  if (!scope.masks.has(key) && scope.masks.size >= 24) scope.masks.delete(scope.masks.keys().next().value);
   if (!scope.masks.has(key)) {
     const of = scope.levels[area.level].of;
     scope.masks.set(key, Uint8Array.from(of, (a) => (a === area.id ? 1 : 0)));

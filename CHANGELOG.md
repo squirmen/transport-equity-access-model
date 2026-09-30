@@ -9,6 +9,9 @@
   figures on any screen.
 - Councils and wards come from Stats NZ's 2026 boundaries, for all twenty
   places.
+- A breakdown by NZDep fifth or by group resting on fewer than 100 people is
+  left blank, for whole places too: small towns' Pacific and Asian bars, and
+  some fare burden ratios, which now give the average instead.
 - Fixes: bars in the access score's deprivation chart were all full width; a
   rural hexagon's card said "about 0 residents" when only urban areas were
   counted; local board lists placed each suburb by its first hexagon.
