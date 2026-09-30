@@ -368,7 +368,9 @@ export function renderChoice(root, model, set) {
     : null;
   root.replaceChildren(...[
     hero(percent(model.twoOrMore), `of ${residentsOf(model)} have two or more ${model.plural} within ${model.minutes} minutes without a car.`,
-      `${percent(model.none)} have none. A choice matters where a practice's books are closed or the nearest one is small.`),
+      `${percent(model.none)} have none. ${['tertiary', 'trades_training'].includes(model.service)
+        ? 'A choice matters where the nearest one does not teach what someone wants to study.'
+        : "A choice matters where a practice's books are closed or the nearest one is small."}`),
     step,
     showSwitch('choice', set, model.canShowFare, model.canShowBurden),
     legend(`${model.plural[0].toUpperCase()}${model.plural.slice(1)} within ${model.minutes} min without a car`, model.legend, { divider: 2 }),

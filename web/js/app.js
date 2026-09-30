@@ -681,6 +681,7 @@ function choiceModel() {
       show: 'choice',
       noun: SERVICE_NOUN[service],
       plural: SERVICE_PLURAL[service] || `${SERVICE_SHORT[service].toLowerCase()}s`,
+      service,
       standard,
       minutes: found.minutes,
       twoOrMore: weightedShare(two, data.pop),
