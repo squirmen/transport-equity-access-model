@@ -293,6 +293,18 @@ def scope_digest(targets) -> str:
     return hashlib.sha256("\n".join(sorted(targets["id"])).encode("utf-8")).hexdigest()[:16]
 
 
+def members_digest(table: pd.DataFrame) -> str:
+    """A fingerprint of which destination serves which service, and where it
+    is. The ids alone miss a site that gains a service (a campus newly counted
+    as trades training keeps its id) and a point that is moved."""
+    service = table["service"] if "service" in table else pd.Series("", index=table.index)
+    rows = sorted(
+        f"{i}|{s}|{float(lon):.5f}|{float(lat):.5f}"
+        for i, s, lon, lat in zip(table["id"], service, table["lon"], table["lat"])
+    )
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+
+
 def is_current(settings: Settings, dataset: str, mode_id: str, window: str | None) -> bool:
     """Whether a finished run still covers the destinations it should.
 
@@ -307,13 +319,17 @@ def is_current(settings: Settings, dataset: str, mode_id: str, window: str | Non
     record = json.loads(manifest.read_text())
     if not _same_network(record, network_inputs(settings, settings.modes[mode_id])):
         return False
-    _, targets = _targets(settings, dataset, window)
+    table, targets = _targets(settings, dataset, window)
+    # Runs finished before membership was recorded are judged on ids alone.
+    if "members" in record and dataset in ("services", "jobs"):
+        return record["members"] == members_digest(table)
     if "scope" in record:
         return record["scope"] == scope_digest(targets)
     return int(record.get("destinations", -1)) == len(targets)
 
 
-def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str, network: dict | None = None) -> None:
+def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str, network: dict | None = None,
+                 members: str | None = None) -> None:
     """Start a run afresh when the destinations it routes to have changed.
 
     Finished batches are kept so a stopped run can resume, which is only safe
@@ -333,7 +349,9 @@ def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str, network: d
         if network is not None and "network" not in saved:
             saved = {**saved, "network": {"osm": network["osm"], "elevation": None}}
         moved = network is not None and not _same_network(saved, network)
-        if previous != digest or moved:
+        # The same points serving different services, or moved, are a different run.
+        regrouped = members is not None and "members" in saved and saved["members"] != members
+        if previous != digest or moved or regrouped:
             stale = list(batch_dir.glob("origins_*.parquet")) + list(pairs_dir.glob("origins_*.parquet"))
             log.info("%s: %s changed, clearing %d finished batches", tag, "network" if moved else "destinations", len(stale))
             for path in stale:
@@ -345,7 +363,7 @@ def _check_scope(batch_dir: Path, pairs_dir: Path, targets, tag: str, network: d
         log.info("%s: no record of what earlier batches covered, clearing %d", tag, len(stale))
         for path in stale:
             path.unlink()
-    record.write_text(json.dumps({"destinations": digest, "count": int(len(targets)), "network": network}))
+    record.write_text(json.dumps({"destinations": digest, "count": int(len(targets)), "network": network, "members": members}))
 
 
 def run(
@@ -384,7 +402,13 @@ def run(
     batch_dir.mkdir(parents=True, exist_ok=True)
     pairs_dir = settings.cache_dir / "pairs" / tag
     network_used = network_inputs(settings, mode)
-    _check_scope(batch_dir, pairs_dir, targets, tag, network_used)
+    members = members_digest(table)
+    if force and shard is None:
+        # A forced run starts clean: finished batches may hold results for
+        # destinations that have since changed without changing their ids.
+        for path in list(batch_dir.glob("origins_*.parquet")) + list(pairs_dir.glob("origins_*.parquet")):
+            path.unlink()
+    _check_scope(batch_dir, pairs_dir, targets, tag, network_used, members)
     departure, window_length = _departure(settings, window if transit else None)
     kwargs = _mode_kwargs(r5py, mode, settings.routing)
     size = int(settings.routing.get("batch_size", 2000))
@@ -459,6 +483,7 @@ def run(
         "origins": int(len(origins)),
         "destinations": int(len(targets)),
         "scope": scope_digest(targets),
+        "members": members,
         "rows": int(len(result)),
         "osm": network_used["osm"],
         "network": network_used,

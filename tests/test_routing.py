@@ -80,3 +80,18 @@ def test_shard_argument():
     for bad in ("0/3", "4/3", "2", "a/b"):
         with pytest.raises(SystemExit):
             _shard(bad)
+
+
+def test_members_digest_notices_a_new_service_and_a_moved_point():
+    import pandas as pd
+
+    from team.routing import members_digest, scope_digest
+
+    before = pd.DataFrame({"id": ["1", "2"], "service": ["tertiary", "tertiary"], "lon": [174.0, 174.1], "lat": [-39.0, -39.1]})
+    # The same campus now also counts as trades training: no new id.
+    gained = pd.concat([before, before.iloc[[0]].assign(service="trades_training")], ignore_index=True)
+    moved = before.assign(lon=[174.0, 174.2])
+    assert scope_digest(before.drop_duplicates("id")) == scope_digest(gained.drop_duplicates("id"))
+    assert members_digest(before) != members_digest(gained)
+    assert members_digest(before) != members_digest(moved)
+    assert members_digest(before) == members_digest(before.iloc[::-1])
