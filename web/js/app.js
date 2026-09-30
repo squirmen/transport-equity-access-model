@@ -361,7 +361,8 @@ function transitShown() {
   if (state.measure === 'score') return scoreChoice().mode === 'pt';
   // A round is timed off-peak on a weekday only, and priced nowhere.
   if (state.service === 'errands') return false;
-  if (state.service === 'jobs') return jobsChoice().mode === 'pt';
+  // The commute is always by public transport.
+  if (state.service === 'jobs') return jobsChoice().mode === 'pt' || commuteShown();
   return state.view !== 'access' || state.mode === 'best' || state.mode === 'pt';
 }
 
@@ -818,6 +819,11 @@ function boardBox(board) {
  *  someone could walk instead, because plenty of people cannot. The panel
  *  compares the most and least deprived areas, which a dollar map cannot.
  */
+/** Whether the commuting cost is the view on screen. */
+function commuteShown() {
+  return state.service === 'jobs' && state.view === 'access' && state.show === 'burden' && state.measure !== 'score' && commuteAvailable();
+}
+
 /** Whether the commuting fare burden can be worked out here. */
 function commuteAvailable() {
   const cost = data.cost && data.cost.jobs;
@@ -828,9 +834,11 @@ function commuteAvailable() {
  *  the jobs within 45 minutes by public transport, a fair stand-in for where a
  *  typical job reachable from there is. -2 where no job is in reach. */
 function commuteZones() {
-  const cost = data.cost.jobs;
+  // Always the morning peak's figures, whatever time is picked elsewhere.
+  const cost = data.usual.cost.jobs || data.cost.jobs;
   const cap = zoneCap(data.meta.fares);
-  const within = data.jobs.pt['45'];
+  const within = (data.usual.jobs || data.jobs.pt)['45'];
+  const top = cost[`z${cap}`];
   const out = new Int8Array(data.n).fill(-1);
   for (let i = 0; i < data.n; i += 1) {
     const total = within[i];
@@ -839,10 +847,14 @@ function commuteZones() {
       out[i] = -2;
       continue;
     }
+    // A home outside every fare zone, or whose jobs all lie outside them, has
+    // no fare to price; it is left out rather than charged the top fare.
+    const priced = top ? top[i] : NaN;
+    if ((data.zone && data.zone[i] == null) || !(priced > 0)) continue;
     let zones = cap;
     for (let k = 1; k <= cap; k += 1) {
       const reached = cost[`z${k}`] ? cost[`z${k}`][i] : NaN;
-      if (Number.isFinite(reached) && reached >= 0.5 * total * (1 - 1e-6)) {
+      if (Number.isFinite(reached) && reached >= 0.5 * priced * (1 - 1e-6)) {
         zones = k;
         break;
       }
@@ -861,7 +873,8 @@ function burdenModel() {
   const commute = service === 'jobs';
   const standard = commute ? 45 : standardFor(service);
   const meta = data.meta.fares;
-  const { hour, weekday } = tripWindow(service);
+  // A commute is priced at the morning peak, the jobs' usual window.
+  const { hour, weekday } = commute ? tripTime(data, windowsFor(data, 'jobs')[0]) : tripWindow(service);
   const zones = commute ? commuteZones() : cheapestZones(data, service, standard, { walkable: false });
   const trips = state.returnTrip ? 2 : 1;
   const trip = commute ? 'return' : state.returnTrip ? 'return' : 'one way';
@@ -957,14 +970,16 @@ function burdenModel() {
     colours: FARE,
     tooltip: (i) => {
       if (commute) {
-        if (classes[i] === 5) return ['Public transport reaches no jobs within 45 min'];
-        if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
+        if (classes[i] === 5) return ['Public transport reaches almost no jobs within 45 min'];
+        if (zones[i] === -1) return ['Outside the fare zones, so not priced'];
+        if (!Number.isFinite(burden[i])) return ['No income figure for this area'];
         if (burden[i] === 0) return ['Commuting: free for this traveller at the peak'];
         return [
           `Commuting: ${money(costOf(zones[i]) * 7)} a week, ${percentOf(burden[i])} of a week's income here`,
-          `${zones[i]} fare ${zones[i] === 1 ? 'zone' : 'zones'} takes in half the jobs within 45 min`,
+          // Flat-fare networks have no zones to speak of.
+          zoneCap(meta) > 1 ? `${zones[i]} fare ${zones[i] === 1 ? 'zone takes' : 'zones take'} in half the jobs within 45 min` : null,
           `Income about $${Math.round(data.income[i] / 1000)}k a year per person, after household size`,
-        ];
+        ].filter(Boolean);
       }
       if (classes[i] === 5) return [`${SERVICE_SHORT[service]}: public transport can't get there within ${standard} min`];
       if (zones[i] === 0) return [`${SERVICE_SHORT[service]}: close enough to walk, so no fare is needed`];
@@ -996,11 +1011,12 @@ function burdenModel() {
       week,
       capped,
       canWeek: !commute && hasCaps(meta),
+      caps: hasCaps(meta),
       basket: week ? 'week' : 'trip',
       canShowFare: true,
       canShowBurden: true,
       meta: data.meta.affordability,
-      legend: ['No fare', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', commute ? 'No jobs in 45 min' : 'Not in time'].map((label, k) => ({ colour: FARE[k], label })),
+      legend: ['No fare', 'under 2.5%', '2.5–5%', '5–10%', '10% or more', commute ? 'Almost no jobs in 45 min' : 'Not in time'].map((label, k) => ({ colour: FARE[k], label })),
     },
   };
 }
@@ -1994,7 +2010,8 @@ function renderWhen() {
   const specs = data.meta.windows || {};
   // The time only changes public transport, so it stays out of the way
   // whenever public transport is not on screen.
-  if (!transitShown() || !windows.length) {
+  // A commute is priced at the morning peak, so there is no time to pick.
+  if (!transitShown() || !windows.length || commuteShown()) {
     field.hidden = true;
     return;
   }

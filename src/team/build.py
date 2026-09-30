@@ -61,7 +61,27 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, di
     return table, destinations, functions, fare_record
 
 
+def drop_empty_services(settings: Settings) -> list[str]:
+    """Leave out a service this place has no destination of, such as trades
+    training in a town with no trades campus, rather than report that nobody
+    can reach it."""
+    path = settings.output_dir / "destinations" / "services.parquet"
+    if not path.exists():
+        return []
+    present = set(pd.read_parquet(path, columns=["service"])["service"])
+    empty = [s for s in list(settings.services) if s not in present]
+    for service in empty:
+        del settings.raw["services"][service]
+    fares_spec = settings.raw.get("fares")
+    if empty and fares_spec:
+        fares_spec["purposes"] = [p for p in fares_spec.get("purposes", []) if p not in empty]
+    if empty:
+        log.info("no destinations here for %s; left out", ", ".join(empty))
+    return empty
+
+
 def run(settings: Settings) -> None:
+    drop_empty_services(settings)
     table, destinations, functions, fare_record = cell_table(settings)
     table.to_parquet(settings.out("team_cells.parquet"))
 

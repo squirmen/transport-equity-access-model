@@ -123,7 +123,7 @@ def _range(address: str) -> list[int]:
     return []
 
 
-def geocode(key: str, address: str, town: str) -> dict | None:
+def geocode(key: str, address: str, town: str, place: str = "") -> dict | None:
     number, road = split_address(address)
     if not road:
         return None
@@ -136,16 +136,28 @@ def geocode(key: str, address: str, town: str) -> dict | None:
         p = feature["properties"]
         return difflib.SequenceMatcher(None, want, _ascii(str(p.get("full_address", ""))).lower()).ratio()
 
+    # The town, and the wider place ("Greater Wellington" -> "wellington"), as
+    # LINZ might name the locality: Papakura's Walters Road is in Takanini, Auckland.
+    hints = [_ascii(town).lower()] + [
+        _ascii(part).lower().replace("greater ", "").strip()
+        for part in re.split(r"\s+and\s+|-", place or "") if part.strip()
+    ]
+
     def in_town(feature):
         p = feature["properties"]
         places = " ".join(_ascii(str(p.get(k) or "")) for k in ("town_city", "suburb_locality", "territorial_authority")).lower()
-        return _ascii(town).lower() in places or (suburb and suburb.lower() in places)
+        return any(h and h in places for h in hints) or bool(suburb and suburb.lower() in places)
 
     found = []
     if number:
         found = _query(key, f"address_number = {int(number)} AND full_road_name_ascii ILIKE '{road}'")
-        # The same number and street can be in another town: keep this one's.
-        found = [f for f in found if score(f) >= 0.5 and in_town(f)]
+        # The same number and street can be in another town or suburb: keep
+        # the one in this suburb if there is one, else this town's.
+        found = [f for f in found if score(f) >= 0.5]
+        same = [f for f in found if suburb and _ascii(str(f["properties"].get("suburb_locality") or "")).lower().startswith(suburb.lower())]
+        # With a suburb given, only a match in it will do (Auckland has two 22
+        # Princes Streets); otherwise one in the town or wider place.
+        found = same if suburb else [f for f in found if in_town(f)]
     method = "linz_address"
     if not found:
         # No such number, or none given: the nearest number on the same road
@@ -195,7 +207,7 @@ def main() -> None:
         if row.get("lat") and row.get("lon"):
             out["point_method"] = "given"
         else:
-            hit = geocode(key, row["street_address"], row.get("town", ""))
+            hit = geocode(key, row["street_address"], row.get("town", ""), row.get("place", ""))
             if hit:
                 out.update({"lat": hit["lat"], "lon": hit["lon"], "linz_address_id": hit["linz_address_id"],
                             "linz_address": hit["linz_address"], "point_method": f"{hit['method']} ({hit['match']})"})

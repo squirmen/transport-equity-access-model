@@ -510,7 +510,8 @@ FIELD_NOTES = {
     "t_": "Minutes to the nearest destination of this type by this mode (blank: none within 60 minutes). "
           "Public transport is in the service's usual window; a column ending in a window name "
           "(am_peak, interpeak, saturday) is the same trip in that window.",
-    "n_": "Number of destinations of this type within the service's standard time by this mode.",
+    "n_": "Number of destinations of this type within the service's standard time by this mode, or within 30 minutes "
+          "where the standard is longer (counts are kept at 10, 15, 20 and 30 minutes).",
     "id_": "Internal id of the nearest destination.",
     "best_": "Fastest time using walking, low-stress cycling or public transport.",
     "via_": "The mode that gave the fastest time.",

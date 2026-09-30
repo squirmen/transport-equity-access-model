@@ -427,11 +427,13 @@ TEAM does not assume.
 **Commuting.** Jobs have no nearest one to price, so the commuting fare
 burden prices a typical job within reach instead. From each home, it takes
 the fewest fare zones that include half the jobs public transport reaches
-within 45 minutes, and prices five return trips a week at the morning peak for
-that many zones, after the network's daily and weekly caps. That is set
-against a week's income. Homes where public transport reaches no jobs within
-45 minutes are shown apart. Where the network charges one flat fare, the zones
-do not matter and the burden is the week's flat fares against income.
+within 45 minutes inside the fare zones, and prices five return trips a week
+at the morning peak for that many zones, whatever time is picked elsewhere,
+after the network's daily and weekly caps. That is set against a week's
+income. Homes where public transport reaches almost no jobs within 45 minutes
+are shown apart; homes outside the fare zones are left out rather than charged
+the top fare. Where the network charges one flat fare, the zones do not matter
+and the burden is the week's flat fares against income.
 
 ## 8. How robust an answer is
 

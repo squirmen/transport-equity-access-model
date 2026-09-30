@@ -137,3 +137,22 @@ def test_steps_after_routing(settings: Settings, tmp_path: Path):
     assert payload["jobs"]["pt"]["45"][0] == pytest.approx(100.0)
     assert payload["place"] == [0, 1, 1]
     json.dumps(export._clean(payload))
+
+
+def test_a_service_with_no_destinations_is_left_out(tmp_path):
+    import pandas as pd
+
+    from team.build import drop_empty_services
+    from team.config import Settings
+
+    (tmp_path / "destinations").mkdir()
+    pd.DataFrame({"service": ["gp", "tertiary"]}).to_parquet(tmp_path / "destinations" / "services.parquet")
+    raw = {
+        "services": {"gp": {}, "tertiary": {}, "trades_training": {}},
+        "fares": {"purposes": ["jobs", "gp", "tertiary", "trades_training"]},
+        "data": {},
+    }
+    settings = Settings(raw=raw, config_path=tmp_path / "c.yml", data_root=tmp_path, output_dir=tmp_path, cache_dir=tmp_path)
+    assert drop_empty_services(settings) == ["trades_training"]
+    assert list(settings.services) == ["gp", "tertiary"]
+    assert settings.raw["fares"]["purposes"] == ["jobs", "gp", "tertiary"]

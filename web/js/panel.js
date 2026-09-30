@@ -482,7 +482,7 @@ export function renderBurden(root, model, set) {
   const the = model.commute ? 'commuting by public transport' : `the fare to ${model.noun}`;
   let figure = '–';
   let text = model.commute
-    ? `Public transport reaches no jobs within 45 minutes${model.where ? ` of ${model.where}` : ''}.`
+    ? `Public transport reaches almost no jobs within 45 minutes${model.where ? ` of ${model.where}` : ''}.`
     : `Nobody ${model.where ? `in ${model.where}` : 'here'} needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;
@@ -534,9 +534,9 @@ export function renderBurden(root, model, set) {
       ? "Five return trips to work a week by public transport, as a share of a week's income"
       : `Fare to ${model.noun} by public transport, within ${model.standard} min, as a share of ${period}`, model.legend, { divider: 1 }),
     el('p', 'note', `${count(model.heavy)} ${peopleWord(model.heavy, model.group)} would spend 5% or more of ${period} on ${what}.`),
-    model.week
+    model.week && model.caps
       ? el('p', 'note', model.capped > 0
-        ? `A fare cap lowers the week's cost for ${count(model.capped)} of them.`
+        ? `A fare cap lowers the week's cost for ${count(model.capped)} ${peopleWord(model.capped)}.`
         : 'No cap applies: a week of these trips stays under the cap, or this way of paying has none.')
       : null,
     chartQ,
@@ -545,10 +545,11 @@ export function renderBurden(root, model, set) {
       'How this is worked out',
       model.commute
         ? 'A commute is five return trips a week at the morning peak. From each home, the fare is for the fewest fare '
-          + 'zones that take in half the jobs public transport reaches within 45 minutes, so it stands for the fare to a '
-          + "typical job within reach. The week is priced after the network's daily and weekly caps, where it has them "
-          + "and the way of paying qualifies, and divided by a week's income where the traveller lives. Homes where public "
-          + 'transport reaches no jobs within 45 minutes are shown apart. The fare follows the traveller and payment chosen above.'
+          + 'zones that take in half the jobs public transport reaches within 45 minutes inside the fare zones, so it stands '
+          + "for the fare to a typical job within reach. The week is priced after the network's daily and weekly caps, where it "
+          + "has them and the way of paying qualifies, and divided by a week's income where the traveller lives. Homes where "
+          + 'public transport reaches almost no jobs within 45 minutes are shown apart, and homes outside the fare zones are '
+          + 'left out. The fare follows the traveller and payment chosen above.'
         : "Burden is the fare for the cheapest public transport trip that reaches the nearest one inside the standard, "
           + "divided by a day's income where the traveller lives. It counts whether or not the traveller could walk "
           + 'instead, but a trip short enough to be a walk the whole way needs no fare and is left out. The fare follows '

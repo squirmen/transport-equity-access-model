@@ -78,15 +78,20 @@ providers' own pages; address points from LINZ NZ Addresses, CC BY 4.0.
 
 **Which tertiary sites count.** A site is in if scheduled teaching happens
 there on premises the provider runs and students travel to it. Universities,
-institutes of technology and polytechnics, wānanga, and private training
-establishments whose teaching is mainly trades are covered. Left out: head and
+institutes of technology and polytechnics, and wānanga are covered, and private
+training establishments at sites that teach trades. A site teaches trades if
+it teaches any of building and construction (including carpentry and
+joinery), automotive, engineering, welding or fabrication, electrical,
+plumbing, cookery or baking, or hairdressing; land-based, business, health and
+hospitality service teaching on their own do not count. Left out: head and
 liaison offices, distance and work-based providers (the Open Polytechnic and the
 former industry training organisations), apprenticeships and on-the-job
 training, trades academies inside secondary schools, marae and other venues
 used only for block courses, workplaces and clinical placements, halls of
 residence and research stations, and English language schools. Trades
-training is the subset whose teaching is mainly trades, including the trades
-campuses of polytechnics. The list dates quickly: polytechnics are being
+training is the subset of sites that teach trades, polytechnic campuses
+included. A place with no such site, such as Whanganui, has no trades training
+measure. The list dates quickly: polytechnics are being
 reorganised through 2027, so each row carries its source and date.
 
 ### Known weaknesses
