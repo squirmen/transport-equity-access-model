@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0 (unreleased)
+## 0.11.0 (1 October 2026)
 
 - Tertiary or trades training, and trades training on its own, are
   destinations under Education, with a 45-minute standard: the teaching sites of
