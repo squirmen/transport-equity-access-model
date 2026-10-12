@@ -175,6 +175,22 @@ export function lighting(cm, i) {
   };
 }
 
+/** A hexagon's footpath for a profile, in one line: "1.3 km of footpath: 54% no known barrier, 18% harder, …".
+ *  Null where MATE has no footpath data. `core` is what request() returns as core. */
+export function footLine(core, i, profile, dark = false) {
+  const cm = core?.cells;
+  if (!cm || cm.km[i] == null) return null;
+  const shares = statusShares(cm, i, variantOf(profile, dark));
+  const words = STATUS.filter((s) => (shares[s.key] || 0) > 0).map((s) => `${shares[s.key]}% ${s.label}`);
+  return `${cm.km[i].toFixed(cm.km[i] < 10 ? 1 : 0)} km of footpath: ${words.join(', ')}.`;
+}
+
+/** Whether MATE has footpath data for a hexagon: footpath counted in it, or times from it. */
+export function hasData(core, i) {
+  const cm = core?.cells;
+  return Boolean(cm && (cm.km[i] != null || cm.o[i] != null));
+}
+
 export function servicesIn(bits, services) {
   if (bits == null) return [];
   return services.filter((_, k) => (bits >> k) & 1);

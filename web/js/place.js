@@ -237,11 +237,13 @@ export function placeHeader(data, i) {
 /** The card for hexagon `i`.
  *
  *  `opts.lead` replaces the verdict band (the errand round, which app.js
- *  works out); `opts.slot` goes under the tiles (trips); `opts.extra` holds
- *  sections after TEAM's own, such as MATE's behind ?mate=1. `opts.key`
- *  prefixes the fold keys, so a trip's From and To cards fold apart. */
+ *  works out); `opts.top` goes first (the line shown while a trip's
+ *  destination is picked); `opts.slot` goes under the tiles (trips);
+ *  `opts.extra` holds sections after TEAM's own, such as MATE's behind
+ *  ?mate=1. `opts.key` prefixes the fold keys, so a trip's From and To cards
+ *  fold apart. */
 export function renderPlace(root, data, i, state, opts = {}) {
-  const { extra = [], slot = null, lead = null, key = 'card' } = opts;
+  const { extra = [], slot = null, lead = null, key = 'card', top = null } = opts;
   const head = placeHeader(data, i);
   const standards = (s) => state.standard[s] ?? data.meta.services[s].standard_minutes;
 
@@ -394,6 +396,7 @@ export function renderPlace(root, data, i, state, opts = {}) {
   root.title.textContent = head.title;
   root.sub.textContent = head.sub;
   root.body.replaceChildren(...[
+    ...[].concat(top || []),
     band ? verdictBand(band) : null,
     el('p', 'rollup', rollup(data, i, standards, zones)),
     tiles([jobTile, stopTile, scoreTile]),

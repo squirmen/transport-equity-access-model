@@ -84,6 +84,9 @@ const STOP_COLOUR = [
 
 let cells = EMPTY;
 let lastClasses = null;
+// While a trip's destination is picked, a click picks a hexagon even on a stop
+// or pin, and the pointer is a crosshair.
+let picking = false;
 
 function raster(url, maxzoom, attribution) {
   return { type: 'raster', tiles: [url], tileSize: 256, maxzoom, ...(attribution ? { attribution } : {}) };
@@ -294,7 +297,8 @@ export function onPoints(map, handler, { hover, leave } = {}) {
   for (const layer of POINT_LAYERS) {
     map.on('click', layer, (event) => {
       const feature = event.features && event.features[0];
-      if (!feature) return;
+      // While picking, the hexagon under the pin is what is wanted.
+      if (!feature || picking) return;
       // Stop the cell underneath from also being selected.
       event.originalEvent.stopPropagation();
       handler({
@@ -312,7 +316,7 @@ export function onPoints(map, handler, { hover, leave } = {}) {
         return;
       }
       const feature = top || (event.features && event.features[0]);
-      if (!feature) return;
+      if (!feature || picking) return;
       map.getCanvas().style.cursor = 'pointer';
       if (layer === 'destinations' && feature.id !== lit) {
         unlight();
@@ -322,6 +326,7 @@ export function onPoints(map, handler, { hover, leave } = {}) {
       if (hover) hover({ kind: layer === 'destinations' ? 'destination' : 'stop', properties: feature.properties || {} }, event.point);
     });
     map.on('mouseleave', layer, () => {
+      if (picking) return;
       map.getCanvas().style.cursor = '';
       if (layer === 'destinations') unlight();
       if (leave) leave();
@@ -336,7 +341,7 @@ export function onCells(map, { hover, leave, click }) {
     if (!feature) return;
     // A pin or stop sits on top of a cell; it has its own hover, so the cell
     // steps back rather than covering it with a tooltip.
-    if (pointAt(map, event.point)) {
+    if (!picking && pointAt(map, event.point)) {
       if (hovered != null) {
         hovered = null;
         map.getSource('hover').setData(EMPTY);
@@ -347,18 +352,18 @@ export function onCells(map, { hover, leave, click }) {
       hovered = feature.id;
       map.getSource('hover').setData(cells.features[hovered] || EMPTY);
     }
-    map.getCanvas().style.cursor = 'pointer';
+    map.getCanvas().style.cursor = picking ? 'crosshair' : 'pointer';
     hover(feature.id, event.point);
   });
   map.on('mouseleave', 'cells-fill', () => {
     hovered = null;
     map.getSource('hover').setData(EMPTY);
-    map.getCanvas().style.cursor = '';
+    map.getCanvas().style.cursor = picking ? 'crosshair' : '';
     leave();
   });
   map.on('click', 'cells-fill', (event) => {
     // A pin or stop on top answers the click itself; the cell under it does not.
-    if (pointAt(map, event.point)) return;
+    if (!picking && pointAt(map, event.point)) return;
     const feature = event.features && event.features[0];
     if (feature) click(feature.id);
   });
@@ -366,6 +371,128 @@ export function onCells(map, { hover, leave, click }) {
 
 export function select(map, previous, next) {
   map.getSource('selected').setData(next != null && cells.features[next] ? cells.features[next] : EMPTY);
+}
+
+/** The hexagon at a point on the map's canvas, or null. */
+export function cellAtPoint(map, point) {
+  const hits = map.queryRenderedFeatures(point, { layers: ['cells-fill'] });
+  return hits.length ? hits[0].id : null;
+}
+
+// ---------------------------------------------------------------- trips (?mate=1)
+
+// A trip's destination ring, its lines and stops come from sources of their
+// own, added the first time a trip needs them, so the map is the same as ever
+// without one.
+const TRIP_LINE = {
+  walk: '#55646c',
+  ride: '#0c0c48',
+  // A route on foot by status: no known barrier, harder, not known (MATE's colours, mate.js STATUS).
+  status: ['#3b7fb6', '#e8890c', '#8a938d'],
+};
+let tripMarkers = [];
+
+function ensureTripLayers(map) {
+  if (map.getSource('dest')) return;
+  map.addSource('dest', { type: 'geojson', data: EMPTY });
+  map.addSource('trip', { type: 'geojson', data: EMPTY });
+  // While picking: the hexagon under the pointer, dashed in teal.
+  map.addLayer({
+    id: 'cell-pick', type: 'line', source: 'hover', layout: { visibility: 'none' },
+    paint: { 'line-color': '#1f6178', 'line-width': 3, 'line-dasharray': [2, 1.5] },
+  }, 'cell-selected-halo');
+  const route = ['==', ['get', 'kind'], 'route'];
+  const known = ['all', route, ['!=', ['get', 'status'], 2]];
+  const unknown = ['all', route, ['==', ['get', 'status'], 2]];
+  const lines = [
+    { id: 'trip-casing', filter: ['in', ['get', 'kind'], ['literal', ['ride', 'route']]], paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.9 } },
+    { id: 'trip-walk', filter: ['==', ['get', 'kind'], 'walk'], paint: { 'line-color': TRIP_LINE.walk, 'line-width': 2.5, 'line-dasharray': [1.2, 1.6] } },
+    { id: 'trip-ride', filter: ['==', ['get', 'kind'], 'ride'], paint: { 'line-color': TRIP_LINE.ride, 'line-width': 4 } },
+    { id: 'trip-route', filter: known, paint: { 'line-color': ['match', ['get', 'status'], 1, TRIP_LINE.status[1], TRIP_LINE.status[0]], 'line-width': 4.5 } },
+    { id: 'trip-route-unknown', filter: unknown, paint: { 'line-color': TRIP_LINE.status[2], 'line-width': 4.5, 'line-dasharray': [1.1, 1.1] } },
+  ];
+  for (const spec of lines) {
+    map.addLayer({ id: spec.id, type: 'line', source: 'trip', filter: spec.filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: spec.paint }, 'cell-hover');
+  }
+  map.addLayer({ id: 'cell-dest-halo', type: 'line', source: 'dest', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.95 } });
+  map.addLayer({ id: 'cell-dest', type: 'line', source: 'dest', paint: { 'line-color': '#1f6178', 'line-width': 3.5 } });
+}
+
+/** Picking a destination: the pointer becomes a crosshair and the hexagon under it is dashed in teal. */
+export function setPicking(map, on) {
+  picking = Boolean(on);
+  if (!map.getSource('selected')) return;
+  if (on) ensureTripLayers(map);
+  if (map.getLayer('cell-pick')) {
+    map.setLayoutProperty('cell-pick', 'visibility', on ? 'visible' : 'none');
+    map.setLayoutProperty('cell-hover', 'visibility', on ? 'none' : 'visible');
+  }
+  map.getCanvas().style.cursor = on ? 'crosshair' : '';
+}
+
+export function isPicking() {
+  return picking;
+}
+
+function marker(map, element, lngLat, anchor = 'center') {
+  return new maplibregl.Marker({ element, anchor }).setLngLat(lngLat).addTo(map);
+}
+
+/** The top corner of a hexagon, for the label over its ring. */
+function topOf(i) {
+  const ring = cells.features[i]?.geometry.coordinates[0];
+  if (!ring) return null;
+  return ring.reduce((a, b) => (b[1] > a[1] ? b : a));
+}
+
+/** Draw a trip: the destination ring, the labels over both rings, and the lines and stops of `drawing`
+ *  (trip.js tripDrawing). Null clears it all. */
+export function setTrip(map, trip) {
+  if (!map.getSource('selected')) return;
+  for (const m of tripMarkers) m.remove();
+  tripMarkers = [];
+  if (!trip) {
+    if (map.getSource('dest')) {
+      map.getSource('dest').setData(EMPTY);
+      map.getSource('trip').setData(EMPTY);
+    }
+    return;
+  }
+  ensureTripLayers(map);
+  map.getSource('dest').setData(cells.features[trip.dest] || EMPTY);
+  map.getSource('trip').setData({ type: 'FeatureCollection', features: trip.drawing?.lines || [] });
+  const tag = (text, kind) => {
+    const box = document.createElement('span');
+    box.className = `map-tag is-${kind}`;
+    box.textContent = text;
+    box.setAttribute('aria-hidden', 'true');
+    return box;
+  };
+  for (const [i, text, kind] of [[trip.origin, 'From', 'from'], [trip.dest, 'To', 'to']]) {
+    const at = topOf(i);
+    if (at) tripMarkers.push(marker(map, tag(text, kind), at, 'bottom'));
+  }
+  for (const stop of trip.drawing?.stops || []) {
+    const box = tag(stop.label, 'stop');
+    box.title = stop.name;
+    tripMarkers.push(marker(map, box, [stop.lon, stop.lat]));
+  }
+  const label = trip.drawing?.label;
+  if (label && label.text) tripMarkers.push(marker(map, tag(label.text, 'route'), [label.lon, label.lat]));
+}
+
+/** The middle of a hexagon, as [lon, lat]. */
+export function centreOf(i) {
+  const ring = cells.features[i]?.geometry.coordinates[0];
+  if (!ring) return null;
+  const n = ring.length - 1;
+  let x = 0;
+  let y = 0;
+  for (let k = 0; k < n; k += 1) {
+    x += ring[k][0];
+    y += ring[k][1];
+  }
+  return [x / n, y / n];
 }
 
 // MATE's catchment colours the hexagons through paintCells like any view. The

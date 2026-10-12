@@ -381,6 +381,67 @@ button.k-row:hover { background: var(--wash); }
 .tile span { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; line-height: 1.25; }
 .not-yet { margin: 0; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: var(--fs-xs); }
 .trip-slot:empty { display: none; }
+
+/* ------------------------------------------------------------------ trips (?mate=1, Auckland) */
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 6px 14px; border: 1.5px solid var(--navy); border-radius: 999px; background: #fff; color: var(--navy); font-size: var(--fs-sm); font-weight: 700; }
+.btn:hover { background: var(--wash); }
+.btn.is-quiet { align-self: flex-start; min-height: 30px; padding: 3px 12px; border-color: var(--line-strong); color: var(--ink-soft); font-size: var(--fs-xs); font-weight: 600; }
+.btn.is-quiet[aria-pressed="true"]::before { content: ""; width: 10px; height: 6px; margin-top: -3px; border-left: 2px solid var(--navy); border-bottom: 2px solid var(--navy); transform: rotate(-45deg); }
+.btn.is-quiet[aria-pressed="false"] { color: var(--muted); }
+/* While a destination is picked: what to do, and Cancel. */
+.pick-strip { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--navy); color: #fff; font-size: var(--fs-sm); line-height: 1.35; }
+.pick-strip .grow { flex: 1 1 auto; }
+.pick-strip strong { font-weight: 700; }
+.pick-strip button { flex: none; min-height: 30px; padding: 2px 12px; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 999px; background: none; color: #fff; font-size: var(--fs-xs); font-weight: 600; }
+.pick-strip button:hover { background: rgba(255, 255, 255, 0.12); }
+/* The mark in the middle of the map that Enter picks. */
+.pick-mark { position: fixed; z-index: 8; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px var(--accent); pointer-events: none; }
+.pick-mark::before, .pick-mark::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--accent); transform: translate(-50%, -50%); }
+.pick-mark::before { width: 2px; height: 10px; }
+.pick-mark::after { width: 10px; height: 2px; }
+/* A trip's From or To card opens on which end it is. */
+.end-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; font-size: var(--fs-sm); }
+.end-head strong { color: var(--navy); }
+.end-sub { flex: 1 0 100%; color: var(--muted); font-size: var(--fs-xs); }
+/* Labels on the map over a trip's two ends, its stops and its route. */
+.map-tag { display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--navy); color: #fff; font-size: var(--fs-2xs); font-weight: 700; line-height: 18px; white-space: nowrap; box-shadow: 0 0 0 1.5px #fff; pointer-events: none; }
+.map-tag.is-from { margin-bottom: 6px; }
+.map-tag.is-to { margin-bottom: 6px; background: #1f6178; }
+.map-tag.is-stop { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 2.5px solid var(--navy); background: #fff; color: var(--navy); font-size: 10.5px; font-weight: 800; line-height: 1; box-shadow: none; }
+.map-tag.is-route { border-radius: 4px; }
+.end-head .map-tag { margin: 0; }
+/* The Trip tab. */
+.place-trip .mate-table th { font-weight: 600; }
+.trip-modes th { color: var(--ink-soft); }
+.trip-modes td { color: var(--navy); font-weight: 600; }
+.badge.is-reference-badge { background: var(--track); color: var(--ink-soft); font-weight: 600; }
+.badge.is-estimate { border: 1px dashed var(--muted); background: #fff; color: var(--ink-soft); font-weight: 600; }
+.trip-windows { display: inline-flex; flex-wrap: nowrap; justify-content: flex-end; gap: 0 2px; }
+.trip-window { padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--ink-soft); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trip-window:hover { background: var(--wash); color: var(--navy); }
+.trip-window[aria-pressed="true"] { color: var(--navy); font-weight: 700; box-shadow: inset 0 -2px 0 var(--navy); border-radius: 0; }
+.trip-ride { display: flex; flex-direction: column; gap: 8px; }
+.sec-title { margin: 2px 0 0; color: var(--ink); font-size: var(--fs-sm); font-weight: 700; }
+.legs { display: flex; height: 22px; overflow: hidden; border-radius: 6px; font-size: 10.5px; font-weight: 700; }
+.leg { display: grid; flex: 1 1 0; min-width: 4px; place-items: center; overflow: hidden; color: #fff; white-space: nowrap; }
+.leg + .leg { margin-left: 1px; }
+.leg.is-walk, .leg.is-change { background: #55646c; }
+.leg.is-wait { background: repeating-linear-gradient(90deg, #d7dbe0 0 4px, #eceff2 4px 8px); color: var(--ink-soft); }
+.leg.is-ride { background: var(--navy); }
+.steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.steps li { display: grid; grid-template-columns: 28px 1fr; align-items: baseline; gap: 8px; }
+.step-m { color: var(--navy); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.route-no { display: inline-block; min-width: 24px; padding: 0 5px; border-radius: 4px; background: var(--navy); color: #fff; font-size: var(--fs-2xs); font-weight: 700; line-height: 17px; text-align: center; }
+.mate-field.trip-route-for { flex-direction: row; align-items: center; gap: 8px; }
+.mate-field.trip-route-for .select { flex: 1 1 auto; max-width: none; }
+.trip-mile { table-layout: fixed; }
+.trip-mile thead th:first-child, .trip-mile .mate-name { width: 37%; }
+.trip-mile td.num { padding-left: 6px; white-space: normal; }
+/* A trip's rows in the key, two to a line, so the key stays short. */
+.k-layers.is-trip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 6px; }
+.key-hex { width: 14px; height: 14px; border: 2.5px solid var(--swatch); border-radius: 4px; background: #fff; }
+.key-stop { width: 14px; height: 14px; border: 2.5px solid var(--swatch); border-radius: 50%; background: #fff; }
 .folds { display: flex; flex-direction: column; }
 .folds > .fold:last-child { border-bottom: 1px solid var(--line); }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12.5px; }
@@ -758,6 +819,12 @@ body[data-place="open"] .maplibregl-ctrl-top-right .maplibregl-ctrl-group { marg
   .place[data-sheet="full"] { height: calc(100% - 52px); }
   /* Lowest, for a strip while picking where to go on a trip. */
   .place[data-sheet="peek"] { height: 196px; overflow: hidden; }
+  body[data-picking] .place { height: auto; }
+  body[data-picking] .place .place-head, body[data-picking] .place .c-tabs, body[data-picking] .place-body > :not(.pick-strip) { display: none; }
+  body[data-picking] .place-body { padding-bottom: 16px; }
+  .pick-strip { min-height: var(--touch); }
+  .pick-strip button { min-height: var(--touch); padding: 2px 16px; font-size: var(--fs-sm); }
+  .trip-window { min-height: 32px; }
   .place .sheet-handle { position: static; flex: none; }
   .place-head { padding-top: 2px; }
 

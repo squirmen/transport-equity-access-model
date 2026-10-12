@@ -17,13 +17,13 @@ import {
 } from './fares.js';
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
-  BASEMAPS, cellCollection, createMap, elementControl, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
-  setCells, setHatch, setOverlay, setOverlays, showDestinationsFor,
+  BASEMAPS, cellAtPoint, cellCollection, createMap, elementControl, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select,
+  setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setTrip, showDestinationsFor,
 } from './map.js';
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
   FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
-  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
+  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, TRIP_ENDS, VILLAGE,
 } from './palette.js';
 import {
   goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes,
@@ -106,6 +106,8 @@ let mateImport = null;
 let mateParams = null;
 // The hexagon picked (o=) from the address, until the data is in.
 let linkedCell = null;
+// A trip's destination (d=, with ?mate=1 in Auckland), likewise.
+let linkedDest = null;
 const mateState = { profile: 'manual_wheelchair', dark: false, view: 'nkb', map: true };
 const VIEWS = ['access', 'people', 'fixes'];
 // Which groups exist depends on the census tables the build had, so they come
@@ -263,6 +265,8 @@ function readHash() {
   state.jobsFair = jobs[2] === 'f';
   const cell = params.get('o');
   if (cell && /^[0-9a-f]{15}$/.test(cell)) linkedCell = cell;
+  const dest = params.get('d');
+  if (MATE && dest && /^[0-9a-f]{15}$/.test(dest)) linkedDest = dest;
   if (MATE) mateParams = params;
   return params.get('at');
 }
@@ -304,6 +308,7 @@ function hashNow() {
   if (state.basemap !== 'light') params.set('b', state.basemap);
   // The hexagon picked, so a link opens the same card.
   if (state.selected != null && data.h3[state.selected]) params.set('o', data.h3[state.selected]);
+  if (tripOpen()) params.set('d', data.h3[card.dest]);
   if (MATE) {
     if (mate) params.set('mp', mate.mateHash(mateState));
     else if (mateParams?.get('mp')) params.set('mp', mateParams.get('mp'));
@@ -2333,7 +2338,15 @@ function renderSettings() {
  *  when one is painted, then the layers that are on. */
 function keyNow(catchment) {
   let spec = $('view').keySpec || null;
-  if (catchment) {
+  if (catchment && catchment.kind === 'reach') {
+    // Picking a trip's destination: how far the origin gets.
+    spec = {
+      mode: catchment.key.title,
+      short: 'From here',
+      scale: { items: catchment.key.rows.map(([label, k, short]) => ({ colour: catchment.colours[k], label, short })) },
+      notes: [catchment.key.note],
+    };
+  } else if (catchment) {
     spec = {
       mode: catchment.key.title,
       short: catchment.key.title.split(':')[0],
@@ -2343,9 +2356,12 @@ function keyNow(catchment) {
   }
   const out = spec ? { ...spec } : { mode: current && current.waiting ? 'Loading…' : '', notes: [] };
   // MATE's map switch, for a hexagon with a catchment to show.
-  if (MATE && mate && state.selected != null && MATE_PLACES.includes(CITY) && mateHasTimes(state.selected)) {
-    out.after = [el('p', 'k-sub', 'Hexagon picked'), mate.mapSwitch(mateState, setMate, 'key-mate-map')];
+  const focus = focusCell();
+  const tripTab = tripOpen() && card.tab === 'trip';
+  if (MATE && mate && focus != null && !card.picking && !tripTab && MATE_PLACES.includes(CITY) && mateHasTimes(focus)) {
+    out.after = [el('p', 'k-sub', tripOpen() ? `Hexagon: ${card.tab === 'to' ? 'To' : 'From'}` : 'Hexagon picked'), mate.mapSwitch(mateState, setMate, 'key-mate-map')];
   }
+  if (tripOpen()) out.trip = tripKey();
   out.onMap = [];
   for (const [k, spec2] of Object.entries(OVERLAYS)) {
     if (!state.overlays[k] || !spec2.key) continue;
@@ -2425,6 +2441,17 @@ function keyContent(spec, { compact = false } = {}) {
   const notes = (spec.notes || []).filter(Boolean);
   for (const text of compact ? notes.slice(0, 1) : notes) nodes.push(el('p', 'note', text));
   if (spec.after) nodes.push(...spec.after);
+  // A trip: its two ends, and what is drawn between them.
+  if (spec.trip && !compact) {
+    nodes.push(el('p', 'k-sub', 'Trip'));
+    const list = el('div', 'k-rows k-layers is-trip');
+    for (const row of spec.trip.rows) {
+      const item = el('div', 'k-row');
+      item.append(swatchOf(row.swatch, row.colour), el('span', 'k-text', row.label), el('span'));
+      list.append(item);
+    }
+    nodes.push(list, ...spec.trip.notes.map((text) => el('p', 'note', text)));
+  }
   if (spec.onMap && spec.onMap.length) {
     nodes.push(el('p', 'k-sub', 'On the map'));
     const list = el('div', 'k-rows k-layers');
@@ -2723,6 +2750,8 @@ let announceTimer = 0;
 function announce() {
   window.clearTimeout(announceTimer);
   announceTimer = window.setTimeout(() => {
+    // What a trip just said is not talked over.
+    if (Date.now() < sayUntil) return;
     const heroBox = document.querySelector('#view .hero');
     $('announce').textContent = heroBox ? heroBox.innerText.split('\n').filter(Boolean).slice(0, 2).join(' ') : '';
   }, 600);
@@ -2821,8 +2850,9 @@ function update() {
     current.classes = Int8Array.from(current.classes, (c, i) => (data.urban[i] ? c : -1));
   }
   const t1 = performance.now();
-  // With MATE on and a hexagon picked, the map shows its catchment instead.
-  const catchment = mateCatchment();
+  // With MATE on and a hexagon picked, the map shows its catchment instead;
+  // while a trip's destination is picked, how far the origin gets.
+  const catchment = card.picking ? pickModel() : mateCatchment();
   painted = catchment || current;
   // The panel is worth drawing even when the basemap has not arrived.
   try {
@@ -2874,6 +2904,7 @@ function update() {
     console.warn('Destination pins are not ready yet.', error);
   }
   if (state.selected != null) showPlace(state.selected);
+  if (TRIPS) drawTrip();
 }
 
 /** The verdict band for an errand round, which only this file can time. */
@@ -2890,23 +2921,47 @@ function errandLead(i) {
   };
 }
 
-/** Under the tiles: where a trip will start (behind ?mate=1, in Auckland),
- *  or a line saying trips are not yet here. Nothing without ?mate=1. */
-function tripSlot() {
+/** Under the tiles: Plan a trip from here (behind ?mate=1, in Auckland), or a
+ *  line saying trips are not yet here. Nothing without ?mate=1, on a trip's To
+ *  tab, or while a destination is being picked. */
+function tripSlot(tab = null) {
   if (!MATE) return null;
   if (!MATE_PLACES.includes(CITY)) return el('p', 'not-yet', 'Trips and mobility profiles: not yet for this place.');
-  // Plan a trip from here goes in this slot.
+  if (tab === 'to' || card.picking) return null;
   const slot = el('div', 'trip-slot');
   slot.id = 'trip-slot';
+  const plan = el('button', 'btn', 'Plan a trip from here');
+  plan.type = 'button';
+  plan.id = 'trip-plan';
+  plan.addEventListener('click', startPicking);
+  slot.append(plan);
   return slot;
 }
 
+/** At the top of the card while a destination is picked: what to do, and Cancel. */
+function pickTop() {
+  if (!card.picking || !trips.view) return null;
+  const strip = trips.view.pickStrip({ phone: phone(), message: card.message, onCancel: cancelPicking, limit: pickLimit() });
+  if (phone()) return strip;
+  return [strip, el('p', 'note', `The map shows where you can get from here within ${pickLimit()} minutes. Escape cancels.`)];
+}
+
+/** A trip's From or To card opens on which end it is. */
+function endLine(i, tab) {
+  const head = placeHeader(data, i);
+  const line = el('p', 'end-head');
+  line.append(el('span', `map-tag is-${tab}`, tab === 'to' ? 'To' : 'From'), el('strong', null, head.title));
+  if (head.sub) line.append(el('span', 'end-sub', head.sub));
+  return line;
+}
+
 function showPlace(i) {
-  const card = $('place');
-  const opening = card.hidden;
-  card.hidden = false;
+  const box = $('place');
+  const opening = box.hidden;
+  box.hidden = false;
   document.body.dataset.place = 'open';
-  if (opening && phone()) setSheet(card, 'half');
+  if (opening && phone()) setSheet(box, 'half');
+  const trip = tripOpen();
   const head = placeHeader(data, i);
   if (!data.complete) {
     // The card reads the measures sent after the map; it is drawn again when
@@ -2920,17 +2975,27 @@ function showPlace(i) {
   }
   // The card is drawn afresh, so keep focus on the control that had it.
   const active = document.activeElement;
-  const keep = active && card.contains(active) ? focusKey() : null;
+  const keep = active && box.contains(active) ? focusKey() : null;
   try {
-    // With a trip open, the To tab is the same card for the destination.
-    const cell = card.trip && card.tab === 'to' && card.dest != null ? card.dest : i;
-    const extra = MATE && MATE_PLACES.includes(CITY) ? [mateSection(cell)] : [];
-    renderPlace({ eyebrow: $('place-eyebrow'), title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, cell, state, {
-      lead: errandLead(cell),
-      slot: card.trip ? null : tripSlot(),
-      extra,
-      key: card.trip ? `card-${card.tab}` : 'card',
-    });
+    if (trip) renderTripHead();
+    if (trip && card.tab === 'trip') {
+      renderTripTab();
+    } else {
+      // With a trip open, the To tab is the same card for the destination.
+      const cell = trip && card.tab === 'to' ? card.dest : i;
+      const key = trip ? `card-${card.tab}` : 'card';
+      const extra = MATE && MATE_PLACES.includes(CITY) ? [mateSection(cell, key)] : [];
+      // A trip's header names both ends, so each end's own goes in a line of its own.
+      const header = trip ? { title: el('h2'), sub: el('p') } : { eyebrow: $('place-eyebrow'), title: $('place-title'), sub: $('place-sub') };
+      renderPlace({ ...header, body: $('place-body') }, data, cell, state, {
+        lead: errandLead(cell),
+        top: pickTop(),
+        slot: tripSlot(trip ? card.tab : null),
+        extra,
+        key,
+      });
+      if (trip) $('place-body').prepend(endLine(cell, card.tab));
+    }
   } catch (error) {
     // Better an honest gap than the last place's figures under a new name.
     $('place-eyebrow').textContent = head.eyebrow;
@@ -2940,36 +3005,528 @@ function showPlace(i) {
     console.error('Place card failed', i, error);
   }
   renderCardTabs();
-  if (keep) restoreFocus(keep, card);
+  renderCardActions();
+  if (keep) restoreFocus(keep, box);
   window.requestAnimationFrame(sheetHeight);
 }
 
 function closePlace() {
+  if (card.picking) endPicking();
+  card.trip = false;
+  card.tab = 'from';
+  card.dest = null;
+  drawTrip();
   select(map, state.selected, null);
   state.selected = null;
   $('place').hidden = true;
   delete document.body.dataset.place;
-  card.trip = false;
-  card.tab = 'from';
-  card.dest = null;
   schedule();
   writeHash();
   window.requestAnimationFrame(sheetHeight);
 }
 
-// ---------------------------------------------------------------- trips (hook)
+// ---------------------------------------------------------------- trips (?mate=1, Auckland)
 
-// The card's From, To and Trip tabs, for trips behind ?mate=1 in Auckland.
-// Picking where to go, d= in the address and the Trip tab's body are added on
-// top of this: a trip sets `card.trip` and `card.dest` (the destination's
-// index), puts Plan a trip in #trip-slot and Swap in #place-actions, and draws
-// the Trip tab into #place-trip. Until then the tabs stay hidden and the card
-// is the one-hexagon card. From and To keep their folds apart (`card-from`,
-// `card-to`).
-const card = { tab: 'from', trip: false, dest: null };
+// A trip goes from the hexagon picked (state.selected) to `card.dest`. The
+// card then has From, To and Trip tabs (From and To are the one-hexagon card
+// for each end, folding apart as `card-from` and `card-to`). `card.picking`
+// is set while the destination is being picked. trip_data.js fetches the
+// figures and trip.js draws the Trip tab; both load the first time a trip is
+// planned, and only with ?mate=1 in Auckland.
+const card = { tab: 'from', trip: false, dest: null, picking: false, message: null };
+const TRIPS = MATE && MATE_PLACES.includes(CITY);
+const trips = {
+  data: null,
+  view: null,
+  loading: null,
+  store: null,
+  // pairs/index.json: undefined until asked for, null when this build has no trips.
+  index: undefined,
+  // The origin's times to every cell, while a destination is picked.
+  origin: null,
+  cache: new Map(),
+  // What the map draws for the trip, when set by hand; null for the default.
+  show: { pt: null, foot: null },
+  drawn: '',
+  fitted: '',
+  said: '',
+};
 
+function tripOpen() {
+  return TRIPS && card.trip && card.dest != null && state.selected != null;
+}
+
+/** The hexagon whose card is on screen: the trip's To end on the To tab, else the one picked. */
+function focusCell() {
+  return tripOpen() && card.tab === 'to' ? card.dest : state.selected;
+}
+
+/** trip_data.js, trip.js and the place's pairs index, the first time a trip is asked for. */
+function requestTrips() {
+  if (!TRIPS) return Promise.resolve();
+  if (trips.loading) return trips.loading;
+  requestMateModule();
+  trips.loading = Promise.all([import('./trip_data.js'), import('./trip.js')]).then(async ([dataModule, viewModule]) => {
+    trips.data = dataModule;
+    trips.view = viewModule;
+    // Without the order check (no SubtleCrypto), the pairs are taken as they are.
+    const order = await dataModule.cellOrder(data.h3).catch(() => null);
+    trips.store = dataModule.tripStore({ base: `${DATA_BASE}${CITY}/`, ids: data.h3, order });
+    trips.index = await dataModule.pairsIndex(trips.store).catch(() => null);
+    tripChanged();
+  }).catch((error) => {
+    console.warn('Trips could not be loaded.', error);
+    trips.index = null;
+    tripChanged();
+  });
+  return trips.loading;
+}
+
+/** The window a trip is shown in: When, if it is one trips are timed in, else off-peak. */
+function tripWindowNow() {
+  return ['am_peak', 'interpeak', 'saturday'].includes(state.when) ? state.when : 'interpeak';
+}
+
+function cellLngLat(i) {
+  const [lat, lng] = h3.cellToLatLng(data.h3[i]);
+  return [lng, lat];
+}
+
+function tripKm(o, d) {
+  return h3.greatCircleDistance(h3.cellToLatLng(data.h3[o]), h3.cellToLatLng(data.h3[d]), 'km');
+}
+
+/** The open trip's figures, fetched as they are needed: times, the walker's trip in the window shown, and for a
+ *  short trip the routes on MATE's footpath map. Null until the trip modules are in. */
+function tripEntry() {
+  if (!tripOpen() || !trips.store || !trips.index) return null;
+  const o = state.selected;
+  const d = card.dest;
+  const key = `${o}>${d}`;
+  let entry = trips.cache.get(key);
+  const D = trips.data;
+  if (!entry) {
+    const km = tripKm(o, d);
+    entry = { o, d, km, short: km <= trips.view.SHORT_KM, times: undefined, swaps: new Map(), shapes: new Map(), routes: undefined };
+    trips.cache.set(key, entry);
+    D.pairTimes(trips.store, o, d).then((times) => { entry.times = times; }).catch((error) => {
+      console.warn('Trip times could not be loaded.', error);
+      entry.times = null;
+    }).then(tripChanged);
+    if (entry.short) {
+      D.routeCells(trips.store, o, d, { variants: trips.view.FOOT_VARIANTS }).then((routes) => { entry.routes = routes; }).catch((error) => {
+        console.warn('Routes on MATE\'s footpath map could not be worked out.', error);
+        entry.routes = null;
+      }).then(tripChanged);
+    } else {
+      entry.routes = null;
+    }
+  }
+  const w = tripWindowNow();
+  if (!entry.swaps.has(w)) {
+    entry.swaps.set(w, undefined);
+    D.legSwap(trips.store, o, d, w).then(async (swap) => {
+      entry.swaps.set(w, swap);
+      if (swap?.trip?.kind === 'ride') {
+        const transit = await D.transitFile(trips.store).catch(() => null);
+        entry.shapes.set(w, trips.view.rideShape(transit, swap.trip));
+      }
+    }).catch((error) => {
+      console.warn('The public transport trip could not be loaded.', error);
+      entry.swaps.set(w, null);
+    }).then(tripChanged);
+  }
+  return entry;
+}
+
+/** The route on foot the map would draw for this trip, and what is drawn: { pt, foot }. */
+function tripShow(entry) {
+  const swap = entry ? entry.swaps.get(tripWindowNow()) : null;
+  const route = entry && entry.routes && trips.view ? trips.view.routeFor(entry.routes, mateState.profile, mateState.dark, mateState.view) : null;
+  const foot = Boolean(route && route.minutes != null);
+  const pt = swap?.trip?.kind === 'ride';
+  return {
+    route,
+    swap,
+    foot: foot && (trips.show.foot ?? true),
+    pt: pt && (trips.show.pt ?? !foot),
+  };
+}
+
+/** Draw the open trip on the map, or clear it. */
+function drawTrip() {
+  if (!map) return;
+  let spec = null;
+  if (tripOpen()) {
+    const entry = tripEntry();
+    const show = tripShow(entry);
+    const drawing = entry && trips.view ? trips.view.tripDrawing({
+      start: cellLngLat(state.selected),
+      end: cellLngLat(card.dest),
+      trip: show.swap?.trip,
+      shape: entry.shapes.get(tripWindowNow()),
+      route: show.route,
+      show,
+    }) : null;
+    spec = { origin: state.selected, dest: card.dest, drawing };
+  }
+  const signature = spec ? JSON.stringify([spec.origin, spec.dest, spec.drawing]) : '';
+  if (signature === trips.drawn) return;
+  try {
+    setTrip(map, spec);
+    trips.drawn = signature;
+    if (spec?.drawing?.stops?.length) keepStopsInView(spec.drawing.stops);
+  } catch (error) {
+    console.warn('The trip is not ready to draw yet.', error);
+  }
+}
+
+/** The key's rows for the open trip. */
+function tripKey() {
+  const show = tripShow(tripEntry());
+  const rows = [
+    { swatch: 'hex', colour: TRIP_ENDS.from, label: `From: ${placeName(state.selected)}` },
+    { swatch: 'hex', colour: TRIP_ENDS.to, label: `To: ${placeName(card.dest)}` },
+  ];
+  const notes = [];
+  if (show.pt) {
+    rows.push(
+      { swatch: 'stop', colour: TRIP_ENDS.from, label: 'Boards at A, leaves at B' },
+      { swatch: 'line', colour: '#0c0c48', label: 'Bus, train or ferry' },
+      { swatch: 'dash', colour: '#55646c', label: 'Walk' },
+    );
+    if (show.swap.trip.rides > 1) notes.push('A trip with a change is drawn straight from the first stop to the last.');
+  }
+  if (show.foot && mate) {
+    rows.push(
+      { swatch: 'line', colour: '#3b7fb6', label: 'No known barrier' },
+      { swatch: 'line', colour: '#e8890c', label: 'Harder' },
+      { swatch: 'dash', colour: '#8a938d', label: 'Not known' },
+    );
+    const who = mate.profileOf(mateState.profile).short;
+    const night = mateState.dark && mate.variantOf(mateState.profile, true) !== mateState.profile ? ', after dark' : '';
+    notes.push(`Route on foot for ${who.toLowerCase()}${night}${mateState.view === 'cautious' ? ', cautious' : ''}. No known barrier: nothing recorded says otherwise.`);
+  }
+  return { rows, notes };
+}
+
+/** Something new about the trip arrived or changed: draw it again. */
+function tripChanged() {
+  if (card.picking) {
+    schedule();
+    return;
+  }
+  if (!tripOpen()) return;
+  drawTrip();
+  if (state.selected != null) showPlace(state.selected);
+  renderKey(painted && painted !== current ? painted : null);
+  sayTrip();
+}
+
+/** Say the trip's answer once its times are in, once for each trip and window. */
+function sayTrip() {
+  const entry = tripEntry();
+  if (!entry || entry.times === undefined || !trips.view) return;
+  const w = tripWindowNow();
+  const key = `${entry.o}>${entry.d}@${w}`;
+  if (trips.said === key) return;
+  trips.said = key;
+  say(trips.view.tripSentence(entry.times, w, (data.meta.windows || {})[w]?.label || w));
+}
+
+/** The card's header for a trip: how far, from where to where, and when. */
+function renderTripHead() {
+  const w = tripWindowNow();
+  const spec = (data.meta.windows || {})[w] || {};
+  const km = tripKm(state.selected, card.dest);
+  const distance = km < 1 ? `${Math.round(km * 20) * 50} m` : `${km.toFixed(1)} km`;
+  $('place-eyebrow').textContent = `Trip · ${distance} in a straight line`;
+  $('place-title').textContent = `${placeName(state.selected)} → ${placeName(card.dest)}`;
+  $('place-sub').textContent = [spec.label, spec.when].filter(Boolean).join(', ');
+}
+
+/** What MATE knows of each end's footpath, for the profile chosen, by day. */
+function tripEnds() {
+  const got = mate ? mate.request(`${DATA_BASE}${CITY}/`, data.h3[state.selected], mateReady) : null;
+  const core = got?.core;
+  return {
+    missing: { o: Boolean(core) && !mate.hasData(core, state.selected), d: Boolean(core) && !mate.hasData(core, card.dest) },
+    // Null until MATE's data is in.
+    lines: core ? { o: mate.footLine(core, state.selected, mateState.profile), d: mate.footLine(core, card.dest, mateState.profile) } : null,
+  };
+}
+
+function renderTripTab() {
+  const root = $('place-trip');
+  if (!trips.view || trips.index === undefined) {
+    requestTrips();
+    root.replaceChildren(el('p', 'note', 'Loading the trip…'));
+    return;
+  }
+  const entry = tripEntry();
+  const show = tripShow(entry);
+  const ends = tripEnds();
+  trips.view.renderTrip(root, {
+    status: trips.index === null ? 'unavailable' : entry ? 'ready' : 'loading',
+    names: { o: placeName(state.selected), d: placeName(card.dest) },
+    window: tripWindowNow(),
+    windows: data.meta.windows || {},
+    times: entry?.times,
+    swap: show.swap,
+    short: Boolean(entry?.short),
+    routes: entry?.routes,
+    mateMissing: ends.missing,
+    ends: ends.lines,
+    profile: mateState.profile,
+    dark: mateState.dark,
+    view: mateState.view,
+    show,
+    onWindow: (w) => set({ when: w }),
+    onProfile: (profile) => setMate({ profile }),
+    onShow: (kind, on) => {
+      trips.show[kind] = on;
+      tripChanged();
+    },
+    key: 'trip',
+  });
+}
+
+// The live region for what a trip says. It sits outside the panel, which a
+// phone hides while the card is open; the headline waits its turn.
+let sayUntil = 0;
+function say(text) {
+  sayUntil = Date.now() + 3000;
+  let region = $('trip-announce');
+  if (!region) {
+    region = el('p', 'visually-hidden');
+    region.id = 'trip-announce';
+    region.setAttribute('aria-live', 'polite');
+    document.body.append(region);
+  }
+  region.textContent = text;
+}
+
+/** The longest the map's reach goes while picking, in minutes. */
+function pickLimit() {
+  const mode = trips.view ? trips.view.tripMode(pickViewMode()) : 'best';
+  return mode === 'best' || mode === 'pt' ? 45 : 20;
+}
+
+/** The mode on screen, when the reach can follow it. */
+function pickViewMode() {
+  return state.view === 'access' && singleService() ? state.mode : 'best';
+}
+
+/** The origin's times to every cell, fetched when picking starts. Undefined while loading. */
+function pickTimes() {
+  const o = state.selected;
+  if (trips.origin && trips.origin.o === o) return trips.origin.times;
+  const entry = { o, times: undefined };
+  trips.origin = entry;
+  requestTrips()
+    .then(() => (trips.index ? trips.data.originTimes(trips.store, o) : null))
+    .then((times) => { entry.times = times; })
+    .catch(() => { entry.times = null; })
+    .then(() => {
+      if (!card.picking) return;
+      fitReach(entry);
+      schedule();
+    });
+  return undefined;
+}
+
+/** Seen from far out, picking zooms to where the origin gets within 45 minutes. */
+function fitReach(entry) {
+  if (!entry.times || map.getZoom() >= 11.5) return;
+  const reached = new Set([entry.o]);
+  for (const m of ['walk', 'bike_low_stress']) for (const d of entry.times[m].keys()) reached.add(d);
+  for (const d of entry.times.pt[tripWindowNow()].keys()) reached.add(d);
+  const lons = [];
+  const lats = [];
+  for (const i of reached) {
+    const [lng, lat] = cellLngLat(i);
+    lons.push(lng);
+    lats.push(lat);
+  }
+  map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: tripPadding(), maxZoom: 14, duration: 600 });
+}
+
+/** The map while a destination is picked: how far the origin gets. */
+function pickModel() {
+  if (!card.picking || !trips.view || state.selected == null) return null;
+  const V = trips.view;
+  const times = pickTimes();
+  const mode = V.tripMode(pickViewMode());
+  const w = tripWindowNow();
+  const reach = V.reachOf(times, mode, w);
+  const limits = times?.limits;
+  const key = V.reachKey(mode, (data.meta.windows || {})[w]?.label || 'off-peak', limits);
+  const origin = state.selected;
+  return {
+    kind: 'reach',
+    classes: V.reachClasses(reach, data.n),
+    colours: V.REACH,
+    lost: [],
+    tooltip: (j) => {
+      if (j === origin) return ['The trip starts here'];
+      if (times === undefined) return ['Loading…'];
+      if (times === null) return ['No trips are timed from the hexagon picked'];
+      return [V.reachText(reach.get(j), mode, limits)];
+    },
+    key: { title: `From ${placeName(origin)}`, rows: key.rows, note: key.note },
+  };
+}
+
+// The mark in the middle of the map that Enter picks, for keyboards.
+let pickMark = null;
+
+function markPoint() {
+  const box = map.getContainer().getBoundingClientRect();
+  const card2 = $('place');
+  if (phone()) {
+    const bottom = card2.hidden ? box.height : card2.getBoundingClientRect().top - box.top;
+    return { x: box.width / 2, y: Math.max(60, (60 + bottom) / 2) };
+  }
+  const left = $('side').getBoundingClientRect().right - box.left;
+  const right = card2.hidden ? box.width : card2.getBoundingClientRect().left - box.left;
+  return { x: (left + right) / 2, y: box.height / 2 };
+}
+
+function showPickMark(on) {
+  if (!pickMark) {
+    pickMark = el('div', 'pick-mark');
+    pickMark.setAttribute('aria-hidden', 'true');
+    document.body.append(pickMark);
+  }
+  pickMark.hidden = !on;
+  if (!on) return;
+  const box = map.getContainer().getBoundingClientRect();
+  const p = markPoint();
+  pickMark.style.left = `${Math.round(box.left + p.x)}px`;
+  pickMark.style.top = `${Math.round(box.top + p.y)}px`;
+}
+
+function startPicking() {
+  if (!TRIPS || state.selected == null) return;
+  requestTrips();
+  // A new destination replaces the trip that is open.
+  if (card.trip) {
+    card.trip = false;
+    card.dest = null;
+    card.tab = 'from';
+    drawTrip();
+  }
+  card.picking = true;
+  card.message = null;
+  document.body.dataset.picking = 'true';
+  setPicking(map, true);
+  if (phone()) setSheet($('place'), 'peek');
+  pickTimes();
+  schedule();
+  writeHash();
+  say(phone() ? 'Tap where to go.' : 'Pick where to go. Click a hexagon on the map, or move the map with the arrow keys and press Enter.');
+  if (!phone()) map.getCanvas().focus();
+}
+
+function endPicking() {
+  card.picking = false;
+  card.message = null;
+  delete document.body.dataset.picking;
+  setPicking(map, false);
+  showPickMark(false);
+}
+
+function cancelPicking() {
+  endPicking();
+  if (phone()) setSheet($('place'), 'half');
+  schedule();
+  say('Trip cancelled.');
+  window.requestAnimationFrame(() => $('trip-plan')?.focus());
+}
+
+function pickDestination(i) {
+  if (i === state.selected) {
+    card.message = 'That is the same hexagon. Pick another.';
+    say(card.message);
+    showPlace(state.selected);
+    return;
+  }
+  endPicking();
+  card.trip = true;
+  card.dest = i;
+  card.tab = 'trip';
+  trips.show = { pt: null, foot: null };
+  if (phone()) setSheet($('place'), 'half');
+  drawTrip();
+  fitTrip();
+  schedule();
+  writeHash();
+  window.requestAnimationFrame(() => $('ctab-trip')?.focus());
+}
+
+/** Back to the From card, with no trip. */
+function endTrip() {
+  card.trip = false;
+  card.dest = null;
+  card.tab = 'from';
+  drawTrip();
+  schedule();
+  writeHash();
+  window.requestAnimationFrame(() => $('trip-plan')?.focus());
+}
+
+function swapTrip() {
+  if (!tripOpen()) return;
+  const from = state.selected;
+  state.selected = card.dest;
+  card.dest = from;
+  select(map, from, state.selected);
+  drawTrip();
+  schedule();
+  writeHash();
+}
+
+/** The part of the map the panel and card (or a phone's sheet) leave clear, as padding. */
+function tripPadding() {
+  const w = map.getContainer().clientWidth;
+  const h = map.getContainer().clientHeight;
+  // A phone's card sheet takes the lower 56% (196 px while picking), with the key's strip above it.
+  return phone()
+    ? { top: 80, bottom: (card.picking ? 196 : Math.round(h * 0.56)) + 90, left: 30, right: 30 }
+    : { top: 60, bottom: 50, left: Math.min(400, Math.round(w * 0.3)), right: Math.min(390, Math.round(w * 0.3)) };
+}
+
+/** Fit both ends of the trip, whole hexagons and any `extra` points ([lon, lat]), into the part of the map the
+ *  panel and card leave clear. */
+function fitTrip(extra = []) {
+  if (!map || !tripOpen()) return;
+  const points = [...[state.selected, card.dest].flatMap((i) => h3.cellToBoundary(data.h3[i], true)), ...extra];
+  const lons = points.map((q) => q[0]);
+  const lats = points.map((q) => q[1]);
+  const box = [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]];
+  // Room above each end for its label.
+  const padding = tripPadding();
+  padding.top += 24;
+  map.fitBounds(box, { padding, maxZoom: 15.5, duration: 600 });
+}
+
+/** Once a trip's stops are drawn, bring them into view if they fell outside it. */
+function keepStopsInView(stops) {
+  const key = `${state.selected}>${card.dest}`;
+  if (!stops || !stops.length || trips.fitted === key) return;
+  trips.fitted = key;
+  const pad = tripPadding();
+  const box = map.getContainer().getBoundingClientRect();
+  const outside = stops.some((stop) => {
+    const p = map.project([stop.lon, stop.lat]);
+    return p.x < pad.left || p.x > box.width - pad.right || p.y < pad.top || p.y > box.height - pad.bottom;
+  });
+  if (outside) fitTrip(stops.map((stop) => [stop.lon, stop.lat]));
+}
+
+/** The card's tabs, From, To and Trip, while a trip is open. */
 function renderCardTabs() {
-  const show = MATE && card.trip;
+  const show = tripOpen();
   $('place-tabs').hidden = !show;
   $('place-trip').hidden = !show || card.tab !== 'trip';
   $('place-body').hidden = show && card.tab === 'trip';
@@ -2983,10 +3540,33 @@ function renderCardTabs() {
   }
 }
 
+/** Swap, in the card's header while a trip is open; Close then closes the trip. */
+function renderCardActions() {
+  const actions = $('place-actions');
+  const open = tripOpen();
+  $('place-close').setAttribute('aria-label', open ? 'Close the trip' : 'Close');
+  $('place-close').title = open ? 'Close the trip' : '';
+  if (!open) {
+    actions.replaceChildren();
+    return;
+  }
+  if ($('trip-swap')) return;
+  const swap = el('button', 'icon-button');
+  swap.type = 'button';
+  swap.id = 'trip-swap';
+  swap.title = 'Swap';
+  swap.setAttribute('aria-label', 'Swap from and to');
+  swap.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>';
+  swap.addEventListener('click', swapTrip);
+  actions.replaceChildren(swap);
+}
+
 function setCardTab(tab) {
   card.tab = tab;
   renderCardTabs();
   if (state.selected != null) showPlace(state.selected);
+  // The map's catchment follows the end on screen.
+  schedule();
 }
 
 // ---------------------------------------------------------------- MATE (?mate=1)
@@ -3017,7 +3597,7 @@ function setMate(patch) {
   writeHash();
 }
 
-function mateSection(i) {
+function mateSection(i, key = 'card') {
   if (!mate) {
     requestMateModule();
     const box = el('p', 'note', 'Loading MATE…');
@@ -3039,6 +3619,7 @@ function mateSection(i) {
     serviceNames: SERVICE_SHORT,
     set: setMate,
     ready: mateReady,
+    key,
   });
 }
 
@@ -3050,9 +3631,12 @@ function mateHasTimes(i) {
 
 /** The catchment of the hexagon picked, for the map, once its data is in. */
 function mateCatchment() {
-  if (!MATE || !mate || state.selected == null || !MATE_PLACES.includes(CITY) || !data.complete) return null;
-  const got = mate.request(`${DATA_BASE}${CITY}/`, data.h3[state.selected], mateReady);
-  return mate.catchmentModel(got, state.selected, mateState, data.n);
+  const i = focusCell();
+  if (!MATE || !mate || i == null || !MATE_PLACES.includes(CITY) || !data.complete) return null;
+  // On a trip's Trip tab the map is TEAM's, with the trip drawn on it.
+  if (tripOpen() && card.tab === 'trip') return null;
+  const got = mate.request(`${DATA_BASE}${CITY}/`, data.h3[i], mateReady);
+  return mate.catchmentModel(got, i, mateState, data.n);
 }
 
 // ---------------------------------------------------------------- wiring
@@ -3129,8 +3713,18 @@ function wireControls() {
       document.querySelector(`#tabs [data-view="${VIEWS[next]}"]`).focus();
     });
   }
+  const cardTabs = ['from', 'to', 'trip'];
   for (const tab of $('place-tabs').querySelectorAll('[role="tab"]')) {
     tab.addEventListener('click', () => setCardTab(tab.dataset.ctab));
+    tab.addEventListener('keydown', (event) => {
+      const keys = { ArrowRight: 1, ArrowLeft: 2, Home: 'first', End: 'last' };
+      if (!(event.key in keys)) return;
+      event.preventDefault();
+      const step = keys[event.key];
+      const next = step === 'first' ? 0 : step === 'last' ? 2 : (cardTabs.indexOf(card.tab) + step) % 3;
+      setCardTab(cardTabs[next]);
+      $(`ctab-${cardTabs[next]}`).focus();
+    });
   }
   $('standard').addEventListener('input', (event) => {
     state.standard[state.service] = Number(event.target.value);
@@ -3171,7 +3765,12 @@ function wireControls() {
     $('key-fold').setAttribute('aria-expanded', String(open));
     $('key').classList.toggle('is-folded', !open);
   });
-  $('place-close').addEventListener('click', closePlace);
+  // Close ends a trip and goes back to the From card; otherwise it closes the card.
+  $('place-close').addEventListener('click', () => {
+    if (card.picking) cancelPicking();
+    else if (tripOpen()) endTrip();
+    else closePlace();
+  });
   $('share').addEventListener('click', async () => {
     hashNow();
     const button = $('share');
@@ -3196,9 +3795,14 @@ function wireControls() {
     $('panel-toggle').setAttribute('aria-expanded', String(collapsed));
     $('panel-toggle').setAttribute('aria-label', collapsed ? 'Hide controls' : 'Show controls');
   });
-  // Escape closes what was opened last: the area list, then a drawer, then the card.
+  // Escape cancels picking a trip's destination first; then it closes what
+  // was opened last: the area list, a drawer, the trip, then the card.
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || $('about').open) return;
+    if (card.picking) {
+      cancelPicking();
+      return;
+    }
     if (closeAreaMenu()) return;
     if (openDrawer) {
       const button = document.querySelector(`.drawers [data-drawer="${openDrawer}"]`);
@@ -3206,7 +3810,29 @@ function wireControls() {
       button?.focus();
       return;
     }
+    if (tripOpen()) {
+      endTrip();
+      return;
+    }
     if (state.selected != null) closePlace();
+  });
+  // While picking, Enter on the map picks the hexagon under the mark in its middle.
+  const canvas = map.getCanvas();
+  canvas.addEventListener('focus', () => {
+    if (card.picking && canvas.matches(':focus-visible')) showPickMark(true);
+  });
+  canvas.addEventListener('blur', () => showPickMark(false));
+  canvas.addEventListener('keydown', (event) => {
+    if (!card.picking || event.key !== 'Enter') return;
+    event.preventDefault();
+    showPickMark(true);
+    const p = markPoint();
+    const i = cellAtPoint(map, [p.x, p.y]);
+    if (i == null) {
+      say('No hexagon there. Move the map with the arrow keys.');
+      return;
+    }
+    pickDestination(i);
   });
   // The area list closes on a click elsewhere, and moves with the arrow keys.
   document.addEventListener('pointerdown', (event) => {
@@ -3318,6 +3944,17 @@ function wireControls() {
       tooltip.hidden = true;
     },
     click(i) {
+      if (card.picking) {
+        tooltip.hidden = true;
+        pickDestination(i);
+        return;
+      }
+      // Another hexagon opens its own card, and ends a trip that was open.
+      if (card.trip) {
+        card.trip = false;
+        card.dest = null;
+        card.tab = 'from';
+      }
       select(map, state.selected, i);
       state.selected = i;
       $('sheet-pop').hidden = true;
@@ -3594,7 +4231,25 @@ async function init() {
     sheet: (size) => setSheet($('side'), size),
     drawer: (name) => setDrawer(name),
   };
-  if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? 'catchment' : 'team' });
+  if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? (painted.kind || 'catchment') : 'team' });
+  // For tests: where a trip stands.
+  if (TRIPS) {
+    window.team.trip = () => {
+      const entry = tripOpen() ? trips.cache.get(`${state.selected}>${card.dest}`) : null;
+      const swap = entry ? entry.swaps.get(tripWindowNow()) : undefined;
+      return {
+        picking: card.picking,
+        open: tripOpen(),
+        tab: card.tab,
+        o: state.selected == null ? null : data.h3[state.selected],
+        d: card.dest == null ? null : data.h3[card.dest],
+        window: tripWindowNow(),
+        ready: Boolean(entry && entry.times !== undefined && swap !== undefined && entry.routes !== undefined),
+        short: entry ? entry.short : null,
+        drawn: trips.drawn ? JSON.parse(trips.drawn)[2] : null,
+      };
+    };
+  }
   // Start once the style is ready. The 'load' event also waits for every basemap
   // tile, which would hold up the whole app on a slow connection.
   //
@@ -3647,6 +4302,13 @@ async function init() {
   if (!data.weights[state.group]) state.group = 'everyone';
   prepareScope();
   if (linked && cellOf.has(linked)) state.selected = cellOf.get(linked);
+  // A link to a trip opens on its Trip tab.
+  if (TRIPS && state.selected != null && linkedDest && cellOf.has(linkedDest) && cellOf.get(linkedDest) !== state.selected) {
+    card.trip = true;
+    card.dest = cellOf.get(linkedDest);
+    card.tab = 'trip';
+    requestTrips();
+  }
   if (state.urbanOnly) setUrban(data, true);
   const profiles = ((data.meta.fares || {}).profiles || []).map((p) => p.key);
   if (profiles.length && !profiles.includes(state.profile)) state.profile = profiles.includes('adult') ? 'adult' : profiles[0];
@@ -3669,6 +4331,8 @@ async function init() {
   const addLayers = () => {
     setCells(map, cellCollection(data.h3));
     if (state.selected != null) select(map, null, state.selected);
+    trips.drawn = '';
+    if (TRIPS) drawTrip();
     setOverlays(map, {}, data.destinations);
     setBasemap(map, state.basemap);
     applyOverlays();
@@ -3721,6 +4385,8 @@ async function init() {
     // map is moved, however large the screen.
     if (!state.areaPin) state.areaPin = { level: 'place' };
     map.fitBounds(regionBounds(), { padding: placePadding(), duration: 0 });
+    // A link to a trip shows both ends.
+    if (tripOpen()) fitTrip();
   }
   $('loading').hidden = true;
   // Network lines only show when a layer is switched on, so they load after the first view.
