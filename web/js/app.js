@@ -3183,7 +3183,8 @@ function drawTrip() {
 
 /** The key's rows for the open trip. */
 function tripKey() {
-  const show = tripShow(tripEntry());
+  const entry = tripEntry();
+  const show = tripShow(entry);
   const rows = [
     { swatch: 'hex', colour: TRIP_ENDS.from, label: `From: ${placeName(state.selected)}` },
     { swatch: 'hex', colour: TRIP_ENDS.to, label: `To: ${placeName(card.dest)}` },
@@ -3195,7 +3196,8 @@ function tripKey() {
       { swatch: 'line', colour: '#0c0c48', label: 'Bus, train or ferry' },
       { swatch: 'dash', colour: '#55646c', label: 'Walk' },
     );
-    if (show.swap.trip.rides > 1) notes.push('A trip with a change is drawn straight from the first stop to the last.');
+    // A ride follows its line only where the map draws one and there is no change.
+    if (!entry.shapes.get(tripWindowNow())) notes.push('The ride is drawn straight from A to B, not along its route.');
   }
   if (show.foot && mate) {
     rows.push(
