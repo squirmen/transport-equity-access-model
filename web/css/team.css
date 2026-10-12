@@ -793,6 +793,7 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .mate-grid-name { color: var(--ink-soft); }
 .mate-bar { display: flex; height: 10px; margin: 2px 0 6px; overflow: hidden; border-radius: 3px; background: var(--track); }
 .mate-bar-part { display: block; height: 100%; }
+.mate-bar-part.is-u { background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgb(255 255 255 / 45%) 5px 8px); }
 .mate-line { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; }
 .mate-chips { margin-top: 2px; }
 .mate-known { margin-top: 6px; font-size: 12px; }

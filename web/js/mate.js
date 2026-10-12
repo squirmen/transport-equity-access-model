@@ -27,12 +27,13 @@ export const PROFILES = [
 export const DEFAULT_PROFILE = 'manual_wheelchair';
 const GROUP_LABEL = { older: '65+', kids: 'under 15', under5: 'under 5', disabled: 'disabled' };
 
-// The map's colours for each status, as on MATE's own map.
+// The map's colours for each status, as on MATE's own map: blue, orange, dark red and grey, checked for colour-blind
+// readers there (MATE tests/test_palette.py). Not known is hatched in the bar (team.css).
 export const STATUS = [
-  { key: 'p', label: 'no known barrier', colour: '#0ca30c' },
-  { key: 'h', label: 'harder', colour: '#fab219' },
-  { key: 'u', label: 'not known', colour: '#848b90' },
-  { key: 'b', label: 'barrier', colour: '#d03b3b' },
+  { key: 'p', label: 'no known barrier', colour: '#3b7fb6' },
+  { key: 'h', label: 'harder', colour: '#e8890c' },
+  { key: 'u', label: 'not known', colour: '#8a938d' },
+  { key: 'b', label: 'barrier', colour: '#a8172b' },
 ];
 
 // The catchment: 5, 10 and 15 minutes in TEAM's blues, darker is quicker, and
@@ -365,7 +366,7 @@ function statusBar(shares) {
     if (v <= 0) continue;
     const part = el('span', `mate-bar-part is-${s.key}`);
     part.style.width = `${v}%`;
-    part.style.background = s.colour;
+    part.style.backgroundColor = s.colour;
     bar.append(part);
     words.push(`${v}% ${s.label}`);
   }
