@@ -12,12 +12,12 @@ import {
 } from './equity.js';
 import {
   affordableZones, budgetSentence, burdenClass, cheapestFareClasses, cheapestZones, dailyIncome, fare,
-  fareClassCosts, fareSteps, freeTravel, hasCaps, incomeZones, money, paymentKey, payments, travellerSummary,
+  fareClassCosts, fareSteps, freeTravel, hasCaps, incomeZones, money, paymentKey, payments,
   weekCost, zoneCap,
 } from './fares.js';
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
-  BASEMAPS, cellCollection, createMap, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
+  BASEMAPS, cellCollection, createMap, elementControl, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
   setCells, setHatch, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
@@ -26,13 +26,13 @@ import {
   PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
 } from './palette.js';
 import {
-  renderAccess, renderErrands, renderFareSurface, renderFixes, renderJobsAccess, renderJobsFixes, renderJobsPeople,
-  renderBurden, renderChips, renderChoice, renderPeople, renderScore, renderServicePicker, renderTraveller, renderWhenPicker, SERVICE_NOUN,
-  SERVICE_ORDER, SERVICE_SHORT, setServices,
+  goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes,
+  renderJobsPeople, renderBurden, renderChips, renderChoice, renderModePicker, renderPeople, renderScore, renderTraveller,
+  renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_PLURAL, SERVICE_SHORT, setServices, shortScaleLabel, travelOptions,
 } from './panel.js';
 import { areaCsv, areaTable, sortAreas } from './areas.js';
 import { nearestCity } from './cities.js';
-import { renderPlace } from './place.js';
+import { placeHeader, renderPlace } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 
 function dataBase() {
@@ -97,10 +97,15 @@ const CITY = requestedCity();
 // MATE's sections (mobility profiles) are a preview, shown only with ?mate=1
 // in the address. Without it nothing here changes and mate.js never loads.
 const MATE = new URLSearchParams(window.location.search).get('mate') === '1';
+// The places MATE has data for (mate.js PLACES), known before mate.js loads;
+// trips and mobility profiles are offered there only.
+const MATE_PLACES = ['auckland'];
 let mate = null;
 let mateImport = null;
-// The hexagon (o=) and the MATE settings (mp=) from the address, until mate.js reads them.
+// The MATE settings (mp=) from the address, until mate.js reads them.
 let mateParams = null;
+// The hexagon picked (o=) from the address, until the data is in.
+let linkedCell = null;
 const mateState = { profile: 'manual_wheelchair', dark: false, view: 'nkb', map: true };
 const VIEWS = ['access', 'people', 'fixes'];
 // Which groups exist depends on the census tables the build had, so they come
@@ -256,6 +261,8 @@ function readHash() {
   if (jobs[0]) state.jobsMode = jobs[0];
   if (jobs[1]) state.jobsLimit = jobs[1];
   state.jobsFair = jobs[2] === 'f';
+  const cell = params.get('o');
+  if (cell && /^[0-9a-f]{15}$/.test(cell)) linkedCell = cell;
   if (MATE) mateParams = params;
   return params.get('at');
 }
@@ -295,8 +302,9 @@ function hashNow() {
   if (where) params.set('r', `${where.area.level}.${where.area.name}`);
   else if (state.areaPin && state.areaPin.level === 'place') params.set('r', 'place');
   if (state.basemap !== 'light') params.set('b', state.basemap);
+  // The hexagon picked, so a link opens the same card.
+  if (state.selected != null && data.h3[state.selected]) params.set('o', data.h3[state.selected]);
   if (MATE) {
-    if (state.selected != null && data.h3[state.selected]) params.set('o', data.h3[state.selected]);
     if (mate) params.set('mp', mate.mateHash(mateState));
     else if (mateParams?.get('mp')) params.set('mp', mateParams.get('mp'));
   }
@@ -529,6 +537,7 @@ function accessModel() {
     colours: ACCESS,
     tooltip: (i) => [`${SERVICE_SHORT[service]}: ${minutes(shown[i])} by ${MODES[state.mode].short}`, `Standard: within ${standard} min`],
     panel: {
+      service,
       noun: SERVICE_NOUN[service],
       standard,
       mode: state.mode,
@@ -595,6 +604,7 @@ function fareSurfaceModel() {
       return [`${SERVICE_SHORT[service]}: ${money(costs[cls])}${many && cls === 4 ? '+' : ''} ${trip}`, zonesText];
     },
     panel: {
+      service,
       noun: SERVICE_NOUN[service],
       standard,
       show: 'fare',
@@ -714,11 +724,6 @@ function choiceModel() {
   };
 }
 
-const SERVICE_PLURAL = {
-  supermarket: 'supermarkets', gp: 'GPs', pharmacy: 'pharmacies', early_childhood: 'early childhood services',
-  primary_school: 'primary schools', intermediate_school: 'intermediate schools', secondary_school: 'secondary schools',
-  tertiary: 'tertiary campuses', trades_training: 'trades training campuses',
-};
 
 /** A line saying how the time or budget on screen compares with the usual
  *  case, so a control that changes nothing says so instead of seeming broken. */
@@ -1383,7 +1388,7 @@ function fixesModel() {
       if (cls == null) return [codes[i] === 0 ? `Meets the ${standard}-min standard` : 'Not routed'];
       return [REASON_GROUPS[cls].label, REASON_GROUPS[cls].fix];
     },
-    panel: { noun: SERVICE_NOUN[service], standard, group: state.group, groups: groupChips(), fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
+    panel: { service, noun: SERVICE_NOUN[service], standard, group: state.group, groups: groupChips(), fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
   };
 }
 
@@ -2128,16 +2133,15 @@ function renderBudget() {
   );
 }
 
-function renderTravellerLine() {
+function renderTravellerFields() {
   const box = $('traveller');
   const hide = state.measure === 'score' || !fareAvailable() || !transitShown();
   box.hidden = hide;
+  $('fares-group').hidden = hide && $('budget-field').hidden;
   if (hide) return;
-  const { hour, spec } = tripWindow(state.service);
-  const clock = spec.date ? (spec.label || 'weekend') : hour;
-  $('traveller-summary').textContent = travellerSummary(data.meta.fares, state, clock);
+  const { spec } = tripWindow(state.service);
   const timed = spec.when || 'in the modelled window';
-  renderTraveller($('traveller-body'), {
+  renderTraveller(box, {
     profiles: data.meta.fares.profiles || [],
     payments: payments(data.meta.fares),
     profile: state.profile,
@@ -2150,33 +2154,89 @@ function renderTravellerLine() {
   }, set);
 }
 
-function renderView(model) {
+/** Jobs within 30 or 45 minutes, under Settings. */
+function renderLimit() {
+  const field = $('limit-field');
+  const show = state.service === 'jobs' && state.measure !== 'score' && data.complete && Object.keys(data.jobs).length > 0
+    && !(state.zonesNow != null && jobsChoice().mode === 'pt') && !commuteShown();
+  field.hidden = !show;
+  if (!show) return;
+  const choice = jobsChoice();
+  renderChips($('limit-picker'), choice.limits.map((l) => [String(l), `${l} min`]), String(choice.limit), (jobsLimit) => set({ jobsLimit }));
+}
+
+// The access scores in Getting to, in this order; any other the build has after them.
+const SCORE_ORDER = ['all', 'everyday', 'education', 'jobs'];
+
+/** Getting to, Travel by and the tabs: what the panel is about. */
+function renderPickers() {
   const score = state.measure === 'score';
-  for (const button of document.querySelectorAll('#measure-picker button')) {
-    button.setAttribute('aria-checked', String(button.dataset.measure === state.measure));
-    if (button.dataset.measure === 'score') button.hidden = !scoreAvailable();
+  const access = data.meta.access || {};
+  const labels = access.keys || {};
+  const keys = (access.modes || []).length
+    ? [...SCORE_ORDER.filter((k) => labels[k]), ...Object.keys(labels).filter((k) => !SCORE_ORDER.includes(k))]
+    : [];
+  const scoreKey = data.complete && scoreAvailable() ? scoreChoice().key : state.scoreKey;
+  renderGoalPicker($('goal'), goalGroups(SERVICE_ORDER, keys.map((k) => [k, labels[k]])), score ? `score:${scoreKey}` : state.service, (value) => {
+    if (value.startsWith('score:')) set({ measure: 'score', scoreKey: value.slice(6) });
+    else set({ measure: 'standards', service: value });
+  });
+
+  const root = $('mode-picker');
+  if (score) {
+    const choice = data.complete ? scoreChoice() : { available: access.modes || [], mode: state.scoreMode };
+    const modes = choice.available.length ? choice.available : access.modes || [];
+    renderModePicker(root, travelOptions('score', { scoreModes: modes, betaModes: access.beta_modes || [] }), choice.mode || state.scoreMode,
+      (scoreMode) => set({ scoreMode }));
+  } else if (state.service === 'jobs') {
+    const ready = data.complete && Object.keys(data.jobs).length > 0;
+    const modes = ready ? Object.keys(data.jobs) : ['pt', 'walk', 'bike_low_stress'];
+    renderModePicker(root, travelOptions('jobs', { jobsModes: modes }), ready ? jobsChoice().mode : state.jobsMode, (jobsMode) => set({ jobsMode }));
+  } else if (state.service === 'errands') {
+    renderModePicker(root, travelOptions('errands', { roundModes: data.meta.chains?.modes || [] }), state.errandMode,
+      (errandMode) => set({ errandMode }));
+  } else {
+    // Who misses out and What would help count the fastest way whatever is
+    // set, so on those tabs Travel by shows Best and the rest wait.
+    renderModePicker(root, travelOptions('service', { standardModes: data.meta.standard_modes, slowWalk: Boolean(data.t[state.service]?.walk_slow) }),
+      state.mode, (mode) => set({ mode }), { fixedBest: state.view !== 'access' });
   }
-  $('service-field').hidden = score;
+
   $('tabs').hidden = score;
+  for (const tab of document.querySelectorAll('#tabs [role="tab"]')) {
+    const on = tab.dataset.view === state.view;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+  }
+  $('view').setAttribute('aria-labelledby', score ? 'goal-label' : `tab-${state.view}`);
+}
+
+function renderView(model) {
+  renderPickers();
   if (model.waiting) {
-    if (!score) {
-      renderServicePicker($('service-picker'), state.service, set);
-      for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
-    }
+    $('view').keySpec = null;
     $('view').replaceChildren(el('p', 'note', 'Loading the rest of the data for this view…'));
     return;
   }
-  if (!score) {
-    renderServicePicker($('service-picker'), state.service, set);
-    for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
-    $('view').setAttribute('aria-labelledby', `tab-${state.view}`);
-  }
   if (model.empty) {
+    $('view').keySpec = current && current.panel ? keySpecOf(current) : null;
     $('view').replaceChildren(el('div', 'hero', null));
     $('view').firstChild.append(el('p', 'hero-text', `Nobody in ${model.panel.where} is counted with these settings.`));
     return;
   }
+  $('view').keySpec = null;
   renderInto($('view'), model);
+}
+
+/** The key spec a model would leave, without drawing it anywhere visible. */
+function keySpecOf(model) {
+  const box = el('div');
+  try {
+    renderInto(box, model);
+  } catch {
+    return null;
+  }
+  return box.keySpec || null;
 }
 
 /** The panel for a model, drawn into any element. */
@@ -2186,7 +2246,8 @@ function renderInto(root, model) {
     return;
   }
   if (state.service === 'jobs') {
-    if (state.view === 'access' && model.panel.show === 'burden') renderBurden(root, model.panel, set);
+    const choice = data.complete && Object.keys(data.jobs).length ? jobsChoice() : { fairAvailable: false };
+    if (state.view === 'access' && model.panel.show === 'burden') renderBurden(root, { ...model.panel, canCommute: true, fairAvailable: choice.fairAvailable }, set);
     else if (state.view === 'access') renderJobsAccess(root, { ...model.panel, canCommute: commuteAvailable() }, set);
     else if (state.view === 'people') renderJobsPeople(root, model.panel);
     else renderJobsFixes(root);
@@ -2195,7 +2256,10 @@ function renderInto(root, model) {
   if (state.service === 'errands') {
     if (state.view === 'access') renderErrands(root, model.panel, set);
     else if (state.view === 'people') renderPeople(root, model.panel, set);
-    else root.replaceChildren(el('p', 'note', 'What would help is worked out for single trips. Pick one of the stops to see it.'));
+    else {
+      root.keySpec = null;
+      root.replaceChildren(el('p', 'note', 'What would help is worked out for single trips. Pick one of the stops under Getting to to see it.'));
+    }
     return;
   }
   if (state.view === 'access') {
@@ -2216,23 +2280,442 @@ function renderWhere() {
     state.urbanOnly ? 'urban' : 'all', (value) => set({ urbanOnly: value === 'urban' }));
 }
 
-/** The one line the folded settings show: everything that is set, in order. */
+/** The Settings button's line: everything that is set, in order, and a count
+ *  of what differs from the defaults. */
 function renderSettings() {
   const parts = [];
-  if (!$('where-field').hidden && state.urbanOnly) parts.push('urban areas only');
+  let changed = 0;
+  if (!$('where-field').hidden && state.urbanOnly) {
+    parts.push('urban areas only');
+    changed += 1;
+  }
   if (!$('when-field').hidden) {
     const { window, spec } = tripWindow();
-    parts.push(window === USUAL ? 'Usual times' : (spec.label ? `${spec.label}, ${spec.when}` : spec.when || ''));
+    parts.push(window === USUAL ? 'usual times' : (spec.label || spec.when || ''));
+    if (state.when) changed += 1;
   }
-  if (!$('standard-field').hidden) parts.push(`within ${standardFor(state.service)} min`);
+  if (!$('standard-field').hidden) {
+    parts.push(`${standardFor(state.service)} min`);
+    if (state.standard[state.service] != null) changed += 1;
+  }
+  if (!$('limit-field').hidden) {
+    parts.push(`jobs within ${jobsChoice().limit} min`);
+    if (jobsChoice().limit !== jobsChoice().limits[jobsChoice().limits.length - 1]) changed += 1;
+  }
   if (!$('traveller').hidden) {
     const profile = ((data.meta.fares || {}).profiles || []).find((p) => p.key === state.profile);
-    if (profile && state.profile !== 'adult') parts.push(profile.label);
+    if (profile && state.profile !== 'adult') {
+      parts.push(profile.label);
+      changed += 1;
+    }
+    const firstPayment = (payments(data.meta.fares || {})[0] || [])[0];
+    if (firstPayment && state.payment !== firstPayment) changed += 1;
+    if (!state.returnTrip) changed += 1;
   }
-  if (!$('budget-field').hidden) parts.push(state.budget == null ? 'any fare' : $('budget-value').textContent);
-  const box = $('settings');
-  box.hidden = !['where-field', 'when-field', 'standard-field', 'traveller', 'budget-field'].some((id) => !$(id).hidden);
-  $('settings-summary').textContent = parts.filter(Boolean).join(' · ') || 'Everyone, everywhere';
+  if (!$('budget-field').hidden) {
+    parts.push(state.budget == null ? 'any fare' : $('budget-value').textContent);
+    if (state.budget != null) changed += 1;
+  }
+  const any = ['where-field', 'when-field', 'standard-field', 'limit-field', 'traveller', 'budget-field'].some((id) => !$(id).hidden);
+  $('open-settings').hidden = !any;
+  if (!any && openDrawer === 'settings') setDrawer(null);
+  const line = parts.filter(Boolean).join(' · ') || 'Everyone, everywhere';
+  $('settings-summary').textContent = line[0].toUpperCase() + line.slice(1);
+  const badge = $('settings-count');
+  badge.hidden = changed === 0;
+  badge.textContent = String(changed);
+  badge.title = `${changed} ${changed === 1 ? 'setting differs' : 'settings differ'} from the default`;
+}
+
+// ---------------------------------------------------------------- the key
+
+/** Everything the key could show now: the view's key, or MATE's catchment
+ *  when one is painted, then the layers that are on. */
+function keyNow(catchment) {
+  let spec = $('view').keySpec || null;
+  if (catchment) {
+    spec = {
+      mode: catchment.key.title,
+      short: catchment.key.title.split(':')[0],
+      scale: { items: catchment.key.rows.map(([label, k, short]) => ({ colour: catchment.colours[k], label, short, hatch: k === mate.LOST })) },
+      notes: [`${catchment.key.note[0].toUpperCase()}${catchment.key.note.slice(1)}.`],
+    };
+  }
+  const out = spec ? { ...spec } : { mode: current && current.waiting ? 'Loading…' : '', notes: [] };
+  // MATE's map switch, for a hexagon with a catchment to show.
+  if (MATE && mate && state.selected != null && MATE_PLACES.includes(CITY) && mateHasTimes(state.selected)) {
+    out.after = [el('p', 'k-sub', 'Hexagon picked'), mate.mapSwitch(mateState, setMate, 'key-mate-map')];
+  }
+  out.onMap = [];
+  for (const [k, spec2] of Object.entries(OVERLAYS)) {
+    if (!state.overlays[k] || !spec2.key) continue;
+    for (const entry of spec2.key) {
+      const destination = k === 'destinations';
+      if (destination && !singleService()) continue;
+      out.onMap.push({
+        swatch: entry.swatch,
+        colour: entry.colour || DESTINATION_COLOURS[state.service] || DESTINATION_OTHER,
+        label: destination ? capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service]) : entry.label,
+      });
+    }
+  }
+  return out;
+}
+
+const capitalise = (text) => `${text[0].toUpperCase()}${text.slice(1)}`;
+
+function singleService() {
+  return state.measure !== 'score' && state.service !== 'jobs' && state.service !== 'errands';
+}
+
+function swatchOf(kind, colour, hatch = false) {
+  const swatch = el('span', `key-swatch key-${kind}${hatch ? ' key-hatch' : ''}`);
+  swatch.style.setProperty('--swatch', colour);
+  return swatch;
+}
+
+/** The key's contents. `compact` is the strip a phone shows under the headline. */
+function keyContent(spec, { compact = false } = {}) {
+  const nodes = [];
+  if (spec.scale && spec.scale.items && spec.scale.items.length) {
+    const box = el('div', 'scale');
+    if (compact && spec.mode) box.append(el('span', 'k-what', spec.short || spec.mode));
+    const bars = el('div', 'scale-bars');
+    const columns = `repeat(${spec.scale.items.length}, minmax(0, 1fr))`;
+    const swatches = el('div', 'scale-bar');
+    const labels = el('div', 'scale-lab');
+    swatches.style.gridTemplateColumns = columns;
+    labels.style.gridTemplateColumns = columns;
+    spec.scale.items.forEach((item, k) => {
+      const sw = el('span', `sw${spec.scale.divider === k ? ' is-std' : ''}${item.hatch ? ' key-hatch' : ''}`);
+      sw.style.background = item.hatch ? '' : item.colour;
+      if (item.hatch) sw.style.setProperty('--swatch', item.colour);
+      swatches.append(sw);
+      labels.append(el('span', null, compact ? item.short || shortScaleLabel(item.label) : item.label));
+    });
+    bars.append(swatches, labels);
+    box.append(bars);
+    nodes.push(box);
+  }
+  if (spec.rows && spec.rows.length) {
+    const list = el('div', 'k-rows');
+    list.dataset.group = compact ? 'key-strip-rows' : 'key-rows';
+    spec.rows.forEach((row, k) => {
+      const item = el(row.onPick ? 'button' : 'div', `k-row${row.faded ? ' is-faded' : ''}`);
+      if (row.onPick) {
+        item.type = 'button';
+        item.setAttribute('aria-pressed', String(Boolean(row.pressed)));
+        item.dataset.value = String(k);
+        item.addEventListener('click', row.onPick);
+      }
+      // A switch shows a tick, with any colour it draws beside its label; a
+      // reason shows its colour.
+      if (row.toggle) item.classList.add('is-toggle');
+      item.append(row.toggle || !row.colour ? el('span', `k-check${row.pressed ? ' is-on' : ''}`) : swatchOf('square', row.colour));
+      const text = el('span', 'k-text');
+      const name = el('span', null, row.label);
+      if (row.toggle && row.colour) name.prepend(swatchOf('square', row.colour));
+      text.append(name);
+      if (row.sub && !compact) text.append(el('span', 'k-fix', row.sub));
+      item.append(text, el('span', 'k-count', row.count || ''));
+      list.append(item);
+    });
+    nodes.push(list);
+  }
+  const notes = (spec.notes || []).filter(Boolean);
+  for (const text of compact ? notes.slice(0, 1) : notes) nodes.push(el('p', 'note', text));
+  if (spec.after) nodes.push(...spec.after);
+  if (spec.onMap && spec.onMap.length) {
+    nodes.push(el('p', 'k-sub', 'On the map'));
+    const list = el('div', 'k-rows k-layers');
+    for (const row of spec.onMap) {
+      const item = el('div', 'k-row');
+      item.append(swatchOf(row.swatch, row.colour), el('span', 'k-text', row.label), el('span'));
+      list.append(item);
+    }
+    nodes.push(list);
+  }
+  return nodes;
+}
+
+let lastKey = null;
+
+
+/** Draw the docked key, the strip under the headline on a phone, and the
+ *  strip above the card when a phone shows one. */
+function renderKey(catchment) {
+  const spec = keyNow(catchment);
+  lastKey = spec;
+  $('key-mode').textContent = spec.mode || '';
+  $('key-body').replaceChildren(...keyContent(spec));
+  // A phone shows the key as a strip in the sheet, under the headline.
+  const heroBox = $('view').querySelector('.hero');
+  $('view').querySelector('.key-inline')?.remove();
+  if (phone() && heroBox) {
+    const strip = el('div', 'key-inline');
+    strip.append(...keyContent(spec, { compact: true }));
+    heroBox.after(strip);
+  }
+  // With the card open on a phone, the strip sits over the map, above the card.
+  let float = $('key-strip');
+  if (!float) {
+    float = el('div', 'key-strip');
+    float.id = 'key-strip';
+    float.setAttribute('aria-label', 'Map key');
+    float.setAttribute('role', 'group');
+    document.body.append(float);
+  }
+  const showFloat = phone() && state.selected != null && !$('place').hidden && spec.scale;
+  float.hidden = !showFloat;
+  if (showFloat) float.replaceChildren(...keyContent({ mode: spec.mode, short: spec.short, scale: spec.scale }, { compact: true }));
+  window.requestAnimationFrame(() => {
+    document.body.style.setProperty('--strip-h', showFloat ? `${Math.round(float.getBoundingClientRect().height) + 8}px` : '0px');
+  });
+}
+
+// ---------------------------------------------------------------- drawers
+
+let openDrawer = null;
+
+/** Open Settings or Layers, or close both: one at a time. The tab's body and
+ *  the key step aside while one is open; the pickers and tabs stay. */
+function setDrawer(name) {
+  openDrawer = name;
+  const side = $('side');
+  if (name) side.dataset.drawer = name;
+  else delete side.dataset.drawer;
+  for (const button of document.querySelectorAll('.drawers [data-drawer]')) {
+    const on = button.dataset.drawer === name;
+    button.setAttribute('aria-expanded', String(on));
+    $(`drawer-${button.dataset.drawer}`).hidden = !on;
+  }
+}
+
+/** The Layers drawer: grouped rows, each with its symbol and a caption, and
+ *  the count of layers on, on its button. */
+function renderLayers() {
+  for (const [k, spec] of Object.entries(OVERLAYS)) {
+    const row = document.querySelector(`#layer-list [data-layer="${k}"]`);
+    if (!row) continue;
+    const box = row.querySelector('input');
+    box.checked = Boolean(state.overlays[k]);
+    if (k === 'destinations') {
+      const single = singleService();
+      row.querySelector('.layer-name').textContent = single ? capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service]) : spec.label;
+      row.querySelector('.layer-cap').textContent = single ? 'Follows Getting to · click one for its name' : 'Pick one service under Getting to';
+      const sw = row.querySelector('.key-swatch');
+      sw.style.setProperty('--swatch', DESTINATION_COLOURS[state.service] || DESTINATION_OTHER);
+    }
+  }
+  const on = Object.keys(OVERLAYS).filter((k) => state.overlays[k]).length;
+  const badge = $('layer-count');
+  badge.hidden = on === 0;
+  badge.textContent = String(on);
+  $('layers-summary').textContent = `${BASEMAPS[state.basemap].label} basemap${on ? '' : ' · none on'}`;
+}
+
+function renderBasemaps() {
+  for (const button of document.querySelectorAll('[data-basemap]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.basemap === state.basemap));
+  }
+}
+
+// ---------------------------------------------------------------- the area list
+
+/** The area in the headline is a button that opens the list of areas the
+ *  panel's figures can be for. */
+function linkAreaName() {
+  const text = $('view').querySelector('.hero .hero-text');
+  if (!text || !scope) return;
+  const where = areaNow();
+  const name = where ? areaPhrase(where.area).replace(/^the /, '') : place.name;
+  const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+  for (let node; (node = walker.nextNode());) {
+    // Only where the sentence is about the area ("people in Auckland", "a
+    // resident of Albany"), not "the Auckland average" or "Auckland's jobs".
+    let at = -1;
+    for (let from = 0; ; from = at + 1) {
+      at = node.textContent.indexOf(name, from);
+      if (at < 0) break;
+      const before = node.textContent.slice(0, at);
+      const next = node.textContent[at + name.length] || '';
+      if (/\b(in|of) (the )?$/.test(before) && !/['’]/.test(next)) break;
+    }
+    if (at < 0) continue;
+    const after = node.splitText(at);
+    after.splitText(name.length);
+    const button = el('button', 'area-pick', name);
+    button.type = 'button';
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', 'area-menu');
+    button.title = 'Figures for another area';
+    button.addEventListener('click', () => openAreaMenu(button));
+    after.replaceWith(button);
+    return;
+  }
+}
+
+function openAreaMenu(trigger) {
+  const menu = $('area-menu');
+  const centre = visibleCentre();
+  const chain = chainAt(scope, cellNear(centre.lat, centre.lng));
+  const where = areaNow();
+  const items = [];
+  const add = (label, hint, go, current) => {
+    const item = el('button', `area-item${current ? ' is-current' : ''}`);
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = -1;
+    item.append(el('span', null, label), hint ? el('span', 'area-hint', hint) : '');
+    item.addEventListener('click', () => {
+      closeAreaMenu(false);
+      go();
+    });
+    items.push(item);
+  };
+  const heading = (text) => {
+    const h = el('p', 'area-group', text);
+    h.setAttribute('role', 'presentation');
+    items.push(h);
+  };
+  add(place.name, 'all of it', goToPlace, !where);
+  if (chain.length) heading('Under the middle of the map');
+  for (const area of chain) {
+    const hint = areaLabel(area).toLowerCase().includes(LEVEL_NAME[area.level]) ? null : LEVEL_NAME[area.level];
+    add(areaLabel(area), hint, () => goToArea({ level: area.level, name: area.name }, area.bbox),
+      where && where.area.level === area.level && where.area.id === area.id);
+  }
+  const boards = scope.levels.board ? scope.levels.board.names.map((n, id) => ({ n, id })).filter(({ id }) => scope.levels.board.people[id] > 0) : [];
+  if (boards.length) {
+    heading('Local boards');
+    for (const { n } of [...boards].sort((a, b) => a.n.localeCompare(b.n))) {
+      const found = areaNamed(scope, 'board', n);
+      add(`${n} Local Board`, null, () => goToArea({ level: 'board', name: n }, found && found.area.bbox),
+        where && where.area.level === 'board' && where.area.name === n);
+    }
+  }
+  menu.replaceChildren(...items);
+  menu.hidden = false;
+  const box = trigger.getBoundingClientRect();
+  const width = Math.min(300, window.innerWidth - 16);
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.max(8, Math.min(box.left, window.innerWidth - width - 8))}px`;
+  const below = window.innerHeight - box.bottom - 12;
+  menu.style.maxHeight = `${Math.max(180, Math.min(420, below > 200 ? below : box.top - 12))}px`;
+  if (below > 200) {
+    menu.style.top = `${box.bottom + 4}px`;
+    menu.style.bottom = '';
+  } else {
+    menu.style.top = '';
+    menu.style.bottom = `${window.innerHeight - box.top + 4}px`;
+  }
+  trigger.setAttribute('aria-expanded', 'true');
+  menu.trigger = trigger;
+  (menu.querySelector('.is-current') || menu.querySelector('[role="menuitem"]'))?.focus();
+}
+
+function closeAreaMenu(refocus = true) {
+  const menu = $('area-menu');
+  if (menu.hidden) return false;
+  menu.hidden = true;
+  if (menu.trigger) {
+    menu.trigger.setAttribute('aria-expanded', 'false');
+    if (refocus && document.contains(menu.trigger)) menu.trigger.focus();
+  }
+  return true;
+}
+
+const LEVEL_NAME = { council: 'council', ward: 'ward', board: 'local board', suburb: 'suburb' };
+
+// ---------------------------------------------------------------- phone sheet
+
+const PHONE = window.matchMedia('(max-width: 760px)');
+const phone = () => PHONE.matches;
+const SHEETS = ['peek', 'half', 'full'];
+
+/** Set a sheet's height on a phone: peek, half or full. */
+function setSheet(box, size) {
+  box.dataset.sheet = size;
+  box.style.height = '';
+  const handle = box.querySelector('.sheet-handle');
+  if (handle) handle.setAttribute('aria-label', size === 'full' ? 'Show less' : 'Show more');
+  if (box === $('side')) {
+    document.body.dataset.sheet = size;
+    if (size === 'peek') box.scrollTop = 0;
+  }
+  window.requestAnimationFrame(sheetHeight);
+}
+
+/** How much of the map the sheet covers, for the credits and the scale. */
+function sheetHeight() {
+  if (!phone()) {
+    document.body.style.removeProperty('--sheet-h');
+    return;
+  }
+  const open = !$('place').hidden ? $('place') : $('side');
+  document.body.style.setProperty('--sheet-h', `${Math.round(open.getBoundingClientRect().height)}px`);
+}
+
+/** Tap the handle to go up a size (and from full back to peek); drag it to
+ *  any height and it settles on the nearest. */
+function wireSheet(box, handle, { sizes = SHEETS } = {}) {
+  let start = null;
+  handle.addEventListener('click', () => {
+    if (start && start.moved) return;
+    const now = sizes.indexOf(box.dataset.sheet);
+    setSheet(box, sizes[(now + 1) % sizes.length]);
+  });
+  handle.addEventListener('pointerdown', (event) => {
+    if (!phone()) return;
+    start = { y: event.clientY, h: box.getBoundingClientRect().height, moved: false };
+    handle.setPointerCapture(event.pointerId);
+    box.classList.add('dragging');
+  });
+  handle.addEventListener('pointermove', (event) => {
+    if (!start) return;
+    const dy = start.y - event.clientY;
+    if (Math.abs(dy) > 6) start.moved = true;
+    if (start.moved) box.style.height = `${Math.max(120, Math.min(window.innerHeight - 40, start.h + dy))}px`;
+  });
+  const end = () => {
+    if (!start) return;
+    box.classList.remove('dragging');
+    if (start.moved) {
+      const h = box.getBoundingClientRect().height;
+      const targets = { peek: 190, half: window.innerHeight * 0.56, full: window.innerHeight - 52 };
+      const near = sizes.reduce((a, b) => (Math.abs(targets[b] - h) < Math.abs(targets[a] - h) ? b : a), sizes[0]);
+      setSheet(box, near);
+      // The click that follows a drag is not a tap.
+      window.setTimeout(() => { start = null; }, 0);
+    } else {
+      start = null;
+    }
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
+
+/** The sheet at its lowest: what is on screen and the headline, in one look. */
+function renderPeek() {
+  const peek = $('peek');
+  const heroBox = $('view').querySelector('.hero');
+  const figure = heroBox?.querySelector('.hero-figure')?.textContent || '';
+  const text = heroBox?.querySelector('.hero-text')?.textContent || $('view').textContent.trim().slice(0, 160);
+  const sub = heroBox?.querySelector('.hero-sub')?.textContent || '';
+  const goal = state.measure === 'score'
+    ? $('goal').selectedOptions[0]?.textContent || 'Access score'
+    : SERVICE_SHORT[state.service];
+  const how = state.view !== 'access' && state.measure !== 'score'
+    ? { people: 'Who misses out', fixes: 'What would help' }[state.view]
+    : $('mode-picker').querySelector('[aria-checked="true"]')?.title?.split(':')[0]
+      || $('mode-picker').querySelector('.modes-more.is-on')?.selectedOptions[0]?.textContent || '';
+  const what = el('span', 'peek-what', [place.name, goal, how].filter(Boolean).join(' · '));
+  const line = el('span', 'peek-line');
+  line.append(el('span', 'hero-figure', figure), el('span', 'peek-text', `${text}${sub ? ` ${sub}` : ''}`));
+  const strip = el('span', 'peek-key');
+  if (lastKey && lastKey.scale) strip.append(...keyContent({ mode: lastKey.mode, short: lastKey.short, scale: lastKey.scale }, { compact: true }));
+  peek.replaceChildren(what, line, strip);
 }
 
 let announceTimer = 0;
@@ -2305,19 +2788,28 @@ function miniLine() {
   mini.textContent = `${SERVICE_SHORT[state.service]} · ${Math.round(share * 100)}% within ${standard} min ${how}${fareClause()}`;
 }
 
-/** Where keyboard focus was, as a chip group and value, so it can be put back
- *  on the same choice after the panel is redrawn. */
+/** Where keyboard focus was, so it can be put back after the panel is
+ *  redrawn: a choice in a group, an element with an id, or a fold. */
 function focusKey() {
   const active = document.activeElement;
-  if (!active || active.dataset?.value == null) return null;
-  const group = active.closest('[data-group]');
-  return group ? [group.dataset.group, active.dataset.value] : null;
+  if (!active || active === document.body) return null;
+  if (active.dataset?.value != null) {
+    const group = active.closest('[data-group]');
+    if (group) return ['group', group.dataset.group, active.dataset.value];
+  }
+  if (active.id) return ['id', active.id];
+  if (active.tagName === 'SUMMARY' && active.parentElement?.dataset.fold) return ['fold', active.parentElement.dataset.fold];
+  return null;
 }
 
-function restoreFocus(key) {
-  if (!key || document.activeElement !== document.body) return;
+function restoreFocus(key, within = document) {
+  if (!key || (document.activeElement && document.activeElement !== document.body)) return;
   const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v);
-  document.querySelector(`[data-group="${esc(key[0])}"] [data-value="${esc(key[1])}"]`)?.focus();
+  let target = null;
+  if (key[0] === 'group') target = within.querySelector(`[data-group="${esc(key[1])}"] [data-value="${esc(key[2])}"]`);
+  else if (key[0] === 'id') target = document.getElementById(key[1]);
+  else if (key[0] === 'fold') target = within.querySelector(`[data-fold="${esc(key[1])}"] > summary`);
+  target?.focus();
 }
 
 function update() {
@@ -2329,7 +2821,6 @@ function update() {
     current.classes = Int8Array.from(current.classes, (c, i) => (data.urban[i] ? c : -1));
   }
   const t1 = performance.now();
-  if (redrawKey && state.service !== lastService) redrawKey();
   // With MATE on and a hexagon picked, the map shows its catchment instead.
   const catchment = mateCatchment();
   painted = catchment || current;
@@ -2340,13 +2831,16 @@ function update() {
   } catch (error) {
     console.warn('The map is not ready to paint yet.', error);
   }
-  if (MATE) renderMateKey(catchment);
   const t2 = performance.now();
+  renderLayers();
   if (current.waiting) {
     // The controls for this view read the data still on its way; they are
     // drawn when it arrives.
     shown = current;
     renderView(current);
+    renderKey(catchment);
+    renderPeek();
+    if (state.selected != null) showPlace(state.selected);
     return;
   }
   // Zoomed in on part of the place, the panel's figures are for that part,
@@ -2359,68 +2853,95 @@ function update() {
   renderWhere();
   renderWhen();
   renderStandard();
+  renderLimit();
   renderBudget();
-  renderTravellerLine();
+  renderTravellerFields();
+  // The key stays the whole place's, as the map is, wherever the figures are for.
   renderView(shown);
   if (shown !== current) renderAround(aroundFigures(where));
+  linkAreaName();
+  renderKey(catchment);
   const t4 = performance.now();
   renderSettings();
   renderMini(shown !== current ? where.area : null);
+  renderPeek();
   restoreFocus(focused);
   announce();
   window.team.timing = { compute: Math.round(t1 - t0), paint: Math.round(t2 - t1), panel: Math.round(performance.now() - t2), area: Math.round(t4 - t3) };
   try {
-    showDestinationsFor(map, state.service === 'jobs' || state.service === 'errands' || state.measure === 'score' ? null : state.service);
+    showDestinationsFor(map, singleService() ? state.service : null);
   } catch (error) {
     console.warn('Destination pins are not ready yet.', error);
   }
   if (state.selected != null) showPlace(state.selected);
 }
 
+/** The verdict band for an errand round, which only this file can time. */
+function errandLead(i) {
+  if (state.service !== 'errands' || state.measure === 'score' || !data.roundSets?.[errandStops().join('+')]) return null;
+  const t = roundTimes()[i];
+  const standard = standardFor('errands');
+  const meets = Number.isFinite(t) && t <= standard;
+  return {
+    state: meets ? 'meets' : 'misses',
+    badge: meets ? 'Meets' : 'Misses',
+    strong: Number.isFinite(t) ? `Errand round: ${Math.round(t)} min of travel.` : 'Errand round: none within these limits.',
+    rest: `The standard is ${standard} min.`,
+  };
+}
+
+/** Under the tiles: where a trip will start (behind ?mate=1, in Auckland),
+ *  or a line saying trips are not yet here. Nothing without ?mate=1. */
+function tripSlot() {
+  if (!MATE) return null;
+  if (!MATE_PLACES.includes(CITY)) return el('p', 'not-yet', 'Trips and mobility profiles: not yet for this place.');
+  // Plan a trip from here goes in this slot.
+  const slot = el('div', 'trip-slot');
+  slot.id = 'trip-slot';
+  return slot;
+}
+
 function showPlace(i) {
-  $('place').hidden = false;
+  const card = $('place');
+  const opening = card.hidden;
+  card.hidden = false;
   document.body.dataset.place = 'open';
+  if (opening && phone()) setSheet(card, 'half');
+  const head = placeHeader(data, i);
   if (!data.complete) {
     // The card reads the measures sent after the map; it is drawn again when
     // they arrive.
-    $('place-title').textContent = placeName(i);
-    $('place-sub').textContent = '';
+    $('place-eyebrow').textContent = head.eyebrow;
+    $('place-title').textContent = head.title;
+    $('place-sub').textContent = head.sub;
     $('place-body').replaceChildren(el('p', 'note', 'Loading the details for this place…'));
+    renderCardTabs();
     return;
   }
+  // The card is drawn afresh, so keep focus on the control that had it.
+  const active = document.activeElement;
+  const keep = active && card.contains(active) ? focusKey() : null;
   try {
-    if (!MATE) {
-      renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
-      return;
-    }
-    // The card is drawn afresh, so keep focus on the control that had it.
-    const active = document.activeElement;
-    const inCard = active && $('place').contains(active);
-    const keepId = inCard ? active.id : '';
-    const keepKey = inCard && !keepId ? focusKey() : null;
-    renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state, [mateSection(i)]);
-    const jump = el('a', 'mate-jump', 'On foot, by profile ↓');
-    jump.href = '#mate-section';
-    jump.addEventListener('click', (event) => {
-      event.preventDefault();
-      // Scroll the card's body only: scrollIntoView would move the card itself.
-      const body = $('place-body');
-      const target = document.getElementById('mate-section');
-      if (target) body.scrollTop += target.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    // With a trip open, the To tab is the same card for the destination.
+    const cell = card.trip && card.tab === 'to' && card.dest != null ? card.dest : i;
+    const extra = MATE && MATE_PLACES.includes(CITY) ? [mateSection(cell)] : [];
+    renderPlace({ eyebrow: $('place-eyebrow'), title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, cell, state, {
+      lead: errandLead(cell),
+      slot: card.trip ? null : tripSlot(),
+      extra,
+      key: card.trip ? `card-${card.tab}` : 'card',
     });
-    $('place-body').prepend(jump);
-    if (keepId) document.getElementById(keepId)?.focus();
-    else if (keepKey) {
-      const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v);
-      document.querySelector(`#place [data-group="${esc(keepKey[0])}"] [data-value="${esc(keepKey[1])}"]`)?.focus();
-    }
   } catch (error) {
     // Better an honest gap than the last place's figures under a new name.
-    $('place-title').textContent = placeName(i);
+    $('place-eyebrow').textContent = head.eyebrow;
+    $('place-title').textContent = head.title;
     $('place-sub').textContent = '';
     $('place-body').replaceChildren(el('p', 'note', 'The details for this place could not be shown.'));
     console.error('Place card failed', i, error);
   }
+  renderCardTabs();
+  if (keep) restoreFocus(keep, card);
+  window.requestAnimationFrame(sheetHeight);
 }
 
 function closePlace() {
@@ -2428,10 +2949,44 @@ function closePlace() {
   state.selected = null;
   $('place').hidden = true;
   delete document.body.dataset.place;
-  if (MATE) {
-    schedule();
-    writeHash();
+  card.trip = false;
+  card.tab = 'from';
+  card.dest = null;
+  schedule();
+  writeHash();
+  window.requestAnimationFrame(sheetHeight);
+}
+
+// ---------------------------------------------------------------- trips (hook)
+
+// The card's From, To and Trip tabs, for trips behind ?mate=1 in Auckland.
+// Picking where to go, d= in the address and the Trip tab's body are added on
+// top of this: a trip sets `card.trip` and `card.dest` (the destination's
+// index), puts Plan a trip in #trip-slot and Swap in #place-actions, and draws
+// the Trip tab into #place-trip. Until then the tabs stay hidden and the card
+// is the one-hexagon card. From and To keep their folds apart (`card-from`,
+// `card-to`).
+const card = { tab: 'from', trip: false, dest: null };
+
+function renderCardTabs() {
+  const show = MATE && card.trip;
+  $('place-tabs').hidden = !show;
+  $('place-trip').hidden = !show || card.tab !== 'trip';
+  $('place-body').hidden = show && card.tab === 'trip';
+  $('place-body').setAttribute('role', show ? 'tabpanel' : 'region');
+  if (show) $('place-body').setAttribute('aria-labelledby', `ctab-${card.tab === 'trip' ? 'from' : card.tab}`);
+  else $('place-body').removeAttribute('aria-labelledby');
+  for (const tab of $('place-tabs').querySelectorAll('[role="tab"]')) {
+    const on = tab.dataset.ctab === card.tab;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
   }
+}
+
+function setCardTab(tab) {
+  card.tab = tab;
+  renderCardTabs();
+  if (state.selected != null) showPlace(state.selected);
 }
 
 // ---------------------------------------------------------------- MATE (?mate=1)
@@ -2465,9 +3020,7 @@ function setMate(patch) {
 function mateSection(i) {
   if (!mate) {
     requestMateModule();
-    const box = el('section', 'place-section mate');
-    box.id = 'mate-section';
-    box.append(el('h3', null, 'On foot, by profile'), el('p', 'note', 'Loading MATE…'));
+    const box = el('p', 'note', 'Loading MATE…');
     return box;
   }
   return mate.section({
@@ -2489,55 +3042,95 @@ function mateSection(i) {
   });
 }
 
+/** Whether MATE has times for this hexagon, once its data is in. */
+function mateHasTimes(i) {
+  const got = mate.request(`${DATA_BASE}${CITY}/`, data.h3[i], mateReady);
+  return Boolean(got.core && got.core.cells.o[i] != null);
+}
+
 /** The catchment of the hexagon picked, for the map, once its data is in. */
 function mateCatchment() {
-  if (!MATE || !mate || state.selected == null || !mate.PLACES.includes(CITY) || !data.complete) return null;
+  if (!MATE || !mate || state.selected == null || !MATE_PLACES.includes(CITY) || !data.complete) return null;
   const got = mate.request(`${DATA_BASE}${CITY}/`, data.h3[state.selected], mateReady);
   return mate.catchmentModel(got, state.selected, mateState, data.n);
 }
 
-/** The key for the catchment, beside the map's own. */
-function renderMateKey(catchment) {
-  let box = $('mate-key');
-  if (!catchment) {
-    if (box) box.hidden = true;
-    return;
-  }
-  if (!box) {
-    box = el('div', 'map-key mate-key');
-    box.id = 'mate-key';
-    box.setAttribute('aria-label', 'Map key for the catchment');
-    document.body.append(box);
-  }
-  const rows = [el('strong', 'mate-key-title', catchment.key.title)];
-  for (const [label, k, short] of catchment.key.rows) {
-    const row = el('div', 'key-row');
-    const swatch = el('span', `key-swatch key-square${k === mate.LOST ? ' key-hatch' : ''}`);
-    swatch.style.setProperty('--swatch', catchment.colours[k]);
-    const text = el('span', 'key-label');
-    text.append(el('span', 'key-long', label), el('span', 'key-short', short));
-    row.append(swatch, text);
-    rows.push(row);
-  }
-  rows.push(el('span', 'key-label mate-key-note', `${catchment.key.note[0].toUpperCase()}${catchment.key.note.slice(1)}.`));
-  box.replaceChildren(...rows);
-  box.hidden = false;
-}
-
 // ---------------------------------------------------------------- wiring
 
-function wireControls() {
-  for (const button of document.querySelectorAll('#measure-picker button')) {
-    button.addEventListener('click', () => set({ measure: button.dataset.measure }));
+/** The basemap buttons: on the map, and again at the foot of the Layers drawer. */
+function basemapButtons(container) {
+  for (const [key, spec] of Object.entries(BASEMAPS)) {
+    const button = el('button', null, spec.label);
+    button.type = 'button';
+    button.dataset.basemap = key;
+    button.setAttribute('aria-pressed', String(key === state.basemap));
+    button.addEventListener('click', () => {
+      // On a phone the map shows only the basemap in use; a tap opens the rest.
+      if (phone() && container.id === 'map-basemaps' && !container.classList.contains('open') && key === state.basemap) {
+        container.classList.add('open');
+        return;
+      }
+      container.classList.remove('open');
+      if (key === state.basemap) return;
+      state.basemap = key;
+      setBasemap(map, key);
+      renderBasemaps();
+      renderLayers();
+      writeHash();
+    });
+    container.append(button);
   }
-  for (const tab of document.querySelectorAll('[role="tab"]')) {
+}
+
+/** The rows of the Layers drawer, grouped, each with its symbol and caption. */
+function layerRows() {
+  const list = $('layer-list');
+  const groups = new Map();
+  for (const [key, spec] of Object.entries(OVERLAYS)) {
+    if (!groups.has(spec.group)) groups.set(spec.group, []);
+    groups.get(spec.group).push([key, spec]);
+  }
+  const nodes = [];
+  for (const [group, entries] of groups) {
+    nodes.push(el('p', 'group-title', group));
+    for (const [key, spec] of entries) {
+      const row = el('label', 'layer');
+      row.dataset.layer = key;
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.id = `layer-${key === 'frequent_bus' ? 'bus' : key}`;
+      box.addEventListener('change', () => {
+        state.overlays[key] = box.checked;
+        applyOverlays();
+        renderLayers();
+        renderKey(painted && painted !== current ? painted : null);
+        renderPeek();
+      });
+      const first = spec.key[0];
+      const swatch = el('span', `key-swatch key-${first.swatch}`);
+      swatch.style.setProperty('--swatch', first.colour || DESTINATION_OTHER);
+      row.append(box, swatch, el('span', 'layer-name', spec.label), el('span', 'layer-cap', spec.caption ? spec.caption(data.meta) : ''));
+      nodes.push(row);
+    }
+  }
+  list.replaceChildren(...nodes);
+}
+
+function wireControls() {
+  for (const tab of document.querySelectorAll('#tabs [role="tab"]')) {
     tab.addEventListener('click', () => set({ view: tab.dataset.view }));
     tab.addEventListener('keydown', (event) => {
-      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
-      const next = (VIEWS.indexOf(state.view) + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+      const keys = { ArrowRight: 1, ArrowLeft: 2, Home: 'first', End: 'last' };
+      if (!(event.key in keys)) return;
+      event.preventDefault();
+      const step = keys[event.key];
+      const next = step === 'first' ? 0 : step === 'last' ? 2 : (VIEWS.indexOf(state.view) + step) % 3;
       set({ view: VIEWS[next] });
-      document.querySelector(`[data-view="${VIEWS[next]}"]`).focus();
+      document.querySelector(`#tabs [data-view="${VIEWS[next]}"]`).focus();
     });
+  }
+  for (const tab of $('place-tabs').querySelectorAll('[role="tab"]')) {
+    tab.addEventListener('click', () => setCardTab(tab.dataset.ctab));
   }
   $('standard').addEventListener('input', (event) => {
     state.standard[state.service] = Number(event.target.value);
@@ -2566,6 +3159,18 @@ function wireControls() {
     schedule();
     writeHash();
   });
+  for (const button of document.querySelectorAll('.drawers [data-drawer]')) {
+    button.addEventListener('click', () => {
+      setDrawer(openDrawer === button.dataset.drawer ? null : button.dataset.drawer);
+      // On a phone the drawer opens in the sheet, so give it the room.
+      if (openDrawer && phone() && $('side').dataset.sheet !== 'full') setSheet($('side'), 'full');
+    });
+  }
+  $('key-fold').addEventListener('click', () => {
+    const open = $('key-fold').getAttribute('aria-expanded') !== 'true';
+    $('key-fold').setAttribute('aria-expanded', String(open));
+    $('key').classList.toggle('is-folded', !open);
+  });
   $('place-close').addEventListener('click', closePlace);
   $('share').addEventListener('click', async () => {
     hashNow();
@@ -2578,10 +3183,12 @@ function wireControls() {
     }
     window.setTimeout(() => { button.textContent = 'Copy link'; }, 2000);
   });
-  $('about-open').addEventListener('click', () => {
+  const about = () => {
     renderAbout($('about-body'), data.meta);
     $('about').showModal();
-  });
+  };
+  $('about-open').addEventListener('click', about);
+  $('brand-chip').addEventListener('click', about);
   $('panel-toggle').addEventListener('click', () => {
     const collapsed = document.body.dataset.panel === 'collapsed';
     if (collapsed) delete document.body.dataset.panel;
@@ -2589,59 +3196,55 @@ function wireControls() {
     $('panel-toggle').setAttribute('aria-expanded', String(collapsed));
     $('panel-toggle').setAttribute('aria-label', collapsed ? 'Hide controls' : 'Show controls');
   });
+  // Escape closes what was opened last: the area list, then a drawer, then the card.
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && state.selected != null && !$('about').open) closePlace();
+    if (event.key !== 'Escape' || $('about').open) return;
+    if (closeAreaMenu()) return;
+    if (openDrawer) {
+      const button = document.querySelector(`.drawers [data-drawer="${openDrawer}"]`);
+      setDrawer(null);
+      button?.focus();
+      return;
+    }
+    if (state.selected != null) closePlace();
+  });
+  // The area list closes on a click elsewhere, and moves with the arrow keys.
+  document.addEventListener('pointerdown', (event) => {
+    const menu = $('area-menu');
+    if (!menu.hidden && !menu.contains(event.target) && event.target !== menu.trigger) closeAreaMenu(false);
+  });
+  $('area-menu').addEventListener('keydown', (event) => {
+    const items = [...$('area-menu').querySelectorAll('[role="menuitem"]')];
+    const at = items.indexOf(document.activeElement);
+    const go = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (go == null) {
+      if (event.key === 'Tab') closeAreaMenu(false);
+      return;
+    }
+    event.preventDefault();
+    items[(go + items.length) % items.length]?.focus();
   });
 
-  const basemaps = $('basemaps');
-  for (const [key, spec] of Object.entries(BASEMAPS)) {
-    const button = el('button', null, spec.label);
-    button.type = 'button';
-    button.setAttribute('aria-pressed', String(key === state.basemap));
-    button.addEventListener('click', () => {
-      state.basemap = key;
-      setBasemap(map, key);
-      for (const b of basemaps.children) b.setAttribute('aria-pressed', String(b === button));
-      writeHash();
-    });
-    basemaps.append(button);
-  }
-  // Switching a layer on adds its key to the map, so nothing is drawn that
-  // the reader has no way of naming.
-  const layers = $('layer-list');
-  const mapKey = $('map-key');
-  const shown = new Set();
-  const drawKey = () => {
-    lastService = state.service;
-    const rows = [];
-    for (const [key, spec] of Object.entries(OVERLAYS)) {
-      if (!shown.has(key) || !spec.key) continue;
-      for (const entry of spec.key) {
-        const row = el('div', 'key-row');
-        const swatch = el('span', `key-swatch key-${entry.swatch}`);
-        swatch.style.setProperty('--swatch', entry.colour || DESTINATION_COLOURS[state.service] || DESTINATION_OTHER);
-        row.append(swatch, el('span', 'key-label', entry.label));
-        rows.push(row);
-      }
+  // The phone's sheets.
+  wireSheet($('side'), $('sheet-handle'));
+  wireSheet($('place'), $('place-handle'), { sizes: ['half', 'full'] });
+  $('peek').addEventListener('click', () => setSheet($('side'), 'half'));
+  const media = () => {
+    if (!phone()) {
+      delete document.body.dataset.sheet;
+      $('map-basemaps')?.classList.remove('open');
+    } else {
+      setSheet($('side'), $('side').dataset.sheet || 'peek');
     }
-    mapKey.replaceChildren(...rows);
-    mapKey.hidden = rows.length === 0;
+    schedule();
+    window.requestAnimationFrame(sheetHeight);
   };
-  redrawKey = drawKey;
-  for (const [key, spec] of Object.entries(OVERLAYS)) {
-    const label = el('label', 'check');
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    box.addEventListener('change', () => {
-      state.overlays[key] = box.checked;
-      applyOverlays();
-      if (box.checked) shown.add(key); else shown.delete(key);
-      drawKey();
-    });
-    label.append(box, document.createTextNode(` ${spec.label}`));
-    layers.append(label);
-  }
-  drawKey();
+  if (PHONE.addEventListener) PHONE.addEventListener('change', media);
+  window.addEventListener('resize', () => window.requestAnimationFrame(sheetHeight));
+
+  basemapButtons($('drawer-basemaps'));
+  layerRows();
+  renderLayers();
 
   onPoints(map, ({ kind, properties, lngLat }) => {
     const box = el('div', 'point-card');
@@ -2660,6 +3263,23 @@ function wireControls() {
       if (named) box.append(el('span', null, named));
     }
     tooltip.hidden = true;
+    if (phone()) {
+      // On a phone a stop or a place opens in the sheet rather than over the map.
+      if (state.selected != null) closePlace();
+      const pop = $('sheet-pop');
+      const close = el('button', 'icon-button sheet-pop-close', '×');
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Close');
+      close.addEventListener('click', () => {
+        pop.hidden = true;
+        window.requestAnimationFrame(sheetHeight);
+      });
+      pop.replaceChildren(box, close);
+      pop.hidden = false;
+      if ($('side').dataset.sheet === 'peek') setSheet($('side'), 'half');
+      $('side').scrollTop = 0;
+      return;
+    }
     new window.maplibregl.Popup({ closeButton: true, offset: 10, className: 'point-popup' })
       .setLngLat(lngLat)
       .setDOMContent(box)
@@ -2691,7 +3311,7 @@ function wireControls() {
   }
   onCells(map, {
     hover(i, point) {
-      if (!current) return;
+      if (!current || phone()) return;
       showTooltip([el('strong', null, placeName(i)), ...(painted || current).tooltip(i).map((line) => el('span', null, line))], point);
     },
     leave() {
@@ -2700,13 +3320,13 @@ function wireControls() {
     click(i) {
       select(map, state.selected, i);
       state.selected = i;
+      $('sheet-pop').hidden = true;
+      // The tooltip shown at the click described the map before the card.
+      tooltip.hidden = true;
       showPlace(i);
-      if (MATE) {
-        // The tooltip shown at the click described the map before the catchment.
-        tooltip.hidden = true;
-        schedule();
-        writeHash();
-      }
+      if (phone()) keepInView(i);
+      schedule();
+      writeHash();
     },
   });
   // A move by hand lets the panel follow the map again.
@@ -2716,19 +3336,30 @@ function wireControls() {
   map.on('movestart', byHand);
   map.on('zoomstart', byHand);
   map.on('wheel', () => { userMoved = true; });
-  map.on('dragstart', () => { userMoved = true; });
+  map.on('dragstart', () => {
+    userMoved = true;
+    $('map-basemaps')?.classList.remove('open');
+  });
   map.on('moveend', () => {
     refreshArea();
     writeHash();
   });
 }
 
+/** On a phone the card covers the lower half of the map: move the map so the
+ *  hexagon picked sits in the part left clear. */
+function keepInView(i) {
+  window.requestAnimationFrame(() => {
+    const [lat, lng] = h3.cellToLatLng(data.h3[i]);
+    const at = map.project([lng, lat]);
+    const box = map.getContainer().getBoundingClientRect();
+    const covered = $('place').getBoundingClientRect().top - box.top;
+    const clear = covered - 90;
+    if (at.y > clear || at.y < 70) map.panBy([0, at.y - Math.max(110, clear / 2)], { duration: 300 });
+  });
+}
 
-// The map key names the destination's colour, which changes with the service.
-let redrawKey = null;
-let lastService = null;
-
-/** Show the layers ticked in the Layers menu. A tick made before the basemap
+/** Show the layers ticked in the Layers drawer. A tick made before the basemap
  *  style has arrived is kept and applied when it does. */
 function applyOverlays() {
   if (!map) return;
@@ -2750,8 +3381,9 @@ async function start() {
   $('start').hidden = false;
   // The controls behind the list do nothing until a place is picked, so keep
   // keyboard and screen readers out of them.
-  $('panel').inert = true;
-  $('panel').setAttribute('aria-hidden', 'true');
+  $('side').inert = true;
+  $('side').setAttribute('aria-hidden', 'true');
+  $('brand-chip').hidden = true;
   $('start-lede').textContent = `How much people can reach without a car: everyday services and jobs for `
     + `${(index.totals.population / 1e6).toFixed(1)} million people in ${index.totals.cities} New Zealand cities and towns. `
     + 'Pick a place to open its map.';
@@ -2881,6 +3513,23 @@ function wireCityPicker(index, current) {
   });
 }
 
+/** Resolves once team.css applies (or after a few seconds, to be safe). */
+function stylesheetReady() {
+  const link = document.getElementById('team-css');
+  const applied = () => window.getComputedStyle($('side')).position === 'absolute';
+  if (!link || applied()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      window.clearInterval(poll);
+      resolve();
+    };
+    link.addEventListener('load', done, { once: true });
+    link.addEventListener('error', done, { once: true });
+    const poll = window.setInterval(() => { if (applied()) done(); }, 50);
+    window.setTimeout(done, 5000);
+  });
+}
+
 async function init() {
   if (!CITY) {
     // Someone who has been here before goes back to the place they last
@@ -2927,10 +3576,24 @@ async function init() {
     return;
   }
   const at = readHash();
-  map = createMap('map');
+  // WebKit can run this before the stylesheet applies; the map waits for it.
+  await stylesheetReady();
+  const basemaps = el('div', 'segmented basemaps');
+  basemaps.id = 'map-basemaps';
+  basemaps.setAttribute('role', 'group');
+  basemaps.setAttribute('aria-label', 'Basemap');
+  basemapButtons(basemaps);
+  map = createMap('map', { topRight: elementControl(basemaps) });
   // Exposed for browser tests and scripted tours.
   // For checks from the console and tests: the area the panel is for.
-  window.team = { map, state, area: () => { const w = areaNow(); return w && { level: w.area.level, name: w.area.name, chain: w.chain.map((a) => a.name) }; } };
+  window.team = {
+    map,
+    state,
+    area: () => { const w = areaNow(); return w && { level: w.area.level, name: w.area.name, chain: w.chain.map((a) => a.name) }; },
+    // A phone's sheet, for tests: peek, half or full.
+    sheet: (size) => setSheet($('side'), size),
+    drawer: (name) => setDrawer(name),
+  };
   if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? 'catchment' : 'team' });
   // Start once the style is ready. The 'load' event also waits for every basemap
   // tile, which would hold up the whole app on a slow connection.
@@ -2972,9 +3635,13 @@ async function init() {
   }
   rememberCity(CITY);
   setServices(data.meta);
+  // The place picker shows this place until the list of places arrives.
+  const here = el('option', null, place.name);
+  here.value = CITY;
+  $('city').replaceChildren(here);
   if (!SERVICE_ORDER.includes(state.service)) state.service = SERVICE_ORDER[0];
   // A link with a hexagon picked opens with its card, as a click would.
-  const linked = MATE ? mateParams?.get('o') : null;
+  const linked = linkedCell;
   if (state.when && !(data.meta.windows || {})[state.when]) state.when = null;
   // A link can carry values this city does not have; fall back rather than fail.
   if (!data.weights[state.group]) state.group = 'everyone';
@@ -3023,13 +3690,8 @@ async function init() {
   const dayList = days.map((d) => new Date(`${d}T12:00:00`).getDate()).join(' and ');
   const month = last.toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' });
   $('build-note').textContent = `Timetables ${dayList} ${month} · Census 2023 · v${data.meta.version}`;
-  const phone = window.matchMedia('(max-width: 760px)').matches;
-  if (phone) {
-    // Phones open on the map, with the controls folded into one bar.
-    document.body.dataset.panel = 'collapsed';
-    $('panel-toggle').setAttribute('aria-expanded', 'false');
-    $('panel-toggle').setAttribute('aria-label', 'Show controls');
-  }
+  // Phones open on the map, with the sheet at its lowest.
+  if (phone()) setSheet($('side'), 'peek');
   update();
   if (!data.complete) {
     // The rest of the data follows the map. When it arrives the whole set is

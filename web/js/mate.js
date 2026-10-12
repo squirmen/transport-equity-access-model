@@ -9,20 +9,22 @@
 /* global h3 */
 
 import { fetchJson } from './data.js';
+import { fold } from './fold.js';
 import { count, el } from './format.js';
 
 export const PLACES = ['auckland'];
 
 // The profiles in MATE's order, with a short name for the table and the group
 // of residents each most nearly describes. The cargo bike has none.
+// `tag` names a profile in a fold's summary line.
 export const PROFILES = [
-  { key: 'walk', short: 'Walking' },
-  { key: 'older_walker', short: 'Older walker', night: 'older_walker_night', group: 'older' },
-  { key: 'manual_wheelchair', short: 'Manual wheelchair', group: 'disabled' },
-  { key: 'powered_chair_scooter', short: 'Powered chair or scooter', group: 'disabled' },
-  { key: 'pram', short: 'Pram or buggy', group: 'under5' },
-  { key: 'child', short: 'Child on their own', night: 'child_night', group: 'kids' },
-  { key: 'cargo_bike', short: 'Cargo bike' },
+  { key: 'walk', short: 'Walking', tag: 'walking' },
+  { key: 'older_walker', short: 'Older walker', tag: 'older walker', night: 'older_walker_night', group: 'older' },
+  { key: 'manual_wheelchair', short: 'Manual wheelchair', tag: 'wheelchair', group: 'disabled' },
+  { key: 'powered_chair_scooter', short: 'Powered chair or scooter', tag: 'scooter', group: 'disabled' },
+  { key: 'pram', short: 'Pram or buggy', tag: 'pram', group: 'under5' },
+  { key: 'child', short: 'Child on their own', tag: 'child', night: 'child_night', group: 'kids' },
+  { key: 'cargo_bike', short: 'Cargo bike', tag: 'cargo bike' },
 ];
 export const DEFAULT_PROFILE = 'manual_wheelchair';
 const GROUP_LABEL = { older: '65+', kids: 'under 15', under5: 'under 5', disabled: 'disabled' };
@@ -335,10 +337,6 @@ export function catchmentModel(got, i, mate, n) {
 
 // ---------------------------------------------------------------- the card
 
-function head(text) {
-  return el('h4', 'mate-head', text);
-}
-
 function note(text) {
   return el('p', 'note', text);
 }
@@ -436,45 +434,41 @@ function dateText(iso) {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** The section for the card. `ctx`: base, city, placeName, i, id (its H3 index), urban, when and windows (TEAM's),
- *  jobsWindow and teamJobs (the window and share of TEAM's public transport jobs line), mate (profile, dark, view,
- *  map), serviceNames, set (to change the MATE settings), ready (to draw again when data arrives). */
+/** The section for the card, as a fold. `ctx`: base, city, placeName, i, id (its H3 index), urban, when and
+ *  windows (TEAM's), jobsWindow and teamJobs (the window and share of TEAM's public transport jobs line), mate
+ *  (profile, dark, view, map), serviceNames, set (to change the MATE settings), ready (to draw again when data
+ *  arrives), key (the prefix for its folds).
+ *
+ *  The fold opens on the profile picker and after dark, the headline for the profile and its footpath status bar;
+ *  everything else is folded inside it, each part with its own line. */
 export function section(ctx) {
-  const box = el('section', 'place-section mate');
-  box.id = 'mate-section';
-  const title = el('h3', null, 'On foot, by profile');
-  title.append(el('span', 'mate-tag', 'MATE preview'));
-  box.append(title);
-  if (!PLACES.includes(ctx.city)) {
-    box.append(note(`MATE has no footpath data for ${ctx.placeName} yet.`));
-    return box;
-  }
+  const key = `${ctx.key || 'card'}-mate`;
+  const title = [document.createTextNode('On foot, by profile '), el('span', 'badge is-preview', 'MATE preview')];
+  const box = (summary, children) => {
+    const out = fold(key, title, summary, children);
+    out.id = 'mate-section';
+    out.classList.add('mate');
+    return out;
+  };
+  if (!PLACES.includes(ctx.city)) return box(null, [note(`MATE has no footpath data for ${ctx.placeName} yet.`)]);
   const got = request(ctx.base, ctx.id, ctx.ready);
-  if (got.error) {
-    box.append(note('MATE data could not be loaded. Reload the page to try again.'));
-    return box;
-  }
-  if (!got.core) {
-    box.append(note('Loading MATE…'));
-    return box;
-  }
+  if (got.error) return box(null, [note('MATE data could not be loaded. Reload the page to try again.')]);
+  if (!got.core) return box('loading', [note('Loading MATE…')]);
   const cm = got.core.cells;
   const i = ctx.i;
-  if (cm.km[i] == null && cm.o[i] == null) {
-    box.append(note('MATE has no footpath data for this hexagon yet.'));
-    return box;
-  }
+  if (cm.km[i] == null && cm.o[i] == null) return box(null, [note('MATE has no footpath data for this hexagon yet.')]);
   const f = cardFigures(got.core, i, {
     profile: ctx.mate.profile, dark: ctx.mate.dark, when: ctx.when, urban: ctx.urban, jobsWindow: ctx.jobsWindow, teamJobs: ctx.teamJobs,
   });
   const chosen = f.chosen;
-  box.append(note('A preview for checking. Only Devonport has been checked on the ground.'));
+  const who = `${chosen.short.toLowerCase()}${chosen.night ? ' after dark' : ''}`;
+  const parts = [note('A preview for checking. Only Devonport has been checked on the ground.')];
 
-  // Profile and after dark.
+  // Profile and after dark, at the top.
   const controls = el('div', 'mate-controls');
   const label = el('label', 'mate-field');
   label.append(el('span', 'field-label', 'Profile'));
-  const select = el('select');
+  const select = el('select', 'select');
   select.id = 'mate-profile';
   for (const p of PROFILES) {
     const option = el('option', null, p.short);
@@ -492,15 +486,16 @@ export function section(ctx) {
   box2.addEventListener('change', () => ctx.set({ dark: box2.checked }));
   dark.append(box2, document.createTextNode(' After dark'));
   controls.append(label, dark);
-  box.append(controls);
+  parts.push(controls);
   if (ctx.mate.dark) {
     const unlit = cm.l4 ? 'tagged not lit, or probably not lit from police notes,' : 'tagged not lit';
-    box.append(note(`After dark changes the older walker and the child only: footpaths ${unlit} count as harder, and those with no lighting recorded as not known.`));
+    parts.push(note(`After dark changes the older walker and the child only: footpaths ${unlit} count as harder, and those with no lighting recorded as not known.`));
   }
 
-  // The headline for the chosen profile, then every profile side by side.
+  // The headline for the chosen profile, and its footpath here.
+  let summary = null;
   if (f.row == null) {
-    box.append(note('This hexagon\'s footpaths do not join the rest of MATE\'s network within 175 m of its centre, so it has no times.'));
+    parts.push(note('This hexagon\'s footpaths do not join the rest of MATE\'s network within 175 m of its centre, so it has no times.'));
   } else {
     const walk = f.rows[0];
     const hero = el('p', 'mate-hero');
@@ -510,7 +505,16 @@ export function section(ctx) {
       document.createTextNode(`${top} ${top === 1 ? 'hexagon' : 'hexagons'} within 15 minutes`
         + (bottom !== top ? `, or ${bottom} ${CAUTIOUS}` : '')
         + (chosen.key !== 'walk' ? `. Walking: ${range(walk.reach.nkb, walk.reach.cautious)}.` : '.')));
-    box.append(hero);
+    parts.push(hero);
+    summary = `${profileOf(chosen.key).tag} ${range(top, bottom)}`;
+  }
+  if (f.km != null) {
+    const { bar, words } = statusBar(f.shares);
+    parts.push(bar, el('p', 'mate-line', `${f.km.toFixed(f.km < 10 ? 1 : 0)} km of footpath: ${words.join(', ')}.`));
+  }
+
+  if (f.row != null) {
+    // Every profile side by side.
     const rows = f.rows.map((r) => {
       const tr = el('tr', r.key === chosen.key ? 'is-chosen' : null);
       const name = el('th', 'mate-name');
@@ -526,34 +530,30 @@ export function section(ctx) {
         el('td', 'num', minutesRange(r.frequent.nkb, r.frequent.cautious)));
       return tr;
     });
-    box.append(table('mate-profiles', ['Profile', 'Reach', 'Stop', 'Frequent'], rows, 'Each profile on foot'));
-    box.append(note(`Reach: hexagons within 15 minutes, this one included. Stop, Frequent: minutes to the nearest stop, and to one with 4 or more departures an hour. The second figure is ${CAUTIOUS}. A dash: none within 30 minutes.`));
-    box.append(note('Residents: the census group each profile most nearly describes. Disabled people are a broader group than wheelchair users.'));
+    parts.push(fold(`${key}-profiles`, 'Every profile', null, [
+      table('mate-profiles', ['Profile', 'Reach', 'Stop', 'Frequent'], rows, 'Each profile on foot'),
+      note(`Reach: hexagons within 15 minutes, this one included. Stop, Frequent: minutes to the nearest stop, and to one with 4 or more departures an hour. The second figure is ${CAUTIOUS}. A dash: none within 30 minutes.`),
+      note('Residents: the census group each profile most nearly describes. Disabled people are a broader group than wheelchair users.'),
+    ]));
     // The third view, on request: only what is recorded as passable.
-    const known = el('details', 'mate-known');
-    known.append(el('summary', null, 'Using only what is recorded'));
-    known.append(el('p', 'mate-line', f.rows.map((r) => `${r.short} ${r.reach.known ?? '–'}`).join(' · ')));
-    known.append(note('Hexagons within 15 minutes on what is recorded as passable, leaving out the rest. For most profiles this is little more than the hexagon itself, because most kerbs are not recorded.'));
-    box.append(known);
-
+    parts.push(fold(`${key}-known`, 'Using only what is recorded', null, [
+      el('p', 'mate-line', f.rows.map((r) => `${r.short} ${r.reach.known ?? '–'}`).join(' · ')),
+      note('Hexagons within 15 minutes on what is recorded as passable, leaving out the rest. For most profiles this is little more than the hexagon itself, because most kerbs are not recorded.'),
+    ]));
     // Services for the chosen profile.
-    box.append(head(`Services on foot, ${chosen.short.toLowerCase()}${chosen.night ? ' after dark' : ''}`));
     const grid = el('div', 'mate-grid');
     for (const s of f.services) {
       grid.append(el('span', 'mate-grid-name', ctx.serviceNames[s.key] || s.key), el('span', 'num', s.nkb == null ? 'over 30 min' : minutesRange(s.nkb, s.cautious, ' min')));
     }
-    box.append(grid);
+    parts.push(fold(`${key}-services`, 'Services on foot', who, [grid]));
   }
 
   // What is in the way, for the chosen profile.
   if (f.km != null) {
-    box.append(head(`What is in the way, ${chosen.short.toLowerCase()}${chosen.night ? ' after dark' : ''}`));
-    const { bar, words } = statusBar(f.shares);
-    box.append(bar, el('p', 'mate-line', `${f.km.toFixed(f.km < 10 ? 1 : 0)} km of footpath: ${words.join(', ')}.`));
     const lines = [];
     if (f.streets) {
-      const parts = STATUS.filter((s) => (f.streets.shares[s.key] || 0) > 0).map((s) => `${f.streets.shares[s.key]}% ${s.label}`);
-      lines.push(`Where no footpath is drawn, routes follow ${f.streets.km.toFixed(1)} km of street centre line${parts.length ? `: ${parts.join(', ')}` : ''}.`);
+      const bits = STATUS.filter((s) => (f.streets.shares[s.key] || 0) > 0).map((s) => `${f.streets.shares[s.key]}% ${s.label}`);
+      lines.push(`Where no footpath is drawn, routes follow ${f.streets.km.toFixed(1)} km of street centre line${bits.length ? `: ${bits.join(', ')}` : ''}.`);
     }
     if (f.steps) lines.push(`${f.steps} ${f.steps === 1 ? 'flight' : 'flights'} of steps.`);
     if (f.steep != null) lines.push(`${f.steep ? `${count(f.steep)} m steeper than 1:12` : 'Nothing steeper than 1:12'}${f.noSlope ? `; no slope reading on ${f.noSlope}%` : ''}.`);
@@ -566,26 +566,28 @@ export function section(ctx) {
     lines.push(kerbLine(f.kerbs));
     if (f.kerbs.main) lines.push(`${f.kerbs.main} ${f.kerbs.main === 1 ? 'crossing' : 'crossings'} of a main road, ${f.kerbs.mainNoSignals} with no signals recorded.`);
     if (f.notSeen) lines.push(`${f.notSeen.toFixed(1)} km of street side where the photos show no footpath, or trees hide it.`);
-    for (const line of lines) box.append(el('p', 'mate-line', line));
-    box.append(head('Lighting'));
-    box.append(el('p', 'mate-line', lightLine(f.light)));
-    box.append(note('Lit means tagged, or near a mapped street lamp. It does not measure how bright it is, or how safe.'));
+    parts.push(fold(`${key}-way`, 'What is in the way', who, lines.map((line) => el('p', 'mate-line', line))));
+    parts.push(fold(`${key}-light`, 'Lighting', f.light && f.light.recorded ? `recorded on ${f.light.recorded}%` : 'not recorded', [
+      el('p', 'mate-line', lightLine(f.light)),
+      note('Lit means tagged, or near a mapped street lamp. It does not measure how bright it is, or how safe.'),
+    ]));
   } else if (f.kerbs.total || f.kerbs.junctions || f.kerbs.joins) {
-    box.append(el('p', 'mate-line', kerbLine(f.kerbs)));
+    parts.push(fold(`${key}-way`, 'What is in the way', who, [el('p', 'mate-line', kerbLine(f.kerbs))]));
   }
 
   // Public transport for each profile.
   if (f.transit) {
     const t = f.transit;
     const spec = (ctx.windows || {})[t.window] || {};
-    box.append(head(`By public transport, ${(spec.label || t.window).toLowerCase()} (estimate)`));
-    if (ctx.mate.dark) box.append(note('Public transport figures are by day: TEAM\'s windows are all in daylight.'));
+    const body = [];
+    if (ctx.mate.dark) body.push(note('Public transport figures are by day: TEAM\'s windows are all in daylight.'));
+    let transitSum = null;
     if (t.state === 'no-origin') {
-      box.append(note('No public transport figures: this hexagon has no times on MATE\'s network.'));
+      body.push(note('No public transport figures: this hexagon has no times on MATE\'s network.'));
     } else if (t.state === 'not-urban') {
-      box.append(note('TEAM times public transport from urban areas only.'));
+      body.push(note('TEAM times public transport from urban areas only.'));
     } else if (t.state === 'no-trip') {
-      box.append(note(`TEAM's routing found no public transport trip from here ${spec.phrase || 'in this window'}.`));
+      body.push(note(`TEAM's routing found no public transport trip from here ${spec.phrase || 'in this window'}.`));
     } else {
       const rows = t.rows.map((r) => {
         const tr = el('tr', r.key === chosen.key ? 'is-chosen' : null);
@@ -597,37 +599,47 @@ export function section(ctx) {
         tr.append(name, el('td', 'num', range(r.cells.nkb, r.cells.cautious)), el('td', 'num', jobs));
         return tr;
       });
-      box.append(table('mate-transit', ['Profile and nearest stop', 'Reach', 'Jobs'], rows, 'Each profile by public transport'));
+      body.push(table('mate-transit', ['Profile and nearest stop', 'Reach', 'Jobs'], rows, 'Each profile by public transport'));
       const mine = t.rows.find((r) => r.key === chosen.key);
+      if (mine && mine.cells.nkb != null) transitSum = `${profileOf(chosen.key).tag} ${range(mine.cells.nkb, mine.cells.cautious)}`;
       if (mine && mine.services.nkb != null) {
         const have = servicesIn(mine.services.nkb, t.services);
         // Lower case inside a sentence, but not an initialism like GP.
         const missing = t.services.filter((s) => !have.includes(s)).map((s) => ctx.serviceNames[s] || s)
           .map((name) => (/^[A-Z]{2}/.test(name) ? name : name[0].toLowerCase() + name.slice(1)));
-        box.append(el('p', 'mate-line', `${mine.short}: ${have.length} of ${t.servicesTotal} services within 45 minutes${missing.length ? ` (not ${missing.join(', ')})` : ''}.`));
+        body.push(el('p', 'mate-line', `${mine.short}: ${have.length} of ${t.servicesTotal} services within 45 minutes${missing.length ? ` (not ${missing.join(', ')})` : ''}.`));
       } else if (chosen.key === 'cargo_bike') {
-        box.append(el('p', 'mate-line', 'Not worked out for the cargo bike.'));
+        body.push(el('p', 'mate-line', 'Not worked out for the cargo bike.'));
       }
-      box.append(note(`Reach: hexagons within 45 minutes, by public transport or within 15 on foot. Jobs: share of ${count(t.jobsTotal)} jobs in them. The second figure is ${CAUTIOUS}.`));
-      const teamShare = t.team == null ? 'TEAM\'s own figure' : `TEAM's own figure above, ${t.team.toFixed(t.team < 10 ? 1 : 0)}%,`;
-      box.append(note(`Walking here is MATE's estimate, made the same way as the other rows, so compare the profiles with it. ${teamShare} differs: MATE walks on its own footpath map, counts jobs in the hexagons people live in, and keeps one typical trip rather than the median.`));
-      box.append(note('An estimate. It keeps the walker\'s trip from TEAM\'s routing (a typical trip in the 2-hour window) and swaps in each profile\'s own walk to the first stop and from the last, on MATE\'s footpath map. No trip where the profile cannot make either walk within 15 minutes. Changes are walked at a walker\'s pace. Stop and vehicle access: no information.'));
+      body.push(note(`Reach: hexagons within 45 minutes, by public transport or within 15 on foot. Jobs: share of ${count(t.jobsTotal)} jobs in them. The second figure is ${CAUTIOUS}.`));
+      const teamShare = t.team == null ? 'TEAM\'s own figure' : `TEAM's own figure, ${t.team.toFixed(t.team < 10 ? 1 : 0)}% under Jobs within reach,`;
+      body.push(note(`Walking here is MATE's estimate, made the same way as the other rows, so compare the profiles with it. ${teamShare} differs: MATE walks on its own footpath map, counts jobs in the hexagons people live in, and keeps one typical trip rather than the median.`));
+      body.push(note('An estimate. It keeps the walker\'s trip from TEAM\'s routing (a typical trip in the 2-hour window) and swaps in each profile\'s own walk to the first stop and from the last, on MATE\'s footpath map. No trip where the profile cannot make either walk within 15 minutes. Changes are walked at a walker\'s pace. Stop and vehicle access: no information.'));
     }
+    parts.push(fold(`${key}-transit`, `By public transport, ${(spec.label || t.window).toLowerCase()}`, transitSum, body));
   }
 
   // The map, for a hexagon with times.
-  if (f.row == null) return finish(box, cm, ctx);
-  box.append(head('On the map'));
-  box.append(chipGroup('mate-map', 'Map', [['nkb', 'No known barrier'], ['cautious', 'Cautious'], ['off', 'TEAM\'s map']],
-    ctx.mate.map ? ctx.mate.view : 'off', (value) => ctx.set(value === 'off' ? { map: false } : { map: true, view: value })));
-  box.append(note(ctx.mate.map
-    ? `Hexagons by minutes on foot from this one for the profile chosen; hatched where walking gets there and the profile does not. ${VIEW_PHRASE[ctx.mate.view][0].toUpperCase()}${VIEW_PHRASE[ctx.mate.view].slice(1)}.`
-    : 'The map shows TEAM\'s view.'));
-  return finish(box, cm, ctx);
+  if (f.row != null) {
+    parts.push(fold(`${key}-map`, 'On the map', ctx.mate.map ? (ctx.mate.view === 'cautious' ? 'cautious' : 'no known barrier') : 'TEAM\'s map', [
+      mapSwitch(ctx.mate, ctx.set),
+      note(ctx.mate.map
+        ? `Hexagons by minutes on foot from this one for the profile chosen; hatched where walking gets there and the profile does not. ${VIEW_PHRASE[ctx.mate.view][0].toUpperCase()}${VIEW_PHRASE[ctx.mate.view].slice(1)}.`
+        : 'The map shows TEAM\'s view.'),
+    ]));
+  }
+  parts.push(fold(`${key}-sources`, 'Assumptions and sources', null, sources(cm, ctx)));
+  return box(summary, parts);
 }
 
-/** Assumptions and sources, at the foot of the section. */
-function finish(box, cm, ctx) {
+/** No known barrier, Cautious or TEAM's map: what the map shows for the hexagon picked. Also in the key. */
+export function mapSwitch(mate, set, id = 'mate-map') {
+  return chipGroup(id, 'Map', [['nkb', 'No known barrier'], ['cautious', 'Cautious'], ['off', 'TEAM\'s map']],
+    mate.map ? mate.view : 'off', (value) => set(value === 'off' ? { map: false } : { map: true, view: value }));
+}
+
+/** Assumptions and sources. */
+function sources(cm, ctx) {
   const assume = el('p', 'note mate-sources');
   assume.append(document.createTextNode('Assumptions: harder parts take 1.5 times as long, and for the second figure unrecorded parts three times as long; times start at the hexagon\'s centre, joined by a straight line of up to 175 m to the nearest paths the profile can use, and that line counts as passable; the pram\'s slope limit, the child\'s main-road rule and after dark have no published source. '));
   const link = el('a', null, 'MATE\'s profiles');
@@ -635,8 +647,6 @@ function finish(box, cm, ctx) {
   link.target = '_blank';
   link.rel = 'noopener';
   assume.append(link, document.createTextNode('.'));
-  box.append(assume);
   const osm = cm.meta.osm_date ? `OpenStreetMap to ${dateText(cm.meta.osm_date)}` : 'OpenStreetMap';
-  box.append(note(`Sources: ${osm}; widths, kerbs and slope estimated from LINZ aerial photos and 1 m LiDAR where OpenStreetMap has none; residents from the 2023 Census; stops and trips from Auckland Transport's timetable. MATE data built ${dateText(cm.meta.built)}.`));
-  return box;
+  return [assume, note(`Sources: ${osm}; widths, kerbs and slope estimated from LINZ aerial photos and 1 m LiDAR where OpenStreetMap has none; residents from the 2023 Census; stops and trips from Auckland Transport's timetable. MATE data built ${dateText(cm.meta.built)}.`)];
 }

@@ -18,11 +18,15 @@ export const BASEMAPS = {
   satellite: { label: 'Satellite', layers: ['bm-imagery', 'bm-imagery-labels'] },
 };
 
-// Each overlay says what it draws, so the key on the map can be built from
-// this rather than written out again somewhere else and left to drift.
+// Each overlay says what it draws, so the key and the Layers drawer can be
+// built from this rather than written out again somewhere else and left to
+// drift. `group` and `caption` place it in the drawer; a caption can be a
+// function of the place's meta.
 export const OVERLAYS = {
   rail: {
     label: 'Rail and ferry',
+    group: 'Public transport',
+    caption: (meta) => timetable(meta),
     layers: ['ov-rail', 'ov-ferry'],
     key: [
       { swatch: 'line', colour: '#0c0c48', label: 'Rail' },
@@ -31,30 +35,45 @@ export const OVERLAYS = {
   },
   frequent_bus: {
     label: 'Frequent bus routes',
+    group: 'Public transport',
+    caption: () => 'Four or more an hour',
     layers: ['ov-frequent_bus'],
-    key: [{ swatch: 'line', colour: '#2b2b2b', label: 'Four or more an hour' }],
+    key: [{ swatch: 'line', colour: '#2b2b2b', label: 'Bus, four or more an hour' }],
   },
   stops: {
     label: 'Stops and stations',
+    group: 'Public transport',
+    caption: () => 'Click one for departures an hour',
     layers: ['ov-stops'],
     key: [
-      { swatch: 'dot', colour: '#0c0c48', label: 'Train or ferry' },
+      { swatch: 'dot', colour: '#0c0c48', label: 'Train or ferry stop' },
       { swatch: 'dot', colour: '#2b78c4', label: 'Frequent stop' },
       { swatch: 'dot', colour: '#9bb0bd', label: 'Other stop' },
     ],
   },
   cycling: {
     label: 'Cycleways and shared paths',
+    group: 'Cycling',
+    caption: () => 'From OpenStreetMap',
     layers: ['ov-cycling'],
-    key: [{ swatch: 'line', colour: '#1d5c3a', label: 'Mapped cycleway or shared path' }],
+    key: [{ swatch: 'line', colour: '#1d5c3a', label: 'Cycleway or shared path' }],
   },
   destinations: {
+    // Named and coloured by the place chosen under Getting to, when it is drawn.
     label: 'Places you are getting to',
+    group: 'Getting to',
+    caption: () => 'Click one for its name',
     layers: ['destinations'],
-    // Coloured by the kind of place chosen, so the colour is set when drawn.
-    key: [{ swatch: 'dot', colour: null, label: 'The destination chosen. Click one for details.' }],
+    key: [{ swatch: 'dot', colour: null, label: 'The destination chosen' }],
   },
 };
+
+function timetable(meta) {
+  const agency = (meta && meta.naming && meta.naming.agency) || 'The local';
+  if (!meta || !meta.routing_date) return `${agency} timetable`;
+  const date = new Date(`${meta.routing_date}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${agency} timetable, ${date}`;
+}
 
 const STOP_COLOUR = [
   'match', ['get', 'kind'],
@@ -74,7 +93,7 @@ function cellColour(colours) {
   return ['match', ['feature-state', 'k'], ...colours.flatMap((colour, k) => [k, colour]), CLEAR];
 }
 
-export function createMap(container) {
+export function createMap(container, { topRight = null } = {}) {
   const style = {
     version: 8,
     sources: {
@@ -148,7 +167,9 @@ export function createMap(container) {
         },
       },
       { id: 'cell-hover', type: 'line', source: 'hover', paint: { 'line-color': '#0c0c48', 'line-width': 1.5 } },
-      { id: 'cell-selected', type: 'line', source: 'selected', paint: { 'line-color': '#0c0c48', 'line-width': 3 } },
+      // The picked hexagon: navy over a white halo, so it reads on blue and on orange.
+      { id: 'cell-selected-halo', type: 'line', source: 'selected', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.95 } },
+      { id: 'cell-selected', type: 'line', source: 'selected', paint: { 'line-color': '#0c0c48', 'line-width': 3.5 } },
     ],
   };
   const map = new maplibregl.Map({
@@ -158,14 +179,39 @@ export function createMap(container) {
     zoom: 10,
     minZoom: 7,
     maxZoom: 17,
-    attributionControl: { compact: true },
+    attributionControl: false,
     dragRotate: false,
     pitchWithRotate: false,
   });
   map.touchZoomRotate.disableRotation();
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  // Top right: the basemap, then zoom under it. Credits sit behind an (i).
+  if (topRight) map.addControl(topRight, 'top-right');
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+  const credits = new maplibregl.AttributionControl({ compact: true });
+  map.addControl(credits, 'bottom-right');
+  // MapLibre opens the credits until the map is first dragged; they start
+  // folded here, behind the (i), so they never cover the map on a phone.
+  const fold = () => {
+    const box = map.getContainer().querySelector('.maplibregl-ctrl-attrib');
+    if (box) box.classList.remove('maplibregl-compact-show');
+  };
+  map.once('load', fold);
+  map.once('idle', fold);
   return map;
+}
+
+/** A control holding any element, for the basemap buttons on the map. */
+export function elementControl(element) {
+  return {
+    onAdd() {
+      element.classList.add('maplibregl-ctrl');
+      return element;
+    },
+    onRemove() {
+      element.remove();
+    },
+  };
 }
 
 export function cellCollection(ids) {

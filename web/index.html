@@ -30,6 +30,7 @@
   <link rel="modulepreload" href="js/app.js">
   <link rel="modulepreload" href="js/data.js">
   <link rel="modulepreload" href="js/panel.js">
+  <link rel="modulepreload" href="js/fold.js">
   <link rel="modulepreload" href="js/map.js">
   <link rel="modulepreload" href="js/format.js">
   <link rel="modulepreload" href="js/palette.js">
@@ -47,40 +48,78 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
         integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V" crossorigin="anonymous">
-  <link rel="stylesheet" href="css/team.css">
+  <link rel="stylesheet" href="css/team.css" id="team-css">
+  <!-- The map's box, here rather than in team.css: WebKit can run app.js before the stylesheet applies. -->
+  <style>html, body { height: 100%; margin: 0; } body { position: fixed; inset: 0; overflow: hidden; } #map { position: absolute; inset: 0; }</style>
 </head>
 <body>
   <a class="skip-link" href="#panel">Skip to controls</a>
   <div id="map" role="region" aria-label="Map"></div>
+  <button id="brand-chip" class="brand-chip" type="button" aria-haspopup="dialog" aria-label="About TEAM">
+    <img src="assets/team-mark.svg" alt="" width="20" height="20"><span>TEAM</span>
+  </button>
 
-  <aside id="panel" class="panel" aria-label="TEAM">
-    <header class="brand">
-      <img class="brand-mark" src="assets/team-mark.svg" alt="" width="40" height="40">
-      <div class="brand-text">
-        <h1>TEAM</h1>
-        <p class="tagline">Transport Equity and Access Model</p>
-        <p class="mini" id="mini" aria-live="polite"></p>
-      </div>
-      <button class="text-button" id="about-open" type="button">About</button>
-      <button class="icon-button panel-toggle" id="panel-toggle" type="button" aria-expanded="true" aria-controls="panel-body" aria-label="Hide controls">
-        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 12l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-      </button>
-    </header>
+  <!-- The left column: the panel, then the key docked under it. On a phone
+       this is one bottom sheet, with a peek, a half and a full height. -->
+  <div id="side" class="side" data-sheet="peek">
+    <button id="sheet-handle" class="sheet-handle" type="button" aria-label="Show more" aria-controls="panel"><span aria-hidden="true"></span></button>
+    <div id="sheet-pop" class="sheet-pop" hidden></div>
+    <button id="peek" class="peek" type="button" aria-label="Show the controls"></button>
 
-    <div id="panel-body" class="panel-body">
-      <div class="field" id="service-field">
-        <span class="field-label" id="service-label">Getting to</span>
-        <div id="service-picker"></div>
-      </div>
+    <aside id="panel" class="panel" aria-label="TEAM">
+      <header class="brand">
+        <img class="brand-mark" src="assets/team-mark.svg" alt="" width="40" height="40">
+        <div class="brand-text">
+          <h1>TEAM</h1>
+          <p class="tagline">Transport Equity and Access Model</p>
+          <p class="mini" id="mini" aria-live="polite"></p>
+        </div>
+        <button class="text-button" id="about-open" type="button" aria-haspopup="dialog">About</button>
+        <button class="icon-button panel-toggle" id="panel-toggle" type="button" aria-expanded="true" aria-controls="panel-main" aria-label="Hide controls">
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 12l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </header>
 
-      <!-- The settings fold into one line, so the answer sits near the top.
-           The line says what is set, so nothing is hidden by folding it. -->
-      <details class="settings" id="settings">
-        <summary>
-          <span class="settings-summary" id="settings-summary"></span>
-          <span class="settings-change" aria-hidden="true">Change</span>
-        </summary>
-        <div class="settings-body">
+      <div id="panel-main" class="panel-main">
+        <div id="panel-body" class="panel-body">
+          <div class="pick" id="place-field">
+            <label class="pick-label" for="city">Place</label>
+            <select id="city" class="select"></select>
+          </div>
+          <div class="pick" id="service-field">
+            <label class="pick-label" for="goal" id="goal-label">Getting to</label>
+            <select id="goal" class="select"></select>
+          </div>
+          <div class="pick" id="mode-field">
+            <span class="pick-label" id="mode-label">Travel by</span>
+            <div id="mode-picker" class="modes" role="radiogroup" aria-labelledby="mode-label" data-group="travel-by"></div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Question" id="tabs">
+            <button role="tab" type="button" id="tab-access" data-view="access" aria-selected="true" aria-controls="view">Access</button>
+            <button role="tab" type="button" id="tab-people" data-view="people" aria-selected="false" aria-controls="view" tabindex="-1">Who misses out</button>
+            <button role="tab" type="button" id="tab-fixes" data-view="fixes" aria-selected="false" aria-controls="view" tabindex="-1">What would help</button>
+          </div>
+
+          <section id="view" class="view" role="tabpanel" aria-labelledby="tab-access"></section>
+        </div>
+
+        <!-- Settings and Layers fold into two buttons, one open at a time. Each
+             button says what is set, so folding them hides nothing. -->
+        <nav class="drawers" aria-label="Settings and layers">
+          <button id="open-settings" type="button" data-drawer="settings" aria-expanded="false" aria-controls="drawer-settings">
+            <span class="d-title">Settings <span class="count" id="settings-count" hidden></span>
+              <svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>
+            <span class="d-sum" id="settings-summary"></span>
+          </button>
+          <button id="open-layers" type="button" data-drawer="layers" aria-expanded="false" aria-controls="drawer-layers">
+            <span class="d-title">Layers <span class="count" id="layer-count" hidden></span>
+              <svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>
+            <span class="d-sum" id="layers-summary"></span>
+          </button>
+        </nav>
+
+        <div id="drawer-settings" class="drawer" hidden>
           <div class="field" id="where-field" hidden>
             <span class="field-label" id="where-label">Who is counted</span>
             <div class="chips chips-compact" id="where-picker" role="radiogroup" aria-labelledby="where-label"></div>
@@ -92,6 +131,7 @@
               <span class="field-value" id="when-value"></span>
             </div>
             <div class="chips chips-compact" id="when-picker" role="radiogroup" aria-labelledby="when-label"></div>
+            <p class="note">Public transport only.</p>
           </div>
 
           <div class="field" id="standard-field">
@@ -103,85 +143,84 @@
             <input type="range" id="standard" min="5" max="60" step="5" value="20">
           </div>
 
-          <details class="traveller" id="traveller">
-            <summary>
-              <span class="field-label">Traveller</span>
-              <span class="traveller-summary" id="traveller-summary"></span>
-            </summary>
-            <div class="traveller-body" id="traveller-body"></div>
-          </details>
+          <div class="field" id="limit-field" hidden>
+            <span class="field-label" id="limit-label">Jobs within</span>
+            <div class="chips chips-compact" id="limit-picker" role="radiogroup" aria-labelledby="limit-label"></div>
+          </div>
 
-          <div class="field" id="budget-field">
-            <div class="field-head">
-              <label class="field-label" for="budget">Fare budget</label>
-              <span class="field-value" id="budget-value"></span>
-              <button class="text-button" id="budget-reset" type="button" hidden>Any fare</button>
+          <div id="fares-group" class="fares-group">
+            <p class="group-title">Fares</p>
+            <div class="field" id="budget-field">
+              <div class="field-head">
+                <label class="field-label" for="budget">Fare budget</label>
+                <span class="field-value" id="budget-value"></span>
+                <button class="text-button" id="budget-reset" type="button" hidden>Any fare</button>
+              </div>
+              <div class="chips chips-compact" id="budget-unit" role="radiogroup" aria-label="Budget in" hidden></div>
+              <input type="range" id="budget" min="0" max="20" step="0.5" value="20"
+                     aria-describedby="budget-note">
+              <div class="ticks" id="budget-ticks" aria-hidden="true"></div>
+              <p class="note" id="budget-note"></p>
             </div>
-            <div class="chips chips-compact chips-quiet" id="budget-unit" role="radiogroup" aria-label="Budget in" hidden></div>
-            <input type="range" id="budget" min="0" max="20" step="0.5" value="20"
-                   aria-describedby="budget-note">
-            <div class="ticks" id="budget-ticks" aria-hidden="true"></div>
-            <p class="note" id="budget-note"></p>
+            <div class="traveller" id="traveller"></div>
           </div>
         </div>
-      </details>
 
-      <div class="tabs" role="tablist" aria-label="View" id="tabs">
-        <button role="tab" type="button" id="tab-access" data-view="access" aria-selected="true" aria-controls="view">Access</button>
-        <button role="tab" type="button" id="tab-people" data-view="people" aria-selected="false" aria-controls="view">Who misses out</button>
-        <button role="tab" type="button" id="tab-fixes" data-view="fixes" aria-selected="false" aria-controls="view">What would help</button>
-      </div>
-
-      <section id="view" class="view" role="tabpanel" aria-labelledby="tab-access"></section>
-
-      <div class="field measure-field">
-        <span class="field-label" id="measure-label">Measure</span>
-        <div class="chips chips-compact" id="measure-picker" role="radiogroup" aria-labelledby="measure-label">
-          <button class="chip" type="button" role="radio" data-measure="standards" aria-checked="true">Minutes and standards</button>
-          <button class="chip" type="button" role="radio" data-measure="score" aria-checked="false">Access score</button>
+        <div id="drawer-layers" class="drawer" hidden>
+          <div id="layer-list" class="layer-list"></div>
+          <p class="group-title" id="drawer-basemap-label">Basemap</p>
+          <div class="segmented basemaps" id="drawer-basemaps" role="group" aria-labelledby="drawer-basemap-label"></div>
         </div>
+
+        <footer class="panel-foot">
+          <a class="lab-link" href="https://betterplaces.blogs.auckland.ac.nz" rel="noopener">
+            <img src="assets/bpl-mark.svg" alt="" width="16" height="16">
+            <span>Better Places Lab</span>
+          </a>
+          <button class="text-button share-button" id="share" type="button">Copy link</button>
+          <span id="build-note" class="foot-note"></span>
+        </footer>
       </div>
-    </div>
-    <!-- Read out a short summary after the panel settles, instead of the whole panel on every change. -->
-    <p class="visually-hidden" id="announce" aria-live="polite"></p>
+      <!-- Read out a short summary after the panel settles, instead of the whole panel on every change. -->
+      <p class="visually-hidden" id="announce" aria-live="polite"></p>
+    </aside>
 
-    <footer class="panel-foot">
-      <a class="lab-link" href="https://betterplaces.blogs.auckland.ac.nz" rel="noopener">
-        <img src="assets/bpl-mark.svg" alt="" width="18" height="18">
-        <span>Better Places Lab</span>
-      </a>
-      <button class="text-button share-button" id="share" type="button">Copy link</button>
-      <span id="build-note" class="foot-note"></span>
-    </footer>
-  </aside>
+    <section id="key" class="key" aria-labelledby="key-title">
+      <button id="key-fold" class="k-head" type="button" aria-expanded="true" aria-controls="key-body">
+        <span class="k-title" id="key-title">Key</span>
+        <span class="k-mode" id="key-mode"></span>
+        <svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+      </button>
+      <div id="key-body" class="k-body"></div>
+    </section>
+  </div>
 
-  <aside id="place" class="place" hidden aria-labelledby="place-title">
+  <aside id="place" class="place" hidden aria-labelledby="place-title" data-sheet="half">
+    <button id="place-handle" class="sheet-handle" type="button" aria-label="Show more" aria-controls="place-body"><span aria-hidden="true"></span></button>
     <header class="place-head">
-      <div>
-        <p class="eyebrow">Selected place</p>
+      <div class="place-titles">
+        <p class="eyebrow" id="place-eyebrow">Hexagon</p>
         <h2 id="place-title"></h2>
         <p id="place-sub" class="place-sub"></p>
       </div>
+      <!-- Buttons that belong to a trip, such as Swap, go here. -->
+      <div id="place-actions" class="place-actions"></div>
       <button class="icon-button" id="place-close" type="button" aria-label="Close">
         <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2"/></svg>
       </button>
     </header>
+    <!-- Trips, behind ?mate=1 and in Auckland only: From, To and Trip. Hidden
+         until a trip is open; app.js fills them. -->
+    <div id="place-tabs" class="c-tabs" role="tablist" aria-label="Trip" hidden>
+      <button role="tab" type="button" id="ctab-from" data-ctab="from" aria-selected="true" aria-controls="place-body">From</button>
+      <button role="tab" type="button" id="ctab-to" data-ctab="to" aria-selected="false" aria-controls="place-body" tabindex="-1">To</button>
+      <button role="tab" type="button" id="ctab-trip" data-ctab="trip" aria-selected="false" aria-controls="place-trip" tabindex="-1">Trip</button>
+    </div>
     <div id="place-body" class="place-body"></div>
+    <div id="place-trip" class="place-body place-trip" role="tabpanel" aria-labelledby="ctab-trip" hidden></div>
   </aside>
 
-  <div class="map-tools">
-    <div class="city-picker">
-      <label class="visually-hidden" for="city">Place</label>
-      <select id="city"></select>
-    </div>
-    <div class="segmented basemaps" id="basemaps" role="group" aria-label="Basemap"></div>
-    <details class="layers" id="layers">
-      <summary>Layers</summary>
-      <div id="layer-list" class="layer-list"></div>
-    </details>
-    <div id="map-key" class="map-key" hidden aria-label="Map key"></div>
-  </div>
-
+  <div id="area-menu" class="area-menu" role="menu" aria-label="Figures for" hidden></div>
   <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
   <div id="loading" class="loading" role="status">Loading…</div>
 
