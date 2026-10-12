@@ -621,8 +621,8 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
   transform: translateY(-1px);
 }
 
-.lean-dot.is-toward { background: #1a7f5a; }
-.lean-dot.is-away { background: #c2452d; }
+.lean-dot.is-toward { background: #3b7fb6; }
+.lean-dot.is-away { background: #a8172b; }
 .lean-dot.is-even { background: var(--line-strong); }
 
 

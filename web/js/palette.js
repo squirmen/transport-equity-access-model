@@ -12,7 +12,7 @@ export const PEOPLE = ['#fecbb4', '#f0986f', '#d56326', '#933d09'];
 // Where a group lives: its share of residents set against its share across
 // the whole place. Below that share is quiet grey; above it, purple darkens,
 // so the eye goes to the concentrations.
-export const CONCENTRATION = ['#e4e2dc', '#c9c6be', '#c7b8e6', '#8f71c9', '#4b2a7a'];
+export const CONCENTRATION = ['#e9e7e2', '#c2bfb6', '#b49ce0', '#8f71c9', '#4b2a7a'];
 
 // Rest homes and retirement villages, marked apart from the 65+ scale.
 export const VILLAGE = '#5f9e94';
@@ -21,22 +21,24 @@ export const VILLAGE = '#5f9e94';
 export const DENSITY = ['#ddd3ee', '#a58ed1', '#6f4fb0', '#43287a'];
 
 // Destination pins by kind of place, so a pin says what it is before it is
-// clicked: food green, health red, learning amber.
+// clicked: food teal, health dark red, learning orange, anything else navy.
+// Not green against red, which colour-blind readers cannot tell apart
+// (tests/web/palette.test.mjs).
 export const DESTINATION_COLOURS = {
-  supermarket: '#1a7f4b',
-  gp: '#c8364e',
-  pharmacy: '#c8364e',
-  early_childhood: '#b86e00',
-  primary_school: '#b86e00',
-  intermediate_school: '#b86e00',
-  secondary_school: '#b86e00',
-  tertiary: '#b86e00',
-  trades_training: '#b86e00',
+  supermarket: '#0e7a7e',
+  gp: '#a8172b',
+  pharmacy: '#a8172b',
+  early_childhood: '#e8890c',
+  primary_school: '#e8890c',
+  intermediate_school: '#e8890c',
+  secondary_school: '#e8890c',
+  tertiary: '#e8890c',
+  trades_training: '#e8890c',
 };
 export const DESTINATION_OTHER = '#0c0c48';
 
 // Share of the region's jobs within reach: one hue, light to dark.
-export const JOBS = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0d366b'];
+export const JOBS = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0c3163'];
 export const JOBS_BREAKS = [2, 5, 10, 25];
 
 // Job access allowing for competition, diverging at the regional average (1.0).
@@ -44,10 +46,11 @@ export const FAIR = ['#833607', '#f8ad8b', '#f0efec', '#9ec5f4', '#184f95'];
 export const FAIR_BREAKS = [0.5, 0.8, 1.25, 2];
 
 // Main reason a place misses the standard. Maps allow three categorical hues
-// before neighbours become hard to tell apart, so the transport fixes take the
-// three hues and "nothing within reach" takes a neutral grey. The last entry is
-// the faded colour used when one reason is picked out.
-export const REASON_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#8f8c85', '#7a5195', '#dedcd5'];
+// before neighbours become hard to tell apart, so the transport fixes take
+// blue, orange and teal, "nothing within reach" takes a neutral grey, and the
+// fare (only with a budget) purple. The last entry is the faded colour used
+// when one reason is picked out.
+export const REASON_PALETTE = ['#2a78d6', '#e8890c', '#0e7a7e', '#8f8c85', '#7a3fa0', '#dedcd5'];
 export const FADED = 5;
 export const REASON_GROUPS = [
   { cls: 0, codes: [1], label: 'The walking route is indirect', fix: 'A new walking link or crossing' },
@@ -106,7 +109,12 @@ export const DECILE = [
   '#6da7ec', '#4a8ddf', '#2a78d6', '#1b5eae', '#0d366b',
 ];
 
-// Cheapest fare to reach the nearest one inside the time standard. The first
-// step is free, because walking and cycling cost nothing, and the rest follow
-// Auckland Transport's four zone fares.
-export const FARE = ['#1a7f5a', '#7cb342', '#f2c200', '#f08a24', '#e0562d', '#9c2f2f'];
+// Cheapest fare to reach the nearest one inside the time standard, and the
+// fare burden. Free is the blue of the minutes map, because walking and
+// cycling cost nothing; the fare steps darken in orange as they cost more,
+// following Auckland Transport's four zone fares; no way in time is dark grey.
+export const FARE = ['#3987e5', '#fbd3bd', '#f39a66', '#d65d15', '#833607', '#5d5a55'];
+
+// Which way a measure leans with deprivation: towards the fair way (blue) or
+// the unfair way (dark red), as MATE pairs them.
+export const LEAN = { toward: '#3b7fb6', away: '#a8172b' };
