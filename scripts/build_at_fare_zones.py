@@ -39,7 +39,6 @@ import argparse
 import collections
 import json
 import logging
-import re
 from pathlib import Path
 
 import numpy as np
@@ -331,7 +330,6 @@ def touching(zones, metres: float = 400.0) -> dict[str, list[str]]:
 
 def build(data_root: Path) -> dict:
     import geopandas as gpd
-    from shapely.geometry import mapping
 
     pdf = data_root / MAP_PDF
     labels = read_labels(pdf)

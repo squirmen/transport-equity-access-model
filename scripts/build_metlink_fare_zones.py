@@ -93,7 +93,6 @@ def bridge_gaps(adjacency: dict[str, list[str]]) -> list[tuple[str, str]]:
 
 def build(root: Path) -> dict:
     import geopandas as gpd
-    from shapely.geometry import mapping
 
     stops = read_stops(root / GTFS)
     log.info("stops with a fare zone: %d across %d zones", len(stops), stops["zone"].nunique())

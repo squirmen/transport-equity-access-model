@@ -186,7 +186,6 @@ def test_score_counts_every_opportunity_with_decay():
 
 
 def test_index_and_deciles_are_population_weighted():
-    import numpy as np
     import pandas as pd
 
     from team import gravity
