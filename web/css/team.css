@@ -227,8 +227,8 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .fold > summary::before { content: ""; flex: none; width: 7px; height: 7px; margin: 0 2px 0 1px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
 .fold[open] > summary::before { transform: rotate(45deg); }
 .fold > summary:hover { color: var(--navy); }
-.fold-title { display: inline-flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.fold-sum { flex: 1 1 0; display: -webkit-box; min-width: 0; margin-left: auto; overflow: hidden; color: var(--muted); font-size: var(--fs-xs); font-weight: 500; text-align: right; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.fold-title { display: inline-flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.fold-sum { flex: 0 0 auto; display: -webkit-box; max-width: 55%; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--fs-xs); font-weight: 500; text-align: right; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .fold-body { display: flex; flex-direction: column; gap: 8px; padding: 0 0 12px; }
 .fold .fold { margin-left: 2px; }
 .fold .fold > summary { min-height: 32px; font-size: 12.5px; }
