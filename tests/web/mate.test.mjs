@@ -180,7 +180,10 @@ test('what is recorded about kerbs and lighting is counted first', () => {
   assert.equal(streets(cells, 1, 'walk'), null);
   assert.equal(narrow(cells, 0, 'pram').limit, 1.0);
   assert.equal(narrow(cells, 1, 'pram'), null);
-  assert.deepEqual(lighting(cells, 0), { lit: 16, notLit: 4, recorded: 20, probably: 0, unknown: 80, lamps: 6 });
+  assert.deepEqual(lighting(cells, 0), { lit: 16, notLit: 4, recorded: 20, probably: 0, probablyNot: 0, unknown: 80, lamps: 6, police: false });
+  // An export with MATE's police estimates (l4): probably not lit is its own share.
+  const withPolice = { ...cells, l2: [10, null, 0], l4: [3, null, 0], l0: [67, null, 100] };
+  assert.deepEqual(lighting(withPolice, 0), { lit: 16, notLit: 4, recorded: 20, probably: 10, probablyNot: 3, unknown: 67, lamps: 6, police: true });
   assert.equal(lighting(cells, 1), null);
   assert.equal(statusShares(cells, 1, 'walk'), null);
 });

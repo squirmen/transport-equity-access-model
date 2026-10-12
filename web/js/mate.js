@@ -162,11 +162,15 @@ export function narrow(cm, i, profile) {
   return { limit, recorded: cm[`${key}r`]?.[i] ?? 0, estimated: cm[`${key}e`]?.[i] ?? 0 };
 }
 
-/** Lighting on the hexagon's footpath, % of it: recorded (lit or not lit), estimated, not known. */
+/** Lighting on the hexagon's footpath, % of it: recorded (lit or not lit), estimated (probably lit, probably not
+ *  lit), not known. police: the export has MATE's estimates from police notes at crashes after dark (l4). */
 export function lighting(cm, i) {
   if (cm.km[i] == null) return null;
   const v = (k) => cm[k]?.[i] ?? 0;
-  return { lit: v('l1'), notLit: v('l3'), recorded: v('l1') + v('l3'), probably: v('l2'), unknown: v('l0'), lamps: v('lamps') };
+  return {
+    lit: v('l1'), notLit: v('l3'), recorded: v('l1') + v('l3'), probably: v('l2'), probablyNot: v('l4'), unknown: v('l0'),
+    lamps: v('lamps'), police: Boolean(cm.l4),
+  };
 }
 
 export function servicesIn(bits, services) {
@@ -400,7 +404,12 @@ function lightLine(l) {
   const recorded = l.recorded
     ? `Recorded on ${l.recorded}% of footpath here (${l.lit}% lit, ${l.notLit}% not lit)`
     : 'Not recorded on any footpath here';
-  const rest = [l.probably ? `probably lit ${l.probably}% (estimated from mapped lamps)` : '', l.unknown ? `not known ${l.unknown}%` : ''].filter(Boolean).join('; ');
+  const from = l.police ? 'mapped lamps or police notes at crashes after dark' : 'mapped lamps';
+  const rest = [
+    l.probably ? `probably lit ${l.probably}% (estimated from ${from})` : '',
+    l.probablyNot ? `probably not lit ${l.probablyNot}% (estimated from police notes)` : '',
+    l.unknown ? `not known ${l.unknown}%` : '',
+  ].filter(Boolean).join('; ');
   const lamps = l.lamps ? `${l.lamps} street ${l.lamps === 1 ? 'lamp' : 'lamps'} mapped.` : 'No street lamps mapped.';
   return `${recorded}${rest ? `; ${rest}` : ''}. ${lamps}`;
 }
@@ -485,7 +494,8 @@ export function section(ctx) {
   controls.append(label, dark);
   box.append(controls);
   if (ctx.mate.dark) {
-    box.append(note('After dark changes the older walker and the child only: footpaths tagged not lit count as harder, and those with no lighting recorded as not known.'));
+    const unlit = cm.l4 ? 'tagged not lit, or probably not lit from police notes,' : 'tagged not lit';
+    box.append(note(`After dark changes the older walker and the child only: footpaths ${unlit} count as harder, and those with no lighting recorded as not known.`));
   }
 
   // The headline for the chosen profile, then every profile side by side.
