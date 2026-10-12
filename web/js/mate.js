@@ -482,6 +482,12 @@ export function section(ctx) {
     box.append(table('mate-profiles', ['Profile', 'Reach', 'Stop', 'Frequent'], rows, 'Each profile on foot'));
     box.append(note(`Reach: hexagons within 15 minutes, this one included. Stop, Frequent: minutes to the nearest stop, and to one with 4 or more departures an hour. The second figure is ${CAUTIOUS}. A dash: none within 30 minutes.`));
     box.append(note('Residents: the census group each profile most nearly describes. Disabled people are a broader group than wheelchair users.'));
+    // The third view, on request: only what is recorded as passable.
+    const known = el('details', 'mate-known');
+    known.append(el('summary', null, 'Using only what is recorded'));
+    known.append(el('p', 'mate-line', f.rows.map((r) => `${r.short} ${r.reach.known ?? '–'}`).join(' · ')));
+    known.append(note('Hexagons within 15 minutes on what is recorded as passable, leaving out the rest. For most profiles this is little more than the hexagon itself, because most kerbs are not recorded.'));
+    box.append(known);
 
     // Services for the chosen profile.
     box.append(head(`Services on foot, ${chosen.short.toLowerCase()}${chosen.night ? ' after dark' : ''}`));

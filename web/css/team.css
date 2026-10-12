@@ -795,6 +795,8 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 .mate-bar-part { display: block; height: 100%; }
 .mate-line { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; }
 .mate-chips { margin-top: 2px; }
+.mate-known { margin-top: 6px; font-size: 12px; }
+.mate-known > summary { color: var(--accent); font-weight: 600; cursor: pointer; }
 .mate-sources { margin-top: 12px; }
 .mate-sources a { color: var(--accent); font-weight: 600; }
 
