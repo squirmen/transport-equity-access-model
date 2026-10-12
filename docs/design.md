@@ -80,6 +80,8 @@ ramp differs from the next by 9 or more.
 | Main reason | categorical | blue `#2a78d6`, orange `#e8890c`, teal `#0e7a7e`, grey `#8f8c85` for nothing within reach, purple `#7a3fa0` for the fare |
 | Destination pins | categorical | food teal `#0e7a7e`, health dark red `#a8172b`, learning orange `#e8890c`, anything else navy |
 | Which way a measure leans | two dots | fair way blue `#3b7fb6`, unfair way dark red `#a8172b` |
+| Where a trip's origin gets (while picking) | sequential | `#184f95` `#3987e5` `#9ec5f4` `#dbe8f8` for 10, 20, 30 and 45 minutes |
+| A trip's two ends | two rings | From navy `#0c0c48`, To teal `#1f6178`, each over a white halo and labelled |
 
 The 13 October audit found three palettes that failed: the fare ramp ran
 green to red (lime and yellow 8.7 apart for protanopia), the reasons' green
@@ -152,3 +154,46 @@ load nothing from MATE.
 - **The address** carries the hexagon (`o=`, now always) and the MATE settings (`mp=`,
   the profile with `d` for after dark, `c` for cautious and `x` for TEAM's
   map), so a link opens on the same card.
+
+## Trips (preview)
+
+Behind `?mate=1` and in Auckland only, like MATE's section; elsewhere the card
+says trips are not yet there. Without the flag nothing below loads.
+`js/trip_data.js` fetches the figures (TEAM's `pairs/`, `docs/pairs.md`, and
+MATE's `stops/` and `graph/`) and `js/trip.js` draws the Trip tab; both load
+the first time a trip is planned.
+
+- **Picking.** "Plan a trip from here" on the card puts a navy strip at its
+  top ("Pick where to go", Cancel) and colours the map by how far the origin
+  gets in 10, 20, 30 and 45 minutes: the fastest of walking, low-stress
+  cycling and public transport, or the way of travelling on screen. The key
+  says which. The hexagon under the pointer is dashed in teal and its
+  tooltip gives the minutes. Escape or Cancel stops; the same hexagon says
+  "Pick another". With a keyboard the map takes focus, the arrow keys move
+  it and Enter picks the hexagon under the mark in the middle. On a phone
+  the card drops to a strip and a tap picks.
+- **The card.** The header becomes the trip (how far in a straight line, from
+  and to, the time window) with Swap and Close. Close ends the trip and goes
+  back to the From card. Three tabs: From and To are each end's own card,
+  with MATE's section; Trip is the trip. The map shows TEAM's view under the
+  trip on the Trip tab, and MATE's catchment for that end on From and To.
+- **The Trip tab.** Walking, low-stress cycling and any-street cycling
+  (comparison) from TEAM's pairs, kept to 20 minutes; public transport in all
+  three windows, kept to 45, the one shown in bold (each is a button that
+  changes When). Then the walker's trip in that window: a bar to scale (walks
+  grey, waiting hatched, rides navy), the walk to the first stop, the rides
+  with their route numbers, the walk from the last stop, and how often that
+  path was used. Rides drawn on the map follow the line's shape where the map
+  draws it, and otherwise go straight from stop to stop.
+- **First and last mile, by profile** (an estimate): the walker's trip with
+  each profile's own walk to and from the same stops on MATE's footpath map,
+  each as a range ("3, or 4"; "none" where the walk is over 15 minutes).
+- **On foot, by profile** (trips up to 3 km in a straight line): each
+  profile's minutes on MATE's map, routed in the page on MATE's graph tiles
+  for every profile and both views, with the route for the profile chosen
+  drawn on the map in MATE's status colours and what it passes in words
+  (metres by status, crossings and kerbs, steps, what nobody has recorded).
+- **The key** adds the trip's rows: both ends, the stops and ride or the route
+  on foot by status, and "No known barrier: nothing recorded says otherwise."
+- **The address** carries the destination as `d=` beside `o=`; a link with
+  both opens on the Trip tab.
