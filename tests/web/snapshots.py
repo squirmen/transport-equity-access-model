@@ -1,7 +1,7 @@
 """Render the web app in headless Chromium and save a screenshot of each view.
 
     python tests/web/snapshots.py \
-        --url "http://localhost:8812/web/?data=../tests/fixtures/web/" --out build/shots
+        --url "http://localhost:8812/web/?city=web&data=../tests/fixtures/" --out build/shots
 
 Exits with status 1 if the page logs a console error or throws.
 """
@@ -37,45 +37,57 @@ def desktop(page: Page, out: Path) -> None:
     settle(page, 300)
     page.screenshot(path=out / "desktop-3b-fixes-ranked.png")
     page.evaluate("() => { document.querySelector('.panel-body').scrollTop = 0; }")
+    page.click("#open-settings")
     page.evaluate("() => { const s = document.getElementById('standard'); s.value = '30'; s.dispatchEvent(new Event('input')); }")
     settle(page)
-    page.screenshot(path=out / "desktop-4-fixes-gp-30min.png")
-    page.get_by_role("radio", name="Primary school", exact=True).click()
+    page.screenshot(path=out / "desktop-4-settings-30min.png")
+    page.click("#open-settings")
+    settle(page, 300)
+    page.screenshot(path=out / "desktop-4b-fixes-gp-30min.png")
+    page.select_option("#goal", "primary_school")
     page.click("#tab-access")
-    page.get_by_role("radio", name="Public transport", exact=True).click()
+    page.get_by_role("radio", name="PT", exact=True).click()
     settle(page)
     page.screenshot(path=out / "desktop-5-access-primary-pt.png")
-    page.get_by_role("radio", name="Jobs", exact=True).click()
+    page.select_option("#goal", "jobs")
     settle(page)
     page.screenshot(path=out / "desktop-6-jobs-access.png")
     page.click("#tab-people")
     settle(page)
     page.screenshot(path=out / "desktop-7-jobs-people.png")
-    page.get_by_role("radio", name="GP", exact=True).click()
+    page.select_option("#goal", "gp")
     page.click("#tab-access")
     settle(page)
+    page.click("#open-layers")
+    page.check("#layer-stops")
+    settle(page)
+    page.screenshot(path=out / "desktop-8-layers.png")
+    page.click("#open-layers")
     page.mouse.click(860, 430)
     settle(page)
-    page.screenshot(path=out / "desktop-8-place.png")
+    page.screenshot(path=out / "desktop-9-place.png")
     page.click("#about-open")
     settle(page)
-    page.screenshot(path=out / "desktop-9-about.png")
+    page.screenshot(path=out / "desktop-10-about.png")
 
 
 def phone(page: Page, out: Path) -> None:
     page.screenshot(path=out / "phone-1-start.png")
-    page.click("#panel-toggle")
+    page.click("#sheet-handle")
     settle(page)
-    page.screenshot(path=out / "phone-2-open.png")
+    page.screenshot(path=out / "phone-2-half.png")
     page.click("#tab-fixes")
     settle(page)
     page.screenshot(path=out / "phone-3-fixes.png")
-    page.click("#panel-toggle")
+    page.click("#sheet-handle")
     settle(page)
-    x, y = page.evaluate("() => { const r = window.team.map.getCanvas().getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }")
+    page.screenshot(path=out / "phone-4-full.png")
+    page.click("#sheet-handle")
+    settle(page)
+    x, y = page.evaluate("() => { const r = window.team.map.getCanvas().getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 3]; }")
     page.touchscreen.tap(x, y)
     settle(page)
-    page.screenshot(path=out / "phone-4-place.png")
+    page.screenshot(path=out / "phone-5-place.png")
 
 
 def main() -> int:
@@ -95,11 +107,17 @@ def main() -> int:
         ):
             context = browser.new_context(viewport=viewport, is_mobile=mobile, has_touch=mobile, device_scale_factor=2 if mobile else 1)
             page = context.new_page()
-            page.on("console", lambda msg, n=name: problems.append(f"{n}: console {msg.type}: {msg.text}") if msg.type == "error" else None)
+            # The fixture is one place on its own, with no list of places;
+            # the picker's request for that list is the one miss expected.
+            missing = []
+            page.on("response", lambda r, m=missing: m.append(r.url) if r.status >= 400 and not r.url.endswith("/cities.json") else None)
+            page.on("console", lambda msg, n=name: problems.append(f"{n}: console {msg.type}: {msg.text}")
+                    if msg.type == "error" and "Failed to load resource" not in msg.text else None)
             page.on("pageerror", lambda err, n=name: problems.append(f"{n}: page error: {err}"))
             page.goto(args.url)
             ready(page)
             script(page, out)
+            problems.extend(f"{name}: not found: {url}" for url in missing)
             context.close()
         browser.close()
     print("\n".join(problems) if problems else "no console errors")

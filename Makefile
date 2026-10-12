@@ -2,7 +2,7 @@
 PY ?= python
 DATA ?= $(TEAM_DATA_ROOT)
 TEAM = PYTHONPATH=src $(PY) -m team --data-root $(DATA)
-URL ?= http://localhost:8812/web/?data=../tests/fixtures/web/
+URL ?= http://localhost:8812/web/?city=web&data=../tests/fixtures/
 
 .PHONY: test test-py test-web fixture serve snapshots destinations route plan build
 
