@@ -115,6 +115,13 @@ export const DECILE = [
 // following Auckland Transport's four zone fares; no way in time is dark grey.
 export const FARE = ['#3987e5', '#fbd3bd', '#f39a66', '#d65d15', '#833607', '#5d5a55'];
 
+// While a trip's destination is picked: how far the origin gets in 10, 20, 30
+// and 45 minutes. The minutes map's blues, darker is quicker; beyond is clear.
+export const REACH = ['#184f95', '#3987e5', '#9ec5f4', '#dbe8f8'];
+
+// A trip's two ends on the map: From in navy, To in teal, each over a white halo.
+export const TRIP_ENDS = { from: '#0c0c48', to: '#1f6178' };
+
 // Which way a measure leans with deprivation: towards the fair way (blue) or
 // the unfair way (dark red), as MATE pairs them.
 export const LEAN = { toward: '#3b7fb6', away: '#a8172b' };

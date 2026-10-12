@@ -129,10 +129,34 @@ export async function pairTimes(store, o, d) {
   return { ...Object.fromEntries(MODES.map((m) => [m, minutes(tile[m])])), pt, ptFrom, limits: index.minutes };
 }
 
+/** Every destination TEAM times from cell o, for the map while a destination is picked: { walk, bike_low_stress,
+ *  bike: Map(d -> minutes), pt: { [window]: Map }, ptFrom, limits }. Null when TEAM has no pairs from o. */
+export async function originTimes(store, o) {
+  const index = await pairsIndex(store);
+  if (!index) return null;
+  const r7 = store.geo.parent(store.ids[o], index.resolution);
+  if (!index.tiles.includes(r7)) return null;
+  const tile = await file(store, 'pairs/', r7);
+  if (!tile || tile.order !== index.order) return null;
+  const read = (block) => {
+    const out = new Map();
+    const rows = block ? rowsOf(tile.cells, block.n, o) : null;
+    if (rows) for (let i = rows[0]; i < rows[1]; i += 1) out.set(block.d[i], block.m[i]);
+    return out;
+  };
+  const pt = Object.fromEntries(WINDOWS.map((w) => [w, read(tile.pt?.[w])]));
+  return { ...Object.fromEntries(MODES.map((m) => [m, read(tile[m])])), pt, ptFrom: WINDOWS.some((w) => pt[w].size > 0), limits: index.minutes };
+}
+
+/** transit.json (stops, lines and the line shapes the map draws), fetched once. */
+export function transitFile(store) {
+  return file(store, '', 'transit');
+}
+
 /** Stop names: transit.json's stops, then the stops it leaves out (pairs/index.json). */
 async function stopNames(store, index) {
   if (!store.transit) {
-    store.transit = file(store, '', 'transit').then((transit) => {
+    store.transit = transitFile(store).then((transit) => {
       const byId = new Map();
       for (const f of transit?.stops?.features || []) {
         const p = f.properties;

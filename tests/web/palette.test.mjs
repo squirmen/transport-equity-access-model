@@ -14,8 +14,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  ACCESS, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FAIR, FARE, JOBS, LEAN, PEOPLE, REASON_PALETTE,
-  SCORE,
+  ACCESS, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FAIR, FARE, JOBS, LEAN, PEOPLE, REACH, REASON_PALETTE,
+  SCORE, TRIP_ENDS,
 } from '../../web/js/palette.js';
 import { CATCHMENT, STATUS } from '../../web/js/mate.js';
 
@@ -117,6 +117,8 @@ const CATEGORIES = {
   'lean dots': [LEAN.toward, LEAN.away],
   // MATE's footpath status in the card's bar; not known is hatched, a different mark.
   'footpath status': STATUS.filter((s) => s.key !== 'u').map((s) => s.colour),
+  // A trip's From and To rings (each also labelled on the map).
+  'trip ends': [TRIP_ENDS.from, TRIP_ENDS.to],
 };
 
 for (const [name, colours] of Object.entries(CATEGORIES)) {
@@ -136,6 +138,7 @@ const RAMPS = {
   'where a group lives': CONCENTRATION,
   'people per hexagon': DENSITY,
   'MATE catchment': CATCHMENT,
+  'trip reach while picking': REACH,
 };
 
 for (const [name, colours] of Object.entries(RAMPS)) {
