@@ -5,6 +5,11 @@
     team route --all --shard 1/3       route every third batch, to split work across processes
     team route services walk           run one job
     team build                         measures, people, context, summaries and web data
+    team overlays --to DIR             write only the map overlays (stops, stations, lines)
+    team pairs route --shard 1/3       cell to cell pairs and public transport paths (resumable)
+    team pairs route                   route what is left and combine the batches
+    team pairs write --site DIR        tile the pairs for the web app
+    team pairs check                   compare sample paths with r5py and the timetable
 """
 
 from __future__ import annotations
@@ -78,6 +83,34 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_overlays(args: argparse.Namespace) -> int:
+    from . import context
+    from .export import _dump
+
+    settings = _settings(args)
+    folder = Path(args.to) if args.to else settings.output_dir / "site" / "data"
+    _dump(folder / "overlays.json", context.overlays(settings))
+    print(f"wrote {folder / 'overlays.json'} (.gz, .br)")
+    return 0
+
+
+def cmd_pairs(args: argparse.Namespace) -> int:
+    from . import pairs
+
+    settings = _settings(args)
+    if args.action == "plan":
+        for tag, mode_id, window in pairs.runs(settings):
+            done = (pairs.cache_dir(settings) / f"{tag}.parquet").exists()
+            print(f"{'done ' if done else 'to do'}  {tag}")
+    elif args.action == "route":
+        pairs.run_all(settings, only=args.only, limit=args.limit, force=args.force, shard=_shard(args.shard))
+    elif args.action == "write":
+        pairs.write_site(settings, Path(args.site) if args.site else None)
+    elif args.action == "check":
+        pairs.check(settings, window=args.window, sample=args.sample)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="team", description="Transport Equity and Access Model")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="YAML configuration file")
@@ -108,6 +141,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("build", help="compute measures and write web data")
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("overlays", help="write only the map overlays")
+    p.add_argument("--to", help="folder to write overlays.json into (default: <out>/site/data)")
+    p.set_defaults(func=cmd_overlays)
+
+    p = sub.add_parser("pairs", help="cell to cell pairs and public transport paths")
+    p.add_argument("action", choices=["plan", "route", "write", "check"])
+    p.add_argument("--only", nargs="+", help="route only these runs, by tag (walk, bike, pt_am_peak, ...)")
+    p.add_argument("--limit", type=int, help="route only the first N origins (for timing tests)")
+    p.add_argument("--force", action="store_true", help="recompute finished batches")
+    p.add_argument("--shard", help="route every Nth batch only, as I/N; run again without it to combine")
+    p.add_argument("--site", help="the place's data folder in the site, for write (default: <out>/site/data)")
+    p.add_argument("--window", default="interpeak", help="window to check (default: interpeak)")
+    p.add_argument("--sample", type=int, default=10, help="pairs to check (default: 10)")
+    p.set_defaults(func=cmd_pairs)
     return parser
 
 

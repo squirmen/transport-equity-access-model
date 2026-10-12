@@ -86,6 +86,30 @@ team --data-root DATA route --all
 `TEAM_MAX_MEMORY` overrides `routing.max_memory` in the configuration. Each
 process needed about 3 GB for Auckland.
 
+### Cell to cell pairs
+
+A place with a `pairs:` block (only Auckland so far) can also keep every pair
+of cells within reach, with the stops and routes behind each public transport
+time. MATE uses them for walks to and from stops, and for trips between two
+cells. Run them after `team build`, since they use its cell list and urban
+flag. [`pairs.md`](pairs.md) describes the files.
+
+```sh
+pip install -e ".[pairs]"       # exactly r5py 1.1.3, which loads R5 v7.5-r5py
+export TEAM_MAX_MEMORY=5G
+team --data-root DATA pairs route --shard 1/3 &
+team --data-root DATA pairs route --shard 2/3 &
+team --data-root DATA pairs route --shard 3/3 &
+wait
+team --data-root DATA pairs route                            # combine the batches
+team --data-root DATA pairs write --site SITE/data/auckland  # tiles for the web app
+team --data-root DATA pairs check                            # 10 paths against r5py and the timetable
+```
+
+For Auckland this took about an hour in three processes. `team overlays --to
+SITE/data/auckland` writes only the map overlays, with stop and line names,
+without rebuilding the rest of the site.
+
 ## What a build writes
 
 ```text

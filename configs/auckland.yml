@@ -78,6 +78,21 @@ routing:
 # low-stress routes. Car times are kept for reference and never count.
 standard_modes: [walk, bike_low_stress, pt]
 
+# Bus routes that run mostly on a busway, by short name, with the busway's
+# name. GTFS has no way to say so. They are drawn with the frequent buses and
+# listed as busways among the lines on the map.
+busways:
+  NX1: Northern Busway
+  NX2: Northern Busway
+
+# Cell to cell pairs (`team pairs`): every cell reached within these minutes,
+# for trips between two cells and for MATE's walks to and from stops. Walking
+# and cycling are routed from every cell, public transport from cells in urban
+# areas, in each window, with the stops and routes of the path used most.
+pairs:
+  minutes: {walk: 20, bike_low_stress: 20, bike: 20, pt: 45}
+  pt_origins: urban
+
 services:
   supermarket:
     label: Supermarket
