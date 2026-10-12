@@ -18,7 +18,7 @@ import {
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
   BASEMAPS, cellCollection, createMap, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select, setBasemap,
-  setCells, setOverlay, setOverlays, showDestinationsFor,
+  setCells, setHatch, setOverlay, setOverlays, showDestinationsFor,
 } from './map.js';
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
@@ -94,6 +94,14 @@ function goToCity(slug) {
 
 const DATA_BASE = dataBase();
 const CITY = requestedCity();
+// MATE's sections (mobility profiles) are a preview, shown only with ?mate=1
+// in the address. Without it nothing here changes and mate.js never loads.
+const MATE = new URLSearchParams(window.location.search).get('mate') === '1';
+let mate = null;
+let mateImport = null;
+// The hexagon (o=) and the MATE settings (mp=) from the address, until mate.js reads them.
+let mateParams = null;
+const mateState = { profile: 'manual_wheelchair', dark: false, view: 'nkb', map: true };
 const VIEWS = ['access', 'people', 'fixes'];
 // Which groups exist depends on the census tables the build had, so they come
 // from the data rather than being listed here.
@@ -188,6 +196,8 @@ let userMoved = false;
 const figureCache = new Map();
 let frame = 0;
 const cache = { best: new Map(), routed: new Map() };
+// What the map is painted with: the view on screen, or MATE's catchment.
+let painted = null;
 
 // ---------------------------------------------------------------- state and URL
 
@@ -246,6 +256,7 @@ function readHash() {
   if (jobs[0]) state.jobsMode = jobs[0];
   if (jobs[1]) state.jobsLimit = jobs[1];
   state.jobsFair = jobs[2] === 'f';
+  if (MATE) mateParams = params;
   return params.get('at');
 }
 
@@ -284,6 +295,11 @@ function hashNow() {
   if (where) params.set('r', `${where.area.level}.${where.area.name}`);
   else if (state.areaPin && state.areaPin.level === 'place') params.set('r', 'place');
   if (state.basemap !== 'light') params.set('b', state.basemap);
+  if (MATE) {
+    if (state.selected != null && data.h3[state.selected]) params.set('o', data.h3[state.selected]);
+    if (mate) params.set('mp', mate.mateHash(mateState));
+    else if (mateParams?.get('mp')) params.set('mp', mateParams.get('mp'));
+  }
   if (map) {
     const c = map.getCenter();
     params.set('at', `${map.getZoom().toFixed(1)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`);
@@ -2314,12 +2330,17 @@ function update() {
   }
   const t1 = performance.now();
   if (redrawKey && state.service !== lastService) redrawKey();
+  // With MATE on and a hexagon picked, the map shows its catchment instead.
+  const catchment = mateCatchment();
+  painted = catchment || current;
   // The panel is worth drawing even when the basemap has not arrived.
   try {
-    paintCells(map, current.classes, current.colours);
+    paintCells(map, painted.classes, painted.colours);
+    if (MATE) setHatch(map, catchment ? catchment.lost : []);
   } catch (error) {
     console.warn('The map is not ready to paint yet.', error);
   }
+  if (MATE) renderMateKey(catchment);
   const t2 = performance.now();
   if (current.waiting) {
     // The controls for this view read the data still on its way; they are
@@ -2368,7 +2389,31 @@ function showPlace(i) {
     return;
   }
   try {
-    renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
+    if (!MATE) {
+      renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state);
+      return;
+    }
+    // The card is drawn afresh, so keep focus on the control that had it.
+    const active = document.activeElement;
+    const inCard = active && $('place').contains(active);
+    const keepId = inCard ? active.id : '';
+    const keepKey = inCard && !keepId ? focusKey() : null;
+    renderPlace({ title: $('place-title'), sub: $('place-sub'), body: $('place-body') }, data, i, state, [mateSection(i)]);
+    const jump = el('a', 'mate-jump', 'On foot, by profile ↓');
+    jump.href = '#mate-section';
+    jump.addEventListener('click', (event) => {
+      event.preventDefault();
+      // Scroll the card's body only: scrollIntoView would move the card itself.
+      const body = $('place-body');
+      const target = document.getElementById('mate-section');
+      if (target) body.scrollTop += target.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    });
+    $('place-body').prepend(jump);
+    if (keepId) document.getElementById(keepId)?.focus();
+    else if (keepKey) {
+      const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v);
+      document.querySelector(`#place [data-group="${esc(keepKey[0])}"] [data-value="${esc(keepKey[1])}"]`)?.focus();
+    }
   } catch (error) {
     // Better an honest gap than the last place's figures under a new name.
     $('place-title').textContent = placeName(i);
@@ -2383,6 +2428,97 @@ function closePlace() {
   state.selected = null;
   $('place').hidden = true;
   delete document.body.dataset.place;
+  if (MATE) {
+    schedule();
+    writeHash();
+  }
+}
+
+// ---------------------------------------------------------------- MATE (?mate=1)
+
+/** mate.js, the first time a hexagon is clicked. */
+function requestMateModule() {
+  if (mate || mateImport) return;
+  mateImport = import('./mate.js').then((module) => {
+    mate = module;
+    if (mateParams) {
+      const read = mate.readMateHash(mateParams);
+      Object.assign(mateState, { profile: read.profile, dark: read.dark, view: read.view, map: read.map });
+    }
+    schedule();
+  }).catch((error) => {
+    mateImport = null;
+    console.warn('MATE could not be loaded.', error);
+  });
+}
+
+function mateReady() {
+  schedule();
+}
+
+function setMate(patch) {
+  Object.assign(mateState, patch);
+  schedule();
+  writeHash();
+}
+
+function mateSection(i) {
+  if (!mate) {
+    requestMateModule();
+    const box = el('section', 'place-section mate');
+    box.id = 'mate-section';
+    box.append(el('h3', null, 'On foot, by profile'), el('p', 'note', 'Loading MATE…'));
+    return box;
+  }
+  return mate.section({
+    base: `${DATA_BASE}${CITY}/`,
+    city: CITY,
+    placeName: place.name,
+    i,
+    id: data.h3[i],
+    urban: data.urban ? data.urban[i] === 1 : true,
+    when: state.when,
+    windows: data.meta.windows || {},
+    mate: mateState,
+    serviceNames: SERVICE_SHORT,
+    set: setMate,
+    ready: mateReady,
+  });
+}
+
+/** The catchment of the hexagon picked, for the map, once its data is in. */
+function mateCatchment() {
+  if (!MATE || !mate || state.selected == null || !mate.PLACES.includes(CITY) || !data.complete) return null;
+  const got = mate.request(`${DATA_BASE}${CITY}/`, data.h3[state.selected], mateReady);
+  return mate.catchmentModel(got, state.selected, mateState, data.n);
+}
+
+/** The key for the catchment, beside the map's own. */
+function renderMateKey(catchment) {
+  let box = $('mate-key');
+  if (!catchment) {
+    if (box) box.hidden = true;
+    return;
+  }
+  if (!box) {
+    box = el('div', 'map-key mate-key');
+    box.id = 'mate-key';
+    box.setAttribute('aria-label', 'Map key for the catchment');
+    document.body.append(box);
+  }
+  const rows = [el('strong', 'mate-key-title', catchment.key.title)];
+  for (const [label, k, short] of catchment.key.rows) {
+    const row = el('div', 'key-row');
+    const swatch = el('span', `key-swatch key-square${k === mate.LOST ? ' key-hatch' : ''}`);
+    swatch.style.setProperty('--swatch', catchment.colours[k]);
+    const text = el('span', 'key-label');
+    text.append(el('span', 'key-long', label), el('span', 'key-short', short));
+    row.append(swatch, text);
+    rows.push(row);
+  }
+  rows.push(el('span', 'key-label mate-key-note', `${catchment.key.note[0].toUpperCase()}${catchment.key.note.slice(1)}.`));
+  box.replaceChildren(...rows);
+  box.hidden = false;
 }
 
 // ---------------------------------------------------------------- wiring
@@ -2553,7 +2689,7 @@ function wireControls() {
   onCells(map, {
     hover(i, point) {
       if (!current) return;
-      showTooltip([el('strong', null, placeName(i)), ...current.tooltip(i).map((line) => el('span', null, line))], point);
+      showTooltip([el('strong', null, placeName(i)), ...(painted || current).tooltip(i).map((line) => el('span', null, line))], point);
     },
     leave() {
       tooltip.hidden = true;
@@ -2562,6 +2698,12 @@ function wireControls() {
       select(map, state.selected, i);
       state.selected = i;
       showPlace(i);
+      if (MATE) {
+        // The tooltip shown at the click described the map before the catchment.
+        tooltip.hidden = true;
+        schedule();
+        writeHash();
+      }
     },
   });
   // A move by hand lets the panel follow the map again.
@@ -2786,6 +2928,7 @@ async function init() {
   // Exposed for browser tests and scripted tours.
   // For checks from the console and tests: the area the panel is for.
   window.team = { map, state, area: () => { const w = areaNow(); return w && { level: w.area.level, name: w.area.name, chain: w.chain.map((a) => a.name) }; } };
+  if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? 'catchment' : 'team' });
   // Start once the style is ready. The 'load' event also waits for every basemap
   // tile, which would hold up the whole app on a slow connection.
   //
@@ -2827,10 +2970,13 @@ async function init() {
   rememberCity(CITY);
   setServices(data.meta);
   if (!SERVICE_ORDER.includes(state.service)) state.service = SERVICE_ORDER[0];
+  // A link with a hexagon picked opens with its card, as a click would.
+  const linked = MATE ? mateParams?.get('o') : null;
   if (state.when && !(data.meta.windows || {})[state.when]) state.when = null;
   // A link can carry values this city does not have; fall back rather than fail.
   if (!data.weights[state.group]) state.group = 'everyone';
   prepareScope();
+  if (linked && cellOf.has(linked)) state.selected = cellOf.get(linked);
   if (state.urbanOnly) setUrban(data, true);
   const profiles = ((data.meta.fares || {}).profiles || []).map((p) => p.key);
   if (profiles.length && !profiles.includes(state.profile)) state.profile = profiles.includes('adult') ? 'adult' : profiles[0];
@@ -2852,6 +2998,7 @@ async function init() {
   });
   const addLayers = () => {
     setCells(map, cellCollection(data.h3));
+    if (state.selected != null) select(map, null, state.selected);
     setOverlays(map, {}, data.destinations);
     setBasemap(map, state.basemap);
     applyOverlays();

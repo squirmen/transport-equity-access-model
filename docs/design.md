@@ -49,3 +49,40 @@ Every label and sentence is written for a planner reading quickly: the number
 first, then one plain sentence, then a note only where a reader would
 otherwise misread the figure. The same wording is used in the app, the
 downloads and these documents.
+
+## MATE in the hexagon card (preview)
+
+With `?mate=1` in the address, an Auckland hexagon's card ends with a section
+from MATE, the lab's map of footpaths for people with limited mobility. It
+stays behind the flag until the Devonport field check is done. Without it the
+site is as it was, and `js/mate.js` is never loaded. MATE builds its files into
+`data/auckland/mate/` (MATE's `docs/team_export.md`); the card fetches two of
+them on the first click and one small file for each area clicked after that.
+Other places say MATE has no footpath data there yet.
+
+- **Each profile, side by side.** Walking, the older walker, both
+  wheelchairs, the pram, the child on their own and the cargo bike: hexagons
+  within 15 minutes and minutes to the nearest stop and frequent stop, each
+  next to the census group it most nearly describes. A profile picker chooses
+  the one the rest of the section and the map are about.
+- **Ranges.** Every figure is the no-known-barrier one, then the one if
+  unrecorded parts take three times as long: "6, or 5". Nothing unknown is
+  shown as passable without saying so.
+- **What is in the way.** The footpath's status for the profile in MATE's own
+  colours (green no known barrier, amber harder, grey not known, red
+  barrier), then steps, slope, width, kerbs and main-road crossings. Kerbs and
+  lighting lead with how much is recorded; estimates say so.
+- **After dark** swaps in the older walker's and the child's after-dark rules.
+- **Public transport** gives the nearest stop each profile can reach, by name,
+  and each profile's reach within 45 minutes, as an estimate: the walker's
+  trip from TEAM's routing with the profile's own walks to and from its stops.
+  It follows the time picked under When, and is off-peak otherwise.
+- **The map** colours hexagons by minutes on foot from the selected one for the
+  chosen profile, in the blues of the minutes map (5, 10 and 15 minutes), and
+  hatches in dark orange over light orange those that walking reaches and the
+  profile does not. A key sits beside the card, and as one strip above the card
+  on a phone. The card can switch the map to the cautious figures or back to
+  TEAM's view.
+- **The address** carries the hexagon (`o=`) and the MATE settings (`mp=`,
+  the profile with `d` for after dark, `c` for cautious and `x` for TEAM's
+  map), so a link opens on the same card.

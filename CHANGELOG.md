@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- With `?mate=1` in the address, an Auckland hexagon's card has a section from
+  MATE: each mobility profile's reach on foot and by public transport, what is
+  in the way, kerbs and lighting by how much is recorded, an After dark switch,
+  and the profile's catchment on the map. It is a preview until the Devonport
+  field check. With it on, the address also keeps the selected hexagon.
+
 ## 0.11.0 (1 October 2026)
 
 - Tertiary or trades training, and trades training on its own, are

@@ -320,6 +320,36 @@ export function select(map, previous, next) {
   map.getSource('selected').setData(next != null && cells.features[next] ? cells.features[next] : EMPTY);
 }
 
+// MATE's catchment colours the hexagons through paintCells like any view. The
+// ones walking reaches and the profile does not also get a hatch, from a small
+// source of their own, added the first time it is needed so the map is the
+// same as ever without it.
+const HATCH = 'mate-hatch';
+
+/** Diagonal stripes that tile, as image data MapLibre takes without a canvas. */
+export function hatchImage(size = 12, rgba = [131, 54, 7, 230]) {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if ((x + y) % size < 2) data.set(rgba, (y * size + x) * 4);
+    }
+  }
+  return { width: size, height: size, data };
+}
+
+/** Hatch these hexagons (indexes into the cell layer), or none. */
+export function setHatch(map, ids) {
+  if (!map.getSource('hatch')) {
+    if (!ids.length) return;
+    if (!map.hasImage(HATCH)) map.addImage(HATCH, hatchImage(), { pixelRatio: 2 });
+    map.addSource('hatch', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'hatch', type: 'fill', source: 'hatch', paint: { 'fill-pattern': HATCH } }, 'cells-gap');
+  }
+  map.getSource('hatch').setData(ids.length
+    ? { type: 'FeatureCollection', features: ids.map((i) => cells.features[i]).filter(Boolean) }
+    : EMPTY);
+}
+
 export function fitPlace(map, bbox) {
   map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 80, maxZoom: 14, duration: 600 });
 }

@@ -131,7 +131,9 @@ function serviceRow(data, i, service, standard, viewMode, zones) {  // eslint-di
   return details;
 }
 
-export function renderPlace(root, data, i, state) {
+/** The card for hexagon `i`. `extra` holds sections drawn after TEAM's own,
+ *  such as MATE's behind ?mate=1. */
+export function renderPlace(root, data, i, state, extra = []) {
   const placeIndex = data.place[i];
   const place = placeIndex != null ? data.places[placeIndex] : null;
   const bits = [];
@@ -273,6 +275,7 @@ export function renderPlace(root, data, i, state) {
       section('Jobs within reach', ...jobs),
       section('Around here', ...around),
       section('Who lives here', ...people, el('p', 'note', 'Census shares describe the surrounding block, not this hexagon alone. Ethnic groups overlap, so they do not add to the population.')),
+      ...extra,
     ].filter(Boolean),
   );
 }
