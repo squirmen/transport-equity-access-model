@@ -357,6 +357,8 @@ export function onCells(map, { hover, leave, click }) {
     leave();
   });
   map.on('click', 'cells-fill', (event) => {
+    // A pin or stop on top answers the click itself; the cell under it does not.
+    if (pointAt(map, event.point)) return;
     const feature = event.features && event.features[0];
     if (feature) click(feature.id);
   });

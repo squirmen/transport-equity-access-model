@@ -2250,7 +2250,7 @@ function renderInto(root, model) {
     if (state.view === 'access' && model.panel.show === 'burden') renderBurden(root, { ...model.panel, canCommute: true, fairAvailable: choice.fairAvailable }, set);
     else if (state.view === 'access') renderJobsAccess(root, { ...model.panel, canCommute: commuteAvailable() }, set);
     else if (state.view === 'people') renderJobsPeople(root, model.panel);
-    else renderJobsFixes(root);
+    else renderJobsFixes(root, model.panel);
     return;
   }
   if (state.service === 'errands') {

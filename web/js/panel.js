@@ -1090,8 +1090,12 @@ export function renderJobsPeople(root, model) {
   ].filter(Boolean));
 }
 
-export function renderJobsFixes(root) {
-  setKey(root, null);
+export function renderJobsFixes(root, model) {
+  // The map keeps showing job access, so the key does too.
+  setKey(root, model && model.legend ? {
+    mode: model.fair ? `Job access against the ${place.name} average` : `Share of ${place.possessive} jobs within ${model.limit} min`,
+    scale: scaleOf(model.legend),
+  } : null);
   root.replaceChildren(
     el('p', 'hero-text', 'Jobs have no single standard, so there is no reason map for them.'),
     el('p', 'note', 'Use Access to see where job access is lowest, and Who misses out to see how it differs by deprivation and group. Reasons are mapped for every destination with a time standard.'),

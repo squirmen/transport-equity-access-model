@@ -756,6 +756,8 @@ body[data-place="open"] .maplibregl-ctrl-top-right .maplibregl-ctrl-group { marg
     transition: height 0.2s ease;
   }
   .place[data-sheet="full"] { height: calc(100% - 52px); }
+  /* Lowest, for a strip while picking where to go on a trip. */
+  .place[data-sheet="peek"] { height: 196px; overflow: hidden; }
   .place .sheet-handle { position: static; flex: none; }
   .place-head { padding-top: 2px; }
 
