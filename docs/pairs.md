@@ -77,12 +77,12 @@ information" for it.
   ids R5 reports, such as `1002-c8bb8209`. Auckland Transport changes the part
   after the dash between feeds, so a stop id is only good with this feed.
   MATE's stop walks are keyed on the same ids.
-- **Stop names** are in the `stops` layer of `overlays.json` (below). A path
+- **Stop names** are in the `stops` layer of `transit.json` (below). A path
   can leave at a stop with no departures in any window, which that layer
   leaves out; those are in `stops_not_in_overlays` in `pairs/index.json`.
 - **Routes** are GTFS `route_id`s, such as `70-205`. A path with a change
   lists them in order, joined with `|`. `pairs/index.json` gives each route's
-  short name and GTFS route type, and `overlays.json` lists the rail,
+  short name and GTFS route type, and `transit.json` lists the rail,
   busway, ferry and frequent bus lines with their routes.
 
 ## Files for the web app
@@ -234,11 +234,16 @@ In the cache, `~/.cache/team/auckland/cell_pairs/`:
   `DetailedItineraries` and the timetable (`team pairs check`, below).
 - `<run>/`: the batches behind each run, kept so a stopped run resumes.
 
-## Overlays: stops, stations and lines
+## Stops, stations and lines by name
 
-`overlays.json` carries, beside its map layers:
+`transit.json` sits beside `overlays.json` and is written with it (`team
+build`, or `team overlays`). Every visitor loads `overlays.json` when the map
+opens, so it keeps only what the map draws: the line shapes, and the stops
+with `kind` and `per_hour`. The names are in `transit.json`, which nothing
+loads until a part of the site uses it. It carries:
 
-- **`stops`**: every stop with departures in a window. Properties: `kind`
+- **`stops`**: every stop with departures in a window, in the same order and
+  places as the map's. Properties: `kind`
   (`rail_ferry`, `frequent` or `other`), `per_hour` (departures an hour at its
   busiest window), `id` (GTFS `stop_id`), `name`, `code` (the number on the
   stop) and `station` (its parent station's `stop_id`, when it has one).
@@ -254,8 +259,9 @@ In the cache, `~/.cache/team/auckland/cell_pairs/`:
   window, the most common pattern first in order, then stops only other
   patterns use) and, for busways, `corridor` (such as "Northern Busway").
   Busway routes are listed by hand under `busways` in the configuration.
-- The `rail`, `ferry`, `frequent_bus` and `bus` line features carry `lines`,
-  the ids of the lines drawn with them.
+- **`drawn`**: the line shapes of those lines, as the map draws them, each
+  with `lines` (the ids of the lines drawn with it) and `layer` (the
+  overlay it is drawn in: `rail`, `ferry`, `frequent_bus` or `bus`).
 
 ## Checks
 

@@ -7,6 +7,8 @@
   in the way, kerbs and lighting by how much is recorded, an After dark switch,
   and the profile's catchment on the map. It is a preview until the Devonport
   field check. With it on, the address also keeps the selected hexagon.
+- Stop, station and line names are in a file of their own, `transit.json`,
+  which no page loads yet, so `overlays.json` stays as small as before.
 
 ## 0.11.0 (1 October 2026)
 

@@ -6,7 +6,8 @@ The web app reads five JSON files from data/:
     summary.json       regional figures, breakdowns by NZDep and group, area tables
     places.json        SA2 names with centres and extents, for search and zooming
     destinations.json  the services used as destinations
-    overlays.json      rail, ferry, bus and cycle network lines
+    overlays.json      rail, ferry, bus and cycle network lines, and stops, for the map
+    transit.json       the stops, stations and lines by name (not loaded by the app yet)
 """
 
 from __future__ import annotations
@@ -438,7 +439,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
 
     from . import context
 
-    _dump(data / "overlays.json", context.overlays(settings))
+    layers, named = context.network_layers(settings)
+    _dump(data / "overlays.json", layers)
+    _dump(data / "transit.json", named)
     jobs_total = float(pd.read_parquet(settings.output_dir / "destinations" / "jobs.parquet")["jobs"].sum())
     meta = {
         "version": __version__,

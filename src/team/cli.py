@@ -5,7 +5,7 @@
     team route --all --shard 1/3       route every third batch, to split work across processes
     team route services walk           run one job
     team build                         measures, people, context, summaries and web data
-    team overlays --to DIR             write only the map overlays (stops, stations, lines)
+    team overlays --to DIR             write only the map overlays, and the named stops, stations and lines
     team pairs route --shard 1/3       cell to cell pairs and public transport paths (resumable)
     team pairs route                   route what is left and combine the batches
     team pairs write --site DIR        tile the pairs for the web app
@@ -89,8 +89,10 @@ def cmd_overlays(args: argparse.Namespace) -> int:
 
     settings = _settings(args)
     folder = Path(args.to) if args.to else settings.output_dir / "site" / "data"
-    _dump(folder / "overlays.json", context.overlays(settings))
-    print(f"wrote {folder / 'overlays.json'} (.gz, .br)")
+    layers, named = context.network_layers(settings)
+    _dump(folder / "overlays.json", layers)
+    _dump(folder / "transit.json", named)
+    print(f"wrote {folder / 'overlays.json'} and {folder / 'transit.json'} (.gz, .br)")
     return 0
 
 
@@ -142,8 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("build", help="compute measures and write web data")
     p.set_defaults(func=cmd_build)
 
-    p = sub.add_parser("overlays", help="write only the map overlays")
-    p.add_argument("--to", help="folder to write overlays.json into (default: <out>/site/data)")
+    p = sub.add_parser("overlays", help="write only the map overlays and the named network (transit.json)")
+    p.add_argument("--to", help="folder to write overlays.json and transit.json into (default: <out>/site/data)")
     p.set_defaults(func=cmd_overlays)
 
     p = sub.add_parser("pairs", help="cell to cell pairs and public transport paths")

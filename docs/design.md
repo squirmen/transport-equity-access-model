@@ -70,13 +70,22 @@ Other places say MATE has no footpath data there yet.
   shown as passable without saying so.
 - **What is in the way.** The footpath's status for the profile in MATE's own
   colours (green no known barrier, amber harder, grey not known, red
-  barrier), then steps, slope, width, kerbs and main-road crossings. Kerbs and
-  lighting lead with how much is recorded; estimates say so.
+  barrier), then the street centre line routes follow where no footpath is
+  drawn, with its status, then steps, slope, width (recorded and estimated,
+  against the profile's own width limit), kerbs and main-road crossings.
+  Kerbs and lighting lead with how much is recorded; estimates say so. The
+  kerb line also counts what routing assumes: street junctions with no
+  crossing mapped, and footpaths joined where they stop just short, both with
+  kerbs not recorded. These are what the cautious figure counts against.
 - **After dark** swaps in the older walker's and the child's after-dark rules.
+  Public transport stays by day, and the card says so.
 - **Public transport** gives the nearest stop each profile can reach, by name,
   and each profile's reach within 45 minutes, as an estimate: the walker's
   trip from TEAM's routing with the profile's own walks to and from its stops.
-  It follows the time picked under When, and is off-peak otherwise.
+  It follows the time picked under When, and otherwise the window of TEAM's
+  jobs line above it. Its walking row is MATE's estimate made the same way, so
+  the profiles compare with it; the card gives TEAM's own figure beside it and
+  says why the two differ.
 - **The map** colours hexagons by minutes on foot from the selected one for the
   chosen profile, in the blues of the minutes map (5, 10 and 15 minutes), and
   hatches in dark orange over light orange those that walking reaches and the

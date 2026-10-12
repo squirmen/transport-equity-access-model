@@ -2479,6 +2479,9 @@ function mateSection(i) {
     urban: data.urban ? data.urban[i] === 1 : true,
     when: state.when,
     windows: data.meta.windows || {},
+    // TEAM's jobs line: its window, and its share by public transport within 45 minutes.
+    jobsWindow: data.activeWindow?.jobs || data.meta.jobs?.window || null,
+    teamJobs: data.jobs?.pt?.['45']?.[i] ?? null,
     mate: mateState,
     serviceNames: SERVICE_SHORT,
     set: setMate,

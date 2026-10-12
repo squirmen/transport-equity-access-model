@@ -287,12 +287,31 @@ def transit_lines(settings: Settings, stops: pd.DataFrame, trips: pd.DataFrame, 
 
 
 def overlays(settings: Settings) -> dict[str, dict]:
-    """Rail, ferry, frequent bus, other bus and cycle network lines for the map,
-    the stops and stations with their GTFS ids and names, and the lines a
-    person can pick (rail, busway, ferry and frequent bus) with their stops.
+    """Rail, ferry, frequent bus, other bus and cycle network lines and the
+    stops, for the map (overlays.json, which every visitor loads)."""
+    return network_layers(settings)[0]
 
-    Stop ids are the GTFS stop_id of the timetable TEAM routes on, which is also
-    what R5 reports for the stops a trip boards and leaves at.
+
+def transit(settings: Settings) -> dict:
+    """The stops and stations with their GTFS ids and names, and the lines a
+    person can pick (transit.json; see network_layers)."""
+    return network_layers(settings)[1]
+
+
+def network_layers(settings: Settings) -> tuple[dict[str, dict], dict]:
+    """The map's overlays, and the named public transport network beside them.
+
+    The overlays are what the map draws, and nothing more, since every visitor
+    loads them: rail, ferry, frequent bus and other bus lines, the cycle
+    network, and the stops with their kind and departures an hour.
+
+    The named network goes in a file of its own (transit.json) that nothing
+    loads until a part of the site uses it: the stops with their GTFS id,
+    name, code and parent station; the stations; the lines a person can pick
+    (rail, busway, ferry and frequent bus) with their stops; and `drawn`, the
+    line shapes of those lines, each naming the lines drawn with it. Stop ids
+    are the GTFS stop_id of the timetable TEAM routes on, which is also what R5
+    reports for the stops a trip boards and leaves at.
     """
     import geopandas as gpd
 
@@ -358,6 +377,7 @@ def overlays(settings: Settings) -> dict[str, dict]:
     shapes[["lon", "lat"]] = shapes[["shape_pt_lon", "shape_pt_lat"]].astype(float)
     layers: dict[str, list] = {name: [] for name in rank}
     seen: dict[tuple, dict] = {}
+    named: dict[tuple, dict] = {}
     for shape_id, points in shapes.sort_values(["shape_id", "seq"]).groupby("shape_id"):
         if len(points) < 2:
             continue
@@ -369,14 +389,17 @@ def overlays(settings: Settings) -> dict[str, dict]:
         names = shape_lines.get(shape_id, [])
         if len(coords) < 2:
             continue
-        if signature in seen:
+        if names:
             # The same line drawn twice: name every line that uses it.
-            properties = seen[signature]["properties"]
-            if names:
-                properties["lines"] = sorted(set(properties.get("lines", [])) | set(names))
+            if signature in named:
+                properties = named[signature]["properties"]
+                properties["lines"] = sorted(set(properties["lines"]) | set(names))
+            else:
+                named[signature] = {"type": "Feature", "properties": {"lines": names, "layer": best[shape_id]},
+                                    "geometry": {"type": "LineString", "coordinates": coords}}
+        if signature in seen:
             continue
-        feature = {"type": "Feature", "properties": {"lines": names} if names else {},
-                   "geometry": {"type": "LineString", "coordinates": coords}}
+        feature = {"type": "Feature", "properties": {}, "geometry": {"type": "LineString", "coordinates": coords}}
         seen[signature] = feature
         layers[best[shape_id]].append(feature)
     out = {name: {"type": "FeatureCollection", "features": features} for name, features in layers.items()}
@@ -406,23 +429,28 @@ def overlays(settings: Settings) -> dict[str, dict]:
                 properties[key] = value
         return properties
 
-    out["stops"] = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": stop_properties(kind, rate, row),
-                "geometry": {"type": "Point", "coordinates": [round(float(row.stop_lon), 5), round(float(row.stop_lat), 5)]},
-            }
-            for kind, rate, row in zip(keep, per_hour[per_hour > 0], boarding.itertuples(index=False))
-        ],
-    }
+    def stop_features(properties):
+        return {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": properties(kind, rate, row),
+                    "geometry": {"type": "Point", "coordinates": [round(float(row.stop_lon), 5), round(float(row.stop_lat), 5)]},
+                }
+                for kind, rate, row in zip(keep, per_hour[per_hour > 0], boarding.itertuples(index=False))
+            ],
+        }
+
+    # The map's stops say only what it draws them by.
+    out["stops"] = stop_features(lambda kind, rate, row: {"kind": str(kind), "per_hour": round(float(rate), 1)})
+    named_network: dict = {"stops": stop_features(stop_properties)}
     # Stations: the parent of a group of platforms or bays, named once.
     parents = boarding["parent_station"].map(_text).dropna()
     by_parent = pd.DataFrame({"parent": parents, "rail_ferry": boarding.loc[parents.index, "rail_or_ferry"]})
     rail_ferry = by_parent.groupby("parent")["rail_ferry"].any()
     stations = stops[stops["stop_id"].isin(rail_ferry.index)]
-    out["stations"] = {
+    named_network["stations"] = {
         "type": "FeatureCollection",
         "features": [
             {
@@ -434,5 +462,6 @@ def overlays(settings: Settings) -> dict[str, dict]:
             for row in stations.itertuples(index=False)
         ],
     }
-    out["lines"] = lines
-    return out
+    named_network["lines"] = lines
+    named_network["drawn"] = {"type": "FeatureCollection", "features": list(named.values())}
+    return out, named_network

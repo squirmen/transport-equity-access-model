@@ -130,17 +130,35 @@ export function statusShares(cm, i, variant) {
   return Object.fromEntries(STATUS.map((s) => [s.key, cm[`${s.key}_${variant}`]?.[i] ?? null]));
 }
 
-/** The crossings in a hexagon by what is known of their kerbs, recorded first. */
+/** The crossings in a hexagon by what is known of their kerbs, recorded first; then what routing assumes:
+ *  street junctions taken as crossings, and sidewalk ends joined, both with kerbs not recorded. */
 export function kerbs(cm, i) {
   const get = (k) => cm[`x_${k}`]?.[i] ?? 0;
   const out = {
-    ok: get('ok'), raised: get('raised'), okEst: get('ok_est'), raisedEst: get('raised_est'),
+    ok: get('ok'), raised: get('raised'), rolled: get('rolled'), okEst: get('ok_est'), raisedEst: get('raised_est'),
     part: get('part'), unknown: get('unknown'), main: get('main'), mainNoSignals: get('main_no_signals'),
+    junctions: get('junction'), joins: get('join'),
   };
-  out.recorded = out.ok + out.raised;
+  out.recorded = out.ok + out.raised + out.rolled;
   out.estimated = out.okEst + out.raisedEst;
   out.total = out.recorded + out.estimated + out.part + out.unknown;
   return out;
+}
+
+/** The street centre line routing follows where no footpath is drawn, and its status shares for a variant. */
+export function streets(cm, i, variant) {
+  const km = cm.kst?.[i];
+  if (km == null || km <= 0) return null;
+  return { km, shares: Object.fromEntries(STATUS.map((s) => [s.key, cm[`s${s.key}_${variant}`]?.[i] ?? null])) };
+}
+
+/** Footpath narrower than a profile's width limit, % of it: recorded (a barrier) and estimated (harder).
+ *  Null for a profile with no limit. */
+export function narrow(cm, i, profile) {
+  const limit = cm.meta?.width_limits?.[profile];
+  if (!limit || cm.km[i] == null) return null;
+  const key = `wu${Math.round(limit * 100)}`;
+  return { limit, recorded: cm[`${key}r`]?.[i] ?? 0, estimated: cm[`${key}e`]?.[i] ?? 0 };
 }
 
 /** Lighting on the hexagon's footpath, % of it: recorded (lit or not lit), estimated, not known. */
@@ -155,14 +173,16 @@ export function servicesIn(bits, services) {
   return services.filter((_, k) => (bits >> k) & 1);
 }
 
-/** The public transport window: the one on screen if MATE has it, else off-peak. */
-export function ptWindow(when, windows) {
+/** The public transport window: the one on screen if MATE has it, else the one TEAM's jobs line above is in,
+ *  else off-peak. */
+export function ptWindow(when, windows, usual = null) {
   if (windows.includes(when)) return when;
+  if (windows.includes(usual)) return usual;
   return windows.includes('interpeak') ? 'interpeak' : windows[0];
 }
 
 /** Everything the card says about one hexagon, as plain values. */
-export function cardFigures(mate, i, { profile, dark, when, urban }) {
+export function cardFigures(mate, i, { profile, dark, when, urban, jobsWindow = null, teamJobs = null }) {
   const cm = mate.cells;
   const tm = mate.times;
   const row = cm.o[i];
@@ -191,7 +211,7 @@ export function cardFigures(mate, i, { profile, dark, when, urban }) {
   const pt = cm.meta.pt;
   let transit = null;
   if (pt && cm.pt) {
-    const window = ptWindow(when, pt.windows);
+    const window = ptWindow(when, pt.windows, jobsWindow);
     const ptRows = rows.filter((r) => pt.variants.includes(r.key)).map((r) => {
       const at = (view, field) => cm.pt[window]?.[r.key]?.[view]?.[field]?.[row] ?? null;
       return {
@@ -212,6 +232,8 @@ export function cardFigures(mate, i, { profile, dark, when, urban }) {
       servicesTotal: pt.services.length,
       services: pt.services,
       jobsTotal: pt.jobs_total,
+      // TEAM's own figure for walking to public transport, when it is for the same window.
+      team: window === jobsWindow && Number.isFinite(teamJobs) ? teamJobs : null,
     };
   }
   return {
@@ -222,10 +244,11 @@ export function cardFigures(mate, i, { profile, dark, when, urban }) {
     chosen,
     services,
     shares: statusShares(cm, i, chosen.variant),
+    streets: streets(cm, i, chosen.variant),
     steps: cm.steps?.[i] ?? null,
     steep: cm.m12?.[i] ?? null,
     noSlope: cm.g0?.[i] ?? null,
-    width: cm.km[i] == null ? null : { recorded: cm.wr[i] ?? 0, none: cm.w0[i] ?? 0, under12: cm.w1[i] ?? 0 },
+    width: cm.km[i] == null ? null : { recorded: cm.wr[i] ?? 0, none: cm.w0[i] ?? 0, narrow: narrow(cm, i, chosen.key) },
     kerbs: kerbs(cm, i),
     light: lighting(cm, i),
     transit,
@@ -350,15 +373,26 @@ function statusBar(shares) {
   return { bar, words };
 }
 
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 function kerbLine(k) {
-  if (!k.total) return 'No crossings mapped in this hexagon.';
-  const parts = [];
-  if (k.recorded) parts.push(`${k.recorded} recorded (${[k.ok ? `${k.ok} lowered or flush` : '', k.raised ? `${k.raised} raised` : ''].filter(Boolean).join(', ')})`);
-  else parts.push('none recorded');
-  if (k.estimated) parts.push(`${k.estimated} estimated from photos (${[k.okEst ? `${k.okEst} lowered` : '', k.raisedEst ? `${k.raisedEst} raised` : ''].filter(Boolean).join(', ')})`);
-  const unknown = k.part + k.unknown;
-  if (unknown) parts.push(`${unknown} not known${k.part ? `, ${k.part} of them read only in part` : ''}`);
-  return `Kerbs at ${k.total} ${k.total === 1 ? 'crossing' : 'crossings'}: ${parts.join('; ')}.`;
+  let mapped = 'No crossings mapped in this hexagon.';
+  if (k.total) {
+    const parts = [];
+    if (k.recorded) parts.push(`${k.recorded} recorded (${[k.ok ? `${k.ok} lowered or flush` : '', k.raised ? `${k.raised} raised` : '', k.rolled ? `${k.rolled} rolled` : ''].filter(Boolean).join(', ')})`);
+    else parts.push('none recorded');
+    if (k.estimated) parts.push(`${k.estimated} estimated from photos (${[k.okEst ? `${k.okEst} lowered` : '', k.raisedEst ? `${k.raisedEst} raised` : ''].filter(Boolean).join(', ')})`);
+    const unknown = k.part + k.unknown;
+    if (unknown) parts.push(`${unknown} not known${k.part ? `, ${k.part} of them read only in part` : ''}`);
+    mapped = `Kerbs at ${plural(k.total, 'mapped crossing', 'mapped crossings')}: ${parts.join('; ')}.`;
+  }
+  // What routing assumes on top of the mapped crossings, which the cautious figure counts against.
+  const assumed = [];
+  if (k.junctions) assumed.push(`${plural(k.junctions, 'street junction', 'street junctions')} with no crossing mapped ${k.junctions === 1 ? 'counts' : 'count'} as ${k.junctions === 1 ? 'a crossing' : 'crossings'}`);
+  if (k.joins) assumed.push(`${plural(k.joins, 'footpath that stops', 'footpaths that stop')} just short of another ${k.joins === 1 ? 'is' : 'are'} joined to it`);
+  return assumed.length ? `${mapped} Assumed: ${assumed.join('; ')}, with kerbs not recorded.` : mapped;
 }
 
 function lightLine(l) {
@@ -393,8 +427,8 @@ function dateText(iso) {
 }
 
 /** The section for the card. `ctx`: base, city, placeName, i, id (its H3 index), urban, when and windows (TEAM's),
- *  mate (profile, dark, view, map), serviceNames, set (to change the MATE settings), ready (to draw again when
- *  data arrives). */
+ *  jobsWindow and teamJobs (the window and share of TEAM's public transport jobs line), mate (profile, dark, view,
+ *  map), serviceNames, set (to change the MATE settings), ready (to draw again when data arrives). */
 export function section(ctx) {
   const box = el('section', 'place-section mate');
   box.id = 'mate-section';
@@ -420,7 +454,9 @@ export function section(ctx) {
     box.append(note('MATE has no footpath data for this hexagon yet.'));
     return box;
   }
-  const f = cardFigures(got.core, i, { profile: ctx.mate.profile, dark: ctx.mate.dark, when: ctx.when, urban: ctx.urban });
+  const f = cardFigures(got.core, i, {
+    profile: ctx.mate.profile, dark: ctx.mate.dark, when: ctx.when, urban: ctx.urban, jobsWindow: ctx.jobsWindow, teamJobs: ctx.teamJobs,
+  });
   const chosen = f.chosen;
   box.append(note('A preview for checking. Only Devonport has been checked on the ground.'));
 
@@ -504,11 +540,17 @@ export function section(ctx) {
     const { bar, words } = statusBar(f.shares);
     box.append(bar, el('p', 'mate-line', `${f.km.toFixed(f.km < 10 ? 1 : 0)} km of footpath: ${words.join(', ')}.`));
     const lines = [];
+    if (f.streets) {
+      const parts = STATUS.filter((s) => (f.streets.shares[s.key] || 0) > 0).map((s) => `${f.streets.shares[s.key]}% ${s.label}`);
+      lines.push(`Where no footpath is drawn, routes follow ${f.streets.km.toFixed(1)} km of street centre line${parts.length ? `: ${parts.join(', ')}` : ''}.`);
+    }
     if (f.steps) lines.push(`${f.steps} ${f.steps === 1 ? 'flight' : 'flights'} of steps.`);
     if (f.steep != null) lines.push(`${f.steep ? `${count(f.steep)} m steeper than 1:12` : 'Nothing steeper than 1:12'}${f.noSlope ? `; no slope reading on ${f.noSlope}%` : ''}.`);
     if (f.width) {
       const estimated = Math.max(0, 100 - f.width.recorded - f.width.none);
-      lines.push(`Width recorded on ${f.width.recorded}% of footpath, estimated from photos on ${estimated}%, not known on ${f.width.none}%. Under 1.2 m: ${f.width.under12}%.`);
+      const n = f.width.narrow;
+      const narrowText = n ? ` Under ${n.limit} m, this profile's limit: ${n.recorded}% recorded, ${n.estimated}% estimated.` : '';
+      lines.push(`Width recorded on ${f.width.recorded}% of footpath, estimated from photos on ${estimated}%, not known on ${f.width.none}%.${narrowText}`);
     }
     lines.push(kerbLine(f.kerbs));
     if (f.kerbs.main) lines.push(`${f.kerbs.main} ${f.kerbs.main === 1 ? 'crossing' : 'crossings'} of a main road, ${f.kerbs.mainNoSignals} with no signals recorded.`);
@@ -517,7 +559,7 @@ export function section(ctx) {
     box.append(head('Lighting'));
     box.append(el('p', 'mate-line', lightLine(f.light)));
     box.append(note('Lit means tagged, or near a mapped street lamp. It does not measure how bright it is, or how safe.'));
-  } else if (f.kerbs.total) {
+  } else if (f.kerbs.total || f.kerbs.junctions || f.kerbs.joins) {
     box.append(el('p', 'mate-line', kerbLine(f.kerbs)));
   }
 
@@ -526,6 +568,7 @@ export function section(ctx) {
     const t = f.transit;
     const spec = (ctx.windows || {})[t.window] || {};
     box.append(head(`By public transport, ${(spec.label || t.window).toLowerCase()} (estimate)`));
+    if (ctx.mate.dark) box.append(note('Public transport figures are by day: TEAM\'s windows are all in daylight.'));
     if (t.state === 'no-origin') {
       box.append(note('No public transport figures: this hexagon has no times on MATE\'s network.'));
     } else if (t.state === 'not-urban') {
@@ -555,6 +598,8 @@ export function section(ctx) {
         box.append(el('p', 'mate-line', 'Not worked out for the cargo bike.'));
       }
       box.append(note(`Reach: hexagons within 45 minutes, by public transport or within 15 on foot. Jobs: share of ${count(t.jobsTotal)} jobs in them. The second figure is ${CAUTIOUS}.`));
+      const teamShare = t.team == null ? 'TEAM\'s own figure' : `TEAM's own figure above, ${t.team.toFixed(t.team < 10 ? 1 : 0)}%,`;
+      box.append(note(`Walking here is MATE's estimate, made the same way as the other rows, so compare the profiles with it. ${teamShare} differs: MATE walks on its own footpath map, counts jobs in the hexagons people live in, and keeps one typical trip rather than the median.`));
       box.append(note('An estimate. It keeps the walker\'s trip from TEAM\'s routing (a typical trip in the 2-hour window) and swaps in each profile\'s own walk to the first stop and from the last, on MATE\'s footpath map. No trip where the profile cannot make either walk within 15 minutes. Changes are walked at a walker\'s pace. Stop and vehicle access: no information.'));
     }
   }
@@ -573,7 +618,7 @@ export function section(ctx) {
 /** Assumptions and sources, at the foot of the section. */
 function finish(box, cm, ctx) {
   const assume = el('p', 'note mate-sources');
-  assume.append(document.createTextNode('Assumptions: harder parts take 1.5 times as long, and for the second figure unrecorded parts three times as long; the pram\'s slope limit, the child\'s main-road rule and after dark have no published source. '));
+  assume.append(document.createTextNode('Assumptions: harder parts take 1.5 times as long, and for the second figure unrecorded parts three times as long; times start at the hexagon\'s centre, joined by a straight line of up to 175 m to the nearest paths the profile can use, and that line counts as passable; the pram\'s slope limit, the child\'s main-road rule and after dark have no published source. '));
   const link = el('a', null, 'MATE\'s profiles');
   link.href = `${ctx.base}mate/profiles.html#routing-for-team`;
   link.target = '_blank';

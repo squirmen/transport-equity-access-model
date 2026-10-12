@@ -144,26 +144,41 @@ def lines_settings(tmp_path: Path) -> Settings:
 
 
 def test_overlays_name_stops_and_stations(lines_settings: Settings):
-    from team.context import overlays
+    from team.context import network_layers
 
-    out = overlays(lines_settings)
-    stops = {f["properties"]["id"]: f["properties"] for f in out["stops"]["features"]}
+    layers, named = network_layers(lines_settings)
+    stops = {f["properties"]["id"]: f["properties"] for f in named["stops"]["features"]}
     assert stops["P1"] == {"kind": "rail_ferry", "per_hour": 1.0, "id": "P1", "name": "Central Station 1",
                            "code": "101", "station": "P"}
     assert "station" not in stops["B"]
     # A parent station is not a stop anyone boards at, but is listed as a station.
     assert "P" not in stops
-    stations = out["stations"]["features"]
+    stations = named["stations"]["features"]
     assert [f["properties"] for f in stations] == [{"id": "P", "name": "Central Station", "kind": "rail_ferry"}]
 
 
-def test_overlays_list_lines_with_their_stops(lines_settings: Settings):
-    from team.context import overlays
+def test_the_maps_overlays_carry_only_what_it_draws(lines_settings: Settings):
+    """Every visitor loads overlays.json, so names and lines go in transit.json instead."""
+    from team.context import network_layers, overlays
 
-    out = overlays(lines_settings)
-    lines = {entry["id"]: entry for entry in out["lines"]}
+    layers, named = network_layers(lines_settings)
+    assert set(layers) == {"rail", "ferry", "frequent_bus", "bus", "stops"}
+    assert all(set(f["properties"]) == {"kind", "per_hour"} for f in layers["stops"]["features"])
+    for name in ("rail", "ferry", "frequent_bus", "bus"):
+        assert all(f["properties"] == {} for f in layers[name]["features"])
+    assert set(named) == {"stops", "stations", "lines", "drawn"}
+    # The map's stops are the named ones, in the same order and places.
+    assert [f["geometry"] for f in layers["stops"]["features"]] == [f["geometry"] for f in named["stops"]["features"]]
+    assert overlays(lines_settings) == layers
+
+
+def test_overlays_list_lines_with_their_stops(lines_settings: Settings):
+    from team.context import network_layers
+
+    layers, named = network_layers(lines_settings)
+    lines = {entry["id"]: entry for entry in named["lines"]}
     # The infrequent route 22 is not a line to pick.
-    assert [entry["id"] for entry in out["lines"]] == ["STH", "NX1"]
+    assert [entry["id"] for entry in named["lines"]] == ["STH", "NX1"]
     assert lines["STH"]["kind"] == "rail"
     assert lines["STH"]["stops"] == ["P1", "A"]
     assert (lines["STH"]["from"], lines["STH"]["to"]) == ("Central Station", "Stop A")
@@ -173,8 +188,9 @@ def test_overlays_list_lines_with_their_stops(lines_settings: Settings):
     # The most common pattern first, in stop order, then stops only other patterns use.
     assert nx1["stops"] == ["A", "B", "C", "D"]
     assert nx1["routes"] == ["NX1-1"]
-    rail = out["rail"]["features"]
+    # The shapes the lines are drawn with name them, on whichever layer they are drawn in; route 22 is not a line.
+    drawn = named["drawn"]["features"]
+    rail = [f for f in drawn if f["properties"]["layer"] == "rail"]
     assert rail and all(f["properties"]["lines"] == ["STH"] for f in rail)
-    # Lines are named on whichever layer they are drawn in; route 22 is not a line.
-    named = sorted(tuple(f["properties"].get("lines", [])) for f in out["bus"]["features"])
-    assert named == [(), ("NX1",), ("NX1",)]
+    assert sorted(tuple(f["properties"]["lines"]) for f in drawn if f["properties"]["layer"] == "bus") == [("NX1",), ("NX1",)]
+    assert len(layers["bus"]["features"]) == 3

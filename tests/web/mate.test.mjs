@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  cardFigures, catchment, catchmentModel, entries, kerbs, LOST, lighting, mateHash, minutesRange, profileOf, ptWindow,
-  range, readMateHash, servicesIn, statusShares, variantOf,
+  cardFigures, catchment, catchmentModel, entries, kerbs, LOST, lighting, mateHash, minutesRange, narrow, profileOf,
+  ptWindow, range, readMateHash, servicesIn, statusShares, streets, variantOf,
 } from '../../web/js/mate.js';
 import { hatchImage } from '../../web/js/map.js';
 
@@ -81,11 +81,15 @@ function made() {
   const cells = {
     meta: {
       pt: { windows: ['am_peak', 'interpeak'], variants: ['walk', 'manual_wheelchair'], services: ['supermarket', 'gp', 'library'], jobs_total: 1000 },
+      width_limits: { manual_wheelchair: 1.2, powered_chair_scooter: 1.2, pram: 1.0 },
     },
     km: [1.3, null, 0.4],
     o: [0, null, 1],
     p_manual_wheelchair: [54, null, 10], h_manual_wheelchair: [18, null, 0], u_manual_wheelchair: [3, null, 90], b_manual_wheelchair: [25, null, 0],
-    x_ok: [3, null, 0], x_raised: [1, null, 0], x_ok_est: [2, null, 0], x_raised_est: [0, null, 0], x_part: [1, null, 0], x_unknown: [4, null, 2],
+    x_ok: [3, null, 0], x_raised: [1, null, 0], x_rolled: [1, null, 0], x_ok_est: [2, null, 0], x_raised_est: [0, null, 0], x_part: [1, null, 0], x_unknown: [4, null, 2],
+    x_junction: [11, null, 0], x_join: [2, null, null],
+    kst: [0.6, null, null], sp_manual_wheelchair: [20, null, null], sh_manual_wheelchair: [0, null, null], su_manual_wheelchair: [80, null, null], sb_manual_wheelchair: [0, null, null],
+    wu100r: [0, null, 0], wu100e: [1, null, 0], wu120r: [2, null, 0], wu120e: [3, null, 0],
     x_main: [2, null, 0], x_main_no_signals: [1, null, 0],
     l0: [80, null, 100], l1: [16, null, 0], l2: [0, null, 0], l3: [4, null, 0], lamps: [6, null, 0],
     w0: [10, null, 0], w1: [5, null, 0], wr: [20, null, 0], m12: [140, null, 0], g0: [3, null, 0], steps: [2, null, 0],
@@ -130,6 +134,20 @@ test('the card\'s figures come straight from the files, for the profile and the 
   assert.deepEqual(wheel.jobs, { nkb: 3.4, cautious: 2.1 });
   assert.equal(wheel.stop.name, 'Stop B');
   assert.equal(f.transit.rows.length, 2, 'only the profiles with public transport figures');
+  assert.equal(f.transit.team, null, 'TEAM\'s own figure only for the window its jobs line is in');
+  assert.deepEqual(f.streets, { km: 0.6, shares: { p: 20, h: 0, u: 80, b: 0 } });
+  assert.deepEqual(f.width.narrow, { limit: 1.2, recorded: 2, estimated: 3 });
+});
+
+test('with no time picked, public transport follows TEAM\'s jobs line, and gives TEAM\'s own figure beside it', () => {
+  const mate = made();
+  const f = cardFigures(mate, 0, { profile: 'walk', urban: true, jobsWindow: 'interpeak', teamJobs: 7.7 });
+  assert.equal(f.transit.window, 'interpeak');
+  assert.equal(f.transit.team, 7.7);
+  const g = cardFigures(mate, 0, { profile: 'walk', urban: true, when: 'am_peak', jobsWindow: 'interpeak', teamJobs: 7.7 });
+  assert.equal(g.transit.window, 'am_peak');
+  assert.equal(g.transit.team, null);
+  assert.equal(f.width.narrow, null, 'walking has no width limit');
 });
 
 test('after dark swaps in the night figures for the older walker only', () => {
@@ -153,9 +171,15 @@ test('a hexagon with no public transport trip says so rather than showing nothin
 test('what is recorded about kerbs and lighting is counted first', () => {
   const { cells } = made();
   const k = kerbs(cells, 0);
-  assert.equal(k.total, 11);
-  assert.equal(k.recorded, 4);
+  assert.equal(k.total, 12);
+  assert.equal(k.recorded, 5, 'a rolled kerb is recorded');
+  assert.equal(k.rolled, 1);
   assert.equal(k.estimated, 2);
+  assert.equal(k.junctions, 11);
+  assert.equal(k.joins, 2);
+  assert.equal(streets(cells, 1, 'walk'), null);
+  assert.equal(narrow(cells, 0, 'pram').limit, 1.0);
+  assert.equal(narrow(cells, 1, 'pram'), null);
   assert.deepEqual(lighting(cells, 0), { lit: 16, notLit: 4, recorded: 20, probably: 0, unknown: 80, lamps: 6 });
   assert.equal(lighting(cells, 1), null);
   assert.equal(statusShares(cells, 1, 'walk'), null);
@@ -169,6 +193,7 @@ test('services come back from their bits, in TEAM\'s order', () => {
 test('the public transport window follows the one on screen when MATE has it', () => {
   assert.equal(ptWindow('am_peak', ['am_peak', 'interpeak', 'saturday']), 'am_peak');
   assert.equal(ptWindow(null, ['am_peak', 'interpeak', 'saturday']), 'interpeak');
+  assert.equal(ptWindow(null, ['am_peak', 'interpeak', 'saturday'], 'am_peak'), 'am_peak', 'TEAM\'s jobs window when none is picked');
   assert.equal(ptWindow('sunday', ['am_peak']), 'am_peak');
 });
 

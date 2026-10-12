@@ -107,8 +107,8 @@ team --data-root DATA pairs check                            # 10 paths against 
 ```
 
 For Auckland this took about an hour in three processes. `team overlays --to
-SITE/data/auckland` writes only the map overlays, with stop and line names,
-without rebuilding the rest of the site.
+SITE/data/auckland` writes only the map overlays and the stop and line names
+(`transit.json`), without rebuilding the rest of the site.
 
 ## What a build writes
 
@@ -121,7 +121,8 @@ without rebuilding the rest of the site.
   site/                  upload-ready web app
     index.html, css/, js/, assets/
     data/                cells.json, cells_more.json, summary.json, places.json,
-                         destinations.json, overlays.json, chains.json, chains/
+                         destinations.json, overlays.json, transit.json,
+                         chains.json, chains/
     downloads/           team_auckland_h3.gpkg, .csv, fields.csv, SHA256SUMS.txt
 ```
 
@@ -135,7 +136,20 @@ python scripts/build_national_site.py --out SITE --city DATA/team DATA/team-well
 ```
 
 Copy the contents of `SITE` to a static web host, together with
-[`web/.htaccess`](../web/.htaccess) on Apache hosts. The app needs no server
+[`web/.htaccess`](../web/.htaccess) on Apache hosts.
+
+Some files in Auckland's folder are for the MATE preview (`?mate=1`) and
+the trips still to come. Before an upload:
+
+- `data/auckland/pairs/` (about 370 MB, 2,574 files) is for trips between two
+  hexagons, which no page uses yet. Leave it out until one does.
+- `data/auckland/mate/` is MATE's, built by MATE's `scripts/team_export.py`.
+  Only `?mate=1` loads it. Upload it only together with MATE's own map rebuilt
+  from the same build (MATE's `docs/team_export.md`), so the two agree on the
+  same footpaths.
+- `data/auckland/transit.json` is not loaded by any page yet; it can wait.
+- Leave out the backups beside the files: `mate_before_*`,
+  `mate_before_pt_*` and anything ending in `.before-*`. The app needs no server
 code. It loads MapLibre GL and h3-js from unpkg and basemap tiles from Esri and
 OpenStreetMap.
 
