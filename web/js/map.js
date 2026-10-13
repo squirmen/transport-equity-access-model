@@ -6,7 +6,7 @@
 
 /* global maplibregl, h3 */
 
-import { DESTINATION_COLOURS, DESTINATION_OTHER } from './palette.js';
+import { CELL_OPACITY, DESTINATION_COLOURS, DESTINATION_OTHER, TRIP_LINE } from './palette.js';
 
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 const EMPTY = { type: 'FeatureCollection', features: [] };
@@ -123,7 +123,7 @@ export function createMap(container, { topRight = null } = {}) {
       { id: 'bm-light', type: 'raster', source: 'esri-light' },
       { id: 'bm-osm', type: 'raster', source: 'osm', layout: { visibility: 'none' } },
       { id: 'bm-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'none' } },
-      { id: 'cells-fill', type: 'fill', source: 'cells', paint: { 'fill-color': cellColour(['#000000']), 'fill-opacity': 0.84 } },
+      { id: 'cells-fill', type: 'fill', source: 'cells', paint: { 'fill-color': cellColour(['#000000']), 'fill-opacity': CELL_OPACITY.usual } },
       {
         id: 'cells-gap', type: 'line', source: 'cells', minzoom: 11,
         paint: { 'line-color': '#ffffff', 'line-opacity': 0.75, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0, 13, 0.5, 16, 1.5] },
@@ -383,13 +383,7 @@ export function cellAtPoint(map, point) {
 
 // A trip's destination ring, its lines and stops come from sources of their
 // own, added the first time a trip needs them, so the map is the same as ever
-// without one.
-const TRIP_LINE = {
-  walk: '#55646c',
-  ride: '#0c0c48',
-  // A route on foot by status: no known barrier, harder, not known (MATE's colours, mate.js STATUS).
-  status: ['#3b7fb6', '#e8890c', '#8a938d'],
-};
+// without one. The colours are palette.js TRIP_LINE.
 let tripMarkers = [];
 
 function ensureTripLayers(map) {
@@ -405,7 +399,8 @@ function ensureTripLayers(map) {
   const known = ['all', route, ['!=', ['get', 'status'], 2]];
   const unknown = ['all', route, ['==', ['get', 'status'], 2]];
   const lines = [
-    { id: 'trip-casing', filter: ['in', ['get', 'kind'], ['literal', ['ride', 'route']]], paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.9 } },
+    // Every line over a white casing, so it reads over any hexagon; the walks' is narrower, as they are.
+    { id: 'trip-casing', filter: ['in', ['get', 'kind'], ['literal', ['walk', 'ride', 'route']]], paint: { 'line-color': '#ffffff', 'line-width': ['match', ['get', 'kind'], 'walk', 6, 8], 'line-opacity': 0.9 } },
     { id: 'trip-walk', filter: ['==', ['get', 'kind'], 'walk'], paint: { 'line-color': TRIP_LINE.walk, 'line-width': 2.5, 'line-dasharray': [1.2, 1.6] } },
     { id: 'trip-ride', filter: ['==', ['get', 'kind'], 'ride'], paint: { 'line-color': TRIP_LINE.ride, 'line-width': 4 } },
     { id: 'trip-route', filter: known, paint: { 'line-color': ['match', ['get', 'status'], 1, TRIP_LINE.status[1], TRIP_LINE.status[0]], 'line-width': 4.5 } },
@@ -443,6 +438,12 @@ function topOf(i) {
   const ring = cells.features[i]?.geometry.coordinates[0];
   if (!ring) return null;
   return ring.reduce((a, b) => (b[1] > a[1] ? b : a));
+}
+
+/** Fade TEAM's hexagons while a trip's lines are drawn over them, so the trip reads first. */
+export function fadeCells(map, on) {
+  if (!map.getLayer('cells-fill')) return;
+  map.setPaintProperty('cells-fill', 'fill-opacity', on ? CELL_OPACITY.trip : CELL_OPACITY.usual);
 }
 
 /** Draw a trip: the destination ring, the labels over both rings, and the lines and stops of `drawing`

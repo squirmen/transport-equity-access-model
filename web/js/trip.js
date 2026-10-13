@@ -7,8 +7,8 @@
 
 import { fold } from './fold.js';
 import { el, metres } from './format.js';
-import { PROFILES, profileOf, variantOf } from './mate.js';
-import { REACH } from './palette.js';
+import { PROFILES, profileOf, profileSum, variantOf, withUnit } from './mate.js';
+import { REACH, TRIP_LINE } from './palette.js';
 import { PT_PROFILES, WINDOWS } from './trip_data.js';
 
 // Every variant MATE's graph routes: the profiles, and the two after dark.
@@ -146,35 +146,58 @@ export function stopLabel(stop) {
   return stop.code ? `${stop.name} (${stop.code})` : stop.name;
 }
 
-const whole = (x) => Math.round(x);
+/** Whole minutes for parts that add up to `total`: each part rounded down, then the minutes left over go to the
+ *  parts with the largest remainders (the largest remainder method). So a trip's steps add up to its total. */
+export function wholeParts(values, total) {
+  const floors = values.map((v) => Math.floor(Math.max(0, v)));
+  let left = total - floors.reduce((a, b) => a + b, 0);
+  const order = values.map((v, k) => k).sort((a, b) => (values[b] - floors[b]) - (values[a] - floors[a]) || values[b] - values[a] || a - b);
+  for (const k of order) {
+    if (left <= 0) break;
+    floors[k] += 1;
+    left -= 1;
+  }
+  // A total below the parts rounded down (not met with R5's figures): take from the smallest remainders.
+  for (const k of [...order].reverse()) {
+    if (left >= 0) break;
+    if (floors[k] > 0) {
+      floors[k] -= 1;
+      left += 1;
+    }
+  }
+  return floors;
+}
 
-/** The walker's public transport trip as a bar and three steps (trip_data.js ptTrip, a ride). */
+/** The walker's public transport trip as a bar and three steps (trip_data.js ptTrip, a ride). Every figure is a
+ *  whole minute, and the bar's parts and the three steps all add up to the total in the title. */
 export function tripSteps(trip) {
   if (!trip || trip.kind !== 'ride') return null;
+  const total = Math.round(trip.total);
+  const [access, wait, ride, transfer, egress] = wholeParts([trip.access, trip.wait, trip.ride, trip.transfer, trip.egress], total);
   const parts = [
-    { kind: 'walk', minutes: trip.access, label: String(whole(trip.access)) },
-    { kind: 'wait', minutes: trip.wait, label: `wait ${whole(trip.wait)}` },
-    { kind: 'ride', minutes: trip.ride, label: `ride ${whole(trip.ride)}` },
-    { kind: 'change', minutes: trip.transfer, label: String(whole(trip.transfer)) },
-    { kind: 'walk', minutes: trip.egress, label: String(whole(trip.egress)) },
+    { kind: 'walk', minutes: trip.access, label: String(access) },
+    { kind: 'wait', minutes: trip.wait, label: `wait ${wait}` },
+    { kind: 'ride', minutes: trip.ride, label: `ride ${ride}` },
+    { kind: 'change', minutes: trip.transfer, label: String(transfer) },
+    { kind: 'walk', minutes: trip.egress, label: String(egress) },
   ].filter((p) => p.minutes > 0);
   const sum = parts.reduce((s, p) => s + p.minutes, 0) || 1;
   for (const p of parts) p.share = p.minutes / sum;
   let change = '';
   if (trip.rides > 1) {
-    change = trip.transfer >= 0.5 ? `, with ${whole(trip.transfer)} min walking between stops` : ', changing at the same stop';
+    change = transfer >= 1 ? `, with ${transfer} min walking between stops` : ', changing at the same stop';
   }
   const names = trip.routes.map((r) => r.name);
   return {
-    total: whole(trip.total),
+    total,
     parts,
     steps: [
-      { minutes: whole(trip.access), text: `Walk to ${stopLabel(trip.board)}` },
-      { minutes: whole(trip.between), routes: names, text: `${change}: ${whole(trip.wait)} min waiting, ${whole(trip.ride)} on board` },
-      { minutes: whole(trip.egress), text: `Walk from ${stopLabel(trip.alight)}` },
+      { minutes: access, text: `Walk to ${stopLabel(trip.board)}` },
+      { minutes: wait + ride + transfer, routes: names, text: `${change}: ${wait} min waiting, ${ride} on board` },
+      { minutes: egress, text: `Walk from ${stopLabel(trip.alight)}` },
     ],
-    aria: `Walk ${whole(trip.access)} min, wait ${whole(trip.wait)} min, ride ${whole(trip.ride)} min`
-      + `${trip.transfer >= 0.5 ? `, walk between stops ${whole(trip.transfer)} min` : ''}, walk ${whole(trip.egress)} min`,
+    aria: `Walk ${access} min, wait ${wait} min, ride ${ride} min`
+      + `${transfer >= 1 ? `, walk between stops ${transfer} min` : ''}, walk ${egress} min`,
   };
 }
 
@@ -201,11 +224,11 @@ export function mileRows(swap, chosen) {
   }));
 }
 
-/** The fold's summary: the chosen profile's whole trip. */
+/** The fold's summary: the chosen profile's whole trip, in minutes. */
 export function mileSummary(swap, chosen) {
-  if (!PT_PROFILES.includes(chosen)) return `${profileOf(chosen).tag}: not worked out`;
+  if (!PT_PROFILES.includes(chosen)) return profileSum(chosen, 'not worked out');
   const row = mileRows(swap, chosen).find((r) => r.chosen);
-  return row ? `${profileOf(chosen).tag} ${row.trip}` : null;
+  return row ? profileSum(chosen, row.trip, 'min') : null;
 }
 
 /** A route's minutes on MATE's map as a range: "12", "12, or 15", "12, or over 45", "over 45", or "–" when no
@@ -236,6 +259,31 @@ function plural(n, one, many) {
 export function routeFor(routes, profile, dark = false, view = 'nkb') {
   const r = routes?.[variantOf(profile, dark)];
   return r ? r[view === 'cautious' ? 'cautious' : 'nkb'] || null : null;
+}
+
+/** What the On foot fold says of the profile chosen (a footRows row) and its route (routeFor's, in the view the map
+ *  is on): the range first, as for every profile figure, then which of its two routes is drawn. { hero, note,
+ *  drawn }. names: the two ends' names. */
+export function routeText(row, route, view, names) {
+  const who = `${row.short}${row.night ? ', after dark' : ''}`;
+  if (route && route.minutes != null) {
+    const shown = view === 'cautious' ? 'cautious' : 'no known barrier';
+    return { hero: `${who}: ${withUnit(row.text, 'min')}. Route shown: ${shown}, ${route.minutes} min.`, drawn: true };
+  }
+  if (route && ['origin', 'destination'].includes(route.reason)) {
+    const end = route.reason === 'origin' ? names.o : names.d;
+    return { note: `No path ${profileOf(row.key).person} can use comes within 175 m of the middle of ${end}.` };
+  }
+  if (row.text !== `over ${FOOT_LIMIT}` && row.text !== '–') {
+    // Reached with no known barrier but not when cautious, and the map is on cautious.
+    return { hero: `${who}: ${withUnit(row.text, 'min')}.`, note: `Cautious: no route within ${FOOT_LIMIT} minutes, so none is drawn.` };
+  }
+  return { note: `${row.short}: not within ${FOOT_LIMIT} minutes on MATE's footpath map.` };
+}
+
+/** The On foot fold's summary: the profile chosen, in full, and its minutes. */
+export function footSummary(row) {
+  return profileSum(row.key, row.text === '–' ? 'no path near one end' : row.text, 'min');
 }
 
 /** What a route passes, for the profile it was worked out for: lines of text. */
@@ -330,6 +378,43 @@ export function tripDrawing({ start, end, trip = null, shape = null, route = nul
   }
   if (show.foot && route) lines.push(...routeFeatures(route, start, end));
   return { lines, stops, label };
+}
+
+/** Whose route on foot is drawn: "a manual wheelchair user, after dark, cautious". */
+export function routeWho(profile, dark = false, view = 'nkb') {
+  const p = profileOf(profile);
+  const night = dark && variantOf(p.key, true) !== p.key ? ', after dark' : '';
+  return `${p.person}${night}${view === 'cautious' ? ', cautious' : ''}`;
+}
+
+/** What a trip draws, for the key and a phone's strip: the ride with its stops and walks, and the route on foot,
+ *  each a group of { swatch, colour, label }. pt and foot: what is drawn; straight: the ride is drawn straight
+ *  between its stops. */
+export function tripLegend({ pt = false, foot = false, straight = false, profile = null, dark = false, view = 'nkb' }) {
+  const groups = [];
+  if (pt) {
+    groups.push({
+      key: 'pt',
+      title: null,
+      items: [
+        { swatch: 'stop', colour: TRIP_LINE.ride, label: 'Boards at A, leaves at B' },
+        { swatch: 'line', colour: TRIP_LINE.ride, label: straight ? 'Bus, train or ferry, drawn straight' : 'Bus, train or ferry' },
+        { swatch: 'dash', colour: TRIP_LINE.walk, label: 'Walk' },
+      ],
+    });
+  }
+  if (foot) {
+    groups.push({
+      key: 'foot',
+      title: `Route for ${routeWho(profile, dark, view)}:`,
+      items: [
+        { swatch: 'line', colour: TRIP_LINE.status[0], label: 'No known barrier' },
+        { swatch: 'line', colour: TRIP_LINE.status[1], label: 'Harder' },
+        { swatch: 'dash', colour: TRIP_LINE.status[2], label: 'Not known' },
+      ],
+    });
+  }
+  return groups;
 }
 
 // ---------------------------------------------------------------- the Trip tab
@@ -533,7 +618,7 @@ function mileFold(ctx) {
     return p;
   }) : [note('Loading MATE…')];
   ends.push(note('The footpath in each end\'s hexagon for the profile chosen, by day: the share of it with no known barrier, harder, not known and a barrier.'));
-  body.push(fold(`${key}-ends`, 'What is in the way at each end', chosen.tag, ends));
+  body.push(fold(`${key}-ends`, 'What is in the way at each end', chosen.short.toLowerCase(), ends));
   return fold(key, title, mileSummary(swap, ctx.profile), body);
 }
 
@@ -578,20 +663,15 @@ function footFold(ctx) {
   body.push(label);
   const chosen = rows.find((r) => r.chosen) || rows[0];
   const route = routeFor(ctx.routes, chosen.key, ctx.dark, ctx.view);
-  const viewWord = ctx.view === 'cautious' ? ', cautious' : '';
-  if (route && route.minutes != null) {
-    body.push(el('p', 'mate-hero', `${chosen.short}${chosen.night ? ', after dark' : ''}${viewWord}: ${route.minutes} min.`));
+  const said = routeText(chosen, route, ctx.view, ctx.names);
+  if (said.hero) body.push(el('p', 'mate-hero', said.hero));
+  if (said.drawn) {
     body.push(...routeWay(route).map((line) => el('p', 'mate-line', line)));
     body.push(note('No known barrier: nothing recorded says otherwise. Each route starts and ends at the hexagon\'s centre, joined by a straight line to the nearest path.'));
     body.push(toggle('trip-show-foot', 'Route on the map', ctx.show.foot, (on) => ctx.onShow('foot', on)));
-  } else if (route && ['origin', 'destination'].includes(route.reason)) {
-    const end = route.reason === 'origin' ? ctx.names.o : ctx.names.d;
-    body.push(note(`No path a ${chosen.short.toLowerCase()} can use comes within 175 m of the middle of ${end}.`));
-  } else {
-    body.push(note(`${chosen.short}: not within ${FOOT_LIMIT} minutes on MATE's footpath map.`));
   }
-  const summary = `${profileOf(chosen.key).tag} ${chosen.text}`;
-  return fold(key, title, summary, body);
+  if (said.note) body.push(note(said.note));
+  return fold(key, title, footSummary(chosen), body);
 }
 
 /** The Trip tab. ctx: status ('loading', 'unavailable' or 'ready'), names {o, d}, window, windows (TEAM's window
@@ -617,7 +697,10 @@ export function renderTrip(root, ctx) {
   parts.push(...ptBlock(ctx));
   const folds = el('div', 'folds');
   folds.append(...[footFold(ctx), mileFold(ctx)].filter(Boolean));
-  if (folds.childElementCount) parts.push(folds);
+  if (folds.childElementCount) {
+    parts.push(note('Profiles below are on MATE\'s footpath map, so walking can differ from TEAM\'s by a minute or two.'));
+    parts.push(folds);
+  }
   root.replaceChildren(...parts);
 }
 

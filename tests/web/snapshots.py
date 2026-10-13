@@ -25,6 +25,34 @@ def settle(page: Page, ms: int = 700) -> None:
     page.wait_for_timeout(ms)
 
 
+def settings_count(page: Page) -> int:
+    """The number on the Settings button, 0 when it is hidden."""
+    return page.evaluate("() => { const c = document.getElementById('settings-count'); return c.hidden ? 0 : Number(c.textContent); }")
+
+
+def check_settings_count(page: Page, url: str, problems: list[str]) -> None:
+    """The count is of settings that differ from the defaults. Every link and reload spells out t= (and h= once
+    a time is picked), so a reload, or a link with the defaults in it, must show no count."""
+    base = url.split("#")[0]
+    for label, address, want in (
+        ("fresh", base, 0),
+        ("defaults spelt out", f"{base}#s=gp&v=access&m=best&t=20&h=interpeak", 0),
+        ("standard changed", f"{base}#s=gp&v=access&m=best&t=30", 1),
+    ):
+        page.goto("about:blank")
+        page.goto(address)
+        ready(page)
+        got = settings_count(page)
+        page.reload()
+        ready(page)
+        again = settings_count(page)
+        if got != want or again != want:
+            problems.append(f"desktop: Settings count for {label} is {got}, then {again} after a reload; want {want}")
+    page.goto("about:blank")
+    page.goto(url)
+    ready(page)
+
+
 def desktop(page: Page, out: Path) -> None:
     page.screenshot(path=out / "desktop-1-access-gp.png")
     page.click("#tab-people")
@@ -116,6 +144,8 @@ def main() -> int:
             page.on("pageerror", lambda err, n=name: problems.append(f"{n}: page error: {err}"))
             page.goto(args.url)
             ready(page)
+            if name == "desktop":
+                check_settings_count(page, args.url, problems)
             script(page, out)
             problems.extend(f"{name}: not found: {url}" for url in missing)
             context.close()

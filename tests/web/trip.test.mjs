@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
 import {
-  distanceText, footRows, footSpan, FOOT_VARIANTS, kmBetween, mileRows, mileSummary, modeRows, ptCells, reachClasses,
-  reachKey, reachOf, reachText, rideShape, routeFeatures, routeFor, routeWay, sliceLine, span, stopLabel, tripDrawing,
-  tripMode, tripSentence, tripSteps, tripWindowOf,
+  distanceText, footRows, footSpan, footSummary, FOOT_VARIANTS, kmBetween, mileRows, mileSummary, modeRows, ptCells,
+  reachClasses, reachKey, reachOf, reachText, rideShape, routeFeatures, routeFor, routeText, routeWay, routeWho, sliceLine, span,
+  stopLabel, tripDrawing, tripLegend, tripMode, tripSentence, tripSteps, tripWindowOf, wholeParts,
 } from '../../web/js/trip.js';
+import { STATUS } from '../../web/js/mate.js';
+import { TRIP_LINE } from '../../web/js/palette.js';
 import { legSwap, originTimes, pairTimes, ptTrip, tripStore } from '../../web/js/trip_data.js';
 
 // The trip tab's figures, worked out from the real Auckland files cut down by tests/fixtures/make_trip_fixture.py
@@ -114,13 +116,19 @@ test('the typical trip adds up, names its stops and routes, and says how the cha
   const trip = await ptTrip(s, buses.o, buses.d, 'interpeak');
   const steps = tripSteps(trip);
   const want = buses.pt.interpeak;
+  // 1.7 + 6.8 + 14.8 + 2.5 + 2.7 = 28.5 minutes, so 29 in the title.
   assert.equal(steps.total, Math.round(want.access + want.wait + want.ride + want.transfer + want.egress));
+  assert.equal(steps.total, 29);
   assert.deepEqual(steps.parts.map((p) => p.kind), ['walk', 'wait', 'ride', 'change', 'walk']);
   assert.ok(Math.abs(steps.parts.reduce((t, p) => t + p.share, 0) - 1) < 1e-9);
   assert.equal(steps.steps[0].text, `Walk to ${want.board_name}${trip.board.code ? ` (${trip.board.code})` : ''}`);
   assert.deepEqual(steps.steps[1].routes, ['20', 'CTY']);
-  assert.match(steps.steps[1].text, /^, with 3 min walking between stops: 7 min waiting, 15 on board$/);
-  assert.equal(steps.steps[1].minutes, Math.round(want.between));
+  // The middle step is the wait, the rides and the change as shown, so the three steps add up to the title.
+  assert.match(steps.steps[1].text, /^, with 2 min walking between stops: 7 min waiting, 15 on board$/);
+  assert.equal(steps.steps[1].minutes, 7 + 15 + 2);
+  assert.deepEqual(steps.steps.map((x) => x.minutes), [2, 24, 3]);
+  assert.deepEqual(steps.parts.map((p) => p.label), ['2', 'wait 7', 'ride 15', '2', '3']);
+  assert.equal(steps.aria, 'Walk 2 min, wait 7 min, ride 15 min, walk between stops 2 min, walk 3 min');
   assert.match(steps.steps[2].text, /^Walk from Te Komititanga/);
 
   const ferry = pair('Devonport to Britomart');
@@ -130,6 +138,35 @@ test('the typical trip adds up, names its stops and routes, and says how the cha
 
   const walked = pair('Newmarket to the next cell');
   assert.equal(tripSteps(await ptTrip(s, walked.o, walked.d, 'interpeak')), null);
+});
+
+test('whole minutes for a trip\'s parts add up to its total, whatever the remainders', () => {
+  // The review's example: 2.5, then 5.8 + 14.7 + 17.4, then 3.8, is 44.2 minutes. Rounded one by one the steps
+  // were 3, 38 and 4, which make 45.
+  const parts = wholeParts([2.5, 5.8, 14.7, 17.4, 3.8], 44);
+  assert.deepEqual(parts, [2, 6, 15, 17, 4]);
+  const trip = { kind: 'ride', rides: 1, access: 2.5, wait: 5.8, ride: 14.7, transfer: 17.4, egress: 3.8, total: 44.2, between: 37.9,
+    board: { name: 'A' }, alight: { name: 'B' }, routes: [{ name: '1' }] };
+  const steps = tripSteps(trip);
+  assert.deepEqual(steps.steps.map((x) => x.minutes), [2, 38, 4]);
+  assert.equal(steps.total, 44);
+  // Many trips: the steps, and the bar's labels, always make the title's total.
+  let seed = 7;
+  const rand = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647;
+  };
+  const tenth = (x) => Math.round(x * 10) / 10;
+  for (let k = 0; k < 2000; k += 1) {
+    const t = { kind: 'ride', rides: rand() < 0.3 ? 2 : 1, access: tenth(rand() * 15), wait: tenth(rand() * 20), ride: tenth(1 + rand() * 40),
+      transfer: rand() < 0.5 ? 0 : tenth(rand() * 6), egress: tenth(rand() * 15), board: { name: 'A' }, alight: { name: 'B' }, routes: [{ name: '1' }] };
+    t.total = tenth(t.access + t.wait + t.ride + t.transfer + t.egress);
+    const got = tripSteps(t);
+    assert.equal(got.steps.reduce((a, x) => a + x.minutes, 0), got.total, JSON.stringify(t));
+    const shown = wholeParts([t.access, t.wait, t.ride, t.transfer, t.egress], got.total);
+    assert.equal(shown.reduce((a, b) => a + b, 0), got.total);
+    assert.ok(shown.every((m, j) => Math.abs(m - [t.access, t.wait, t.ride, t.transfer, t.egress][j]) < 1), 'each part moves by less than a minute');
+  }
 });
 
 // ---------------------------------------------------------------- first and last mile
@@ -153,9 +190,13 @@ test('first and last mile: each profile as a range, and none where a walk is not
   assert.equal(chair.from, 'none');
   assert.equal(chair.trip, 'none');
   assert.equal(chair.chosen, true);
-  assert.equal(mileSummary(swap, 'manual_wheelchair'), 'wheelchair none');
-  assert.equal(mileSummary(swap, 'walk'), `walking ${rows[0].trip}`);
-  assert.equal(mileSummary(swap, 'cargo_bike'), 'cargo bike: not worked out');
+  // The fold's summary names the profile in full and gives the unit.
+  const plain = (text) => text.replace(/\u00a0/g, ' ');
+  assert.equal(plain(mileSummary(swap, 'manual_wheelchair')), 'manual wheelchair: none');
+  assert.equal(plain(mileSummary(swap, 'walk')), `walking: ${rows[0].trip} min`);
+  assert.equal(plain(mileSummary(swap, 'cargo_bike')), 'cargo bike: not worked out');
+  const older = rows.find((r) => r.key === 'older_walker');
+  assert.match(plain(mileSummary(swap, 'older_walker')), new RegExp(`^older walker: ${older.trip.replace(/\d+$/, '')}\\d+ min$`));
 });
 
 // ---------------------------------------------------------------- the map while picking
@@ -215,6 +256,71 @@ test('each profile on foot, after dark for the two profiles that have it', () =>
   assert.equal(night.find((r) => r.key === 'manual_wheelchair').variant, 'manual_wheelchair');
   assert.equal(routeFor(routes, 'child', true, 'cautious'), routes.child_night.cautious);
   assert.equal(routeFor(routes, 'child', false, 'known'), routes.child.nkb, 'the map draws no known barrier unless cautious');
+});
+
+test('the route line gives the range, then which route is drawn', () => {
+  const names = { o: 'Devonport', d: 'Stanley Point' };
+  const routes = { manual_wheelchair: { nkb: made(35), cautious: made(40) } };
+  const [row] = footRows(routes, { chosen: 'manual_wheelchair' }).filter((r) => r.chosen);
+  assert.equal(row.text, '35, or 40');
+  // The review: the line said only "Manual wheelchair: 35 min." and dropped the cautious figure.
+  assert.deepEqual(routeText(row, routeFor(routes, 'manual_wheelchair'), 'nkb', names),
+    { hero: 'Manual wheelchair: 35, or 40 min. Route shown: no known barrier, 35 min.', drawn: true });
+  assert.equal(routeText(row, routeFor(routes, 'manual_wheelchair', false, 'cautious'), 'cautious', names).hero,
+    'Manual wheelchair: 35, or 40 min. Route shown: cautious, 40 min.');
+  assert.equal(footSummary(row).replace(/\u00a0/g, ' '), 'manual wheelchair: 35, or 40 min');
+  // Reached with no known barrier only, with the map on cautious: the range, and nothing drawn.
+  const partly = { pram: { nkb: made(41), cautious: made(null) } };
+  const [pram] = footRows(partly, { chosen: 'pram' }).filter((r) => r.chosen);
+  assert.deepEqual(routeText(pram, routeFor(partly, 'pram', false, 'cautious'), 'cautious', names),
+    { hero: 'Pram or buggy: 41, or over 45 min.', note: 'Cautious: no route within 45 minutes, so none is drawn.' });
+  assert.equal(footSummary(pram).replace(/\u00a0/g, ' '), 'pram or buggy: 41, or over 45 min');
+  const far = { walk: { nkb: made(null), cautious: made(null) } };
+  const [walk] = footRows(far, { chosen: 'walk' }).filter((r) => r.chosen);
+  assert.deepEqual(routeText(walk, routeFor(far, 'walk'), 'nkb', names), { note: 'Walking: not within 45 minutes on MATE\'s footpath map.' });
+  assert.equal(footSummary(walk).replace(/\u00a0/g, ' '), 'walking: over 45 min');
+});
+
+test('no path near one end reads as a sentence for every profile', () => {
+  const names = { o: 'Devonport', d: 'Stanley Point' };
+  const cut = (reason) => ({ minutes: null, reason });
+  const want = {
+    walk: 'someone walking',
+    older_walker: 'an older walker',
+    manual_wheelchair: 'a manual wheelchair user',
+    powered_chair_scooter: 'a powered chair or scooter user',
+    pram: 'someone with a pram or buggy',
+    child: 'a child on their own',
+    cargo_bike: 'someone on a cargo bike',
+  };
+  for (const [key, person] of Object.entries(want)) {
+    const routes = { [key]: { nkb: cut('origin'), cautious: cut('origin') } };
+    const [row] = footRows(routes, { chosen: key }).filter((r) => r.chosen);
+    assert.equal(row.text, '–');
+    assert.deepEqual(routeText(row, routeFor(routes, key), 'nkb', names),
+      { note: `No path ${person} can use comes within 175 m of the middle of Devonport.` });
+    assert.match(footSummary(row).replace(/\u00a0/g, ' '), /: no path near one end$/);
+  }
+  const routes = { older_walker_night: { nkb: cut('destination'), cautious: cut('destination') } };
+  const [row] = footRows(routes, { chosen: 'older_walker', dark: true }).filter((r) => r.chosen);
+  assert.equal(routeText(row, routeFor(routes, 'older_walker', true), 'nkb', names).note,
+    'No path an older walker can use comes within 175 m of the middle of Stanley Point.');
+});
+
+test('the key for a trip: the ride and its walks, and whose route on foot, in the map\'s colours', () => {
+  assert.deepEqual(tripLegend({}), []);
+  const both = tripLegend({ pt: true, foot: true, straight: true, profile: 'older_walker', dark: true, view: 'cautious' });
+  assert.deepEqual(both.map((g) => g.key), ['pt', 'foot']);
+  assert.deepEqual(both[0].items.map((x) => x.label), ['Boards at A, leaves at B', 'Bus, train or ferry, drawn straight', 'Walk']);
+  assert.equal(both[1].title, 'Route for an older walker, after dark, cautious:');
+  assert.deepEqual(both[1].items.map((x) => x.label), ['No known barrier', 'Harder', 'Not known']);
+  // The colours are the ones the map draws with (palette.js TRIP_LINE) and MATE's for each status.
+  assert.deepEqual(both[1].items.map((x) => x.colour), TRIP_LINE.status);
+  assert.deepEqual(TRIP_LINE.status, STATUS.slice(0, 3).map((x) => x.colour));
+  assert.deepEqual(both[0].items.map((x) => x.colour), [TRIP_LINE.ride, TRIP_LINE.ride, TRIP_LINE.walk]);
+  assert.equal(tripLegend({ pt: true }).at(0).items[1].label, 'Bus, train or ferry');
+  assert.equal(routeWho('manual_wheelchair', true), 'a manual wheelchair user', 'after dark changes only the older walker and the child');
+  assert.equal(routeWho('child', true), 'a child on their own, after dark');
 });
 
 test('what a route passes, in plain lines', () => {

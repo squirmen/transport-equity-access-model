@@ -17,14 +17,16 @@ export const PLACES = ['auckland'];
 // The profiles in MATE's order, with a short name for the table and the group
 // of residents each most nearly describes. The cargo bike has none.
 // `tag` names a profile in a fold's summary line.
+// `short` names a profile in tables and pickers; `person` is who it is in a
+// sentence ("No path a manual wheelchair user can use…").
 export const PROFILES = [
-  { key: 'walk', short: 'Walking', tag: 'walking' },
-  { key: 'older_walker', short: 'Older walker', tag: 'older walker', night: 'older_walker_night', group: 'older' },
-  { key: 'manual_wheelchair', short: 'Manual wheelchair', tag: 'wheelchair', group: 'disabled' },
-  { key: 'powered_chair_scooter', short: 'Powered chair or scooter', tag: 'scooter', group: 'disabled' },
-  { key: 'pram', short: 'Pram or buggy', tag: 'pram', group: 'under5' },
-  { key: 'child', short: 'Child on their own', tag: 'child', night: 'child_night', group: 'kids' },
-  { key: 'cargo_bike', short: 'Cargo bike', tag: 'cargo bike' },
+  { key: 'walk', short: 'Walking', person: 'someone walking' },
+  { key: 'older_walker', short: 'Older walker', person: 'an older walker', night: 'older_walker_night', group: 'older' },
+  { key: 'manual_wheelchair', short: 'Manual wheelchair', person: 'a manual wheelchair user', group: 'disabled' },
+  { key: 'powered_chair_scooter', short: 'Powered chair or scooter', person: 'a powered chair or scooter user', group: 'disabled' },
+  { key: 'pram', short: 'Pram or buggy', person: 'someone with a pram or buggy', group: 'under5' },
+  { key: 'child', short: 'Child on their own', person: 'a child on their own', night: 'child_night', group: 'kids' },
+  { key: 'cargo_bike', short: 'Cargo bike', person: 'someone on a cargo bike' },
 ];
 export const DEFAULT_PROFILE = 'manual_wheelchair';
 const GROUP_LABEL = { older: '65+', kids: 'under 15', under5: 'under 5', disabled: 'disabled' };
@@ -80,6 +82,19 @@ export function mateHash(mate) {
 }
 
 /** "13, or 10": the no-known-barrier figure, then the cautious one when it differs. */
+/** A fold's summary for the profile chosen, with its unit: "manual wheelchair: 10, or 6 hexagons",
+ *  "older walker: 34 min, or none". The figure never breaks across lines; the name can. */
+export function profileSum(key, text, unit = '') {
+  return `${profileOf(key).short.toLowerCase()}: ${withUnit(text, unit).replace(/ /g, '\u00a0')}`;
+}
+
+/** A figure or range with its unit after the last number: "10, or 6 hexagons", "34 min, or none", "over 45 min". */
+export function withUnit(text, unit) {
+  if (!unit || !/\d/.test(text)) return text;
+  const u = text === '1' ? unit.replace(/s$/, '') : unit;
+  return /\d$/.test(text) ? `${text} ${u}` : text.replace(/(\d)(, or none)$/, `$1 ${u}$2`);
+}
+
 export function range(top, bottom, unit = '') {
   if (top == null) return '–';
   const a = `${top}${unit}`;
@@ -522,7 +537,7 @@ export function section(ctx) {
         + (bottom !== top ? `, or ${bottom} ${CAUTIOUS}` : '')
         + (chosen.key !== 'walk' ? `. Walking: ${range(walk.reach.nkb, walk.reach.cautious)}.` : '.')));
     parts.push(hero);
-    summary = `${profileOf(chosen.key).tag} ${range(top, bottom)}`;
+    summary = profileSum(chosen.key, range(top, bottom), 'hexagons');
   }
   if (f.km != null) {
     const { bar, words } = statusBar(f.shares);
@@ -617,7 +632,7 @@ export function section(ctx) {
       });
       body.push(table('mate-transit', ['Profile and nearest stop', 'Reach', 'Jobs'], rows, 'Each profile by public transport'));
       const mine = t.rows.find((r) => r.key === chosen.key);
-      if (mine && mine.cells.nkb != null) transitSum = `${profileOf(chosen.key).tag} ${range(mine.cells.nkb, mine.cells.cautious)}`;
+      if (mine && mine.cells.nkb != null) transitSum = profileSum(chosen.key, range(mine.cells.nkb, mine.cells.cautious), 'hexagons');
       if (mine && mine.services.nkb != null) {
         const have = servicesIn(mine.services.nkb, t.services);
         // Lower case inside a sentence, but not an initialism like GP.

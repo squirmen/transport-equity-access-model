@@ -122,6 +122,14 @@ export const REACH = ['#184f95', '#3987e5', '#9ec5f4', '#dbe8f8'];
 // A trip's two ends on the map: From in navy, To in teal, each over a white halo.
 export const TRIP_ENDS = { from: '#0c0c48', to: '#1f6178' };
 
+// The lines a trip draws, each over a white casing: the walks to and from the
+// stops dashed in slate, the ride in navy, and a route on foot in MATE's
+// colours for no known barrier, harder and not known (mate.js STATUS).
+export const TRIP_LINE = { walk: '#55646c', ride: '#0c0c48', status: ['#3b7fb6', '#e8890c', '#8a938d'] };
+// TEAM's hexagons under a trip that is drawn, faded so the trip reads first.
+// Without a trip they are filled at 0.84.
+export const CELL_OPACITY = { usual: 0.84, trip: 0.35 };
+
 // Which way a measure leans with deprivation: towards the fair way (blue) or
 // the unfair way (dark red), as MATE pairs them.
 export const LEAN = { toward: '#3b7fb6', away: '#a8172b' };

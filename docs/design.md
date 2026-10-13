@@ -23,14 +23,18 @@ Settings (who is counted, when, the standard, the jobs window, fares and the
 traveller) and Layers (grouped, with captions and the basemap) are drawers
 under the tab's body. One opens at a time; while one is open the tab's body
 and the key fold away. Each drawer's button says what is set, so folding
-them hides nothing; Settings counts what differs from the defaults and Layers
-counts the layers on.
+them hides nothing; Settings counts what differs from the build's defaults
+for what is on screen (a link or a reload that spells the defaults out counts
+nothing) and Layers counts the layers on.
 
 The key is the only key. It names the view, holds its scale (with the
 standard marked), the toggles that belong to the view (the reasons on What
 would help, Only where they miss the standard and Rest homes and villages on
-Where they live), the layers that are on, and MATE's catchment when one is
-drawn. The panel scrolls before the key gives way.
+Where they live), the layers that are on, MATE's catchment when one is drawn,
+and what a trip draws on its Trip tab. The panel keeps room down to the end of
+its headline (the figure and its sentence); the key takes what is left, up to
+46% of the column, and scrolls inside that. So a long key never hides the
+headline on a laptop screen (checked at 1280 × 720 to 1536 × 864).
 
 The area in the headline is a button: it opens the list of areas the figures
 can be for (the whole place, the areas under the middle of the map, and the
@@ -82,6 +86,16 @@ ramp differs from the next by 9 or more.
 | Which way a measure leans | two dots | fair way blue `#3b7fb6`, unfair way dark red `#a8172b` |
 | Where a trip's origin gets (while picking) | sequential | `#184f95` `#3987e5` `#9ec5f4` `#dbe8f8` for 10, 20, 30 and 45 minutes |
 | A trip's two ends | two rings | From navy `#0c0c48`, To teal `#1f6178`, each over a white halo and labelled |
+| What a trip draws | lines over a white casing | walks dashed slate `#55646c`, the ride navy `#0c0c48`, a route on foot in MATE's no known barrier `#3b7fb6`, harder `#e8890c` and not known `#8a938d` (dashed) |
+
+While a trip's lines are drawn, TEAM's hexagons under them are filled at 0.35
+rather than 0.84, and the key's scale is faded to match. The route on foot
+uses MATE's blue and orange, which mean something else on TEAM's minutes map;
+faded, the hexagons step back and the lines read first, and every line has a
+white casing. Over the darkest blue hexagons the walk dash goes from 1.06:1 to
+2.8:1 and the route's blue from 1.35:1 to 2.0:1 (WCAG ratio, before the
+casing); against its casing the walk is 6.1:1, the route's blue 4.3:1 and its
+orange 2.6:1.
 
 The 13 October audit found three palettes that failed: the fare ramp ran
 green to red (lime and yellow 8.7 apart for protanopia), the reasons' green
@@ -175,25 +189,38 @@ the first time a trip is planned.
 - **The card.** The header becomes the trip (how far in a straight line, from
   and to, the time window) with Swap and Close. Close ends the trip and goes
   back to the From card. Three tabs: From and To are each end's own card,
-  with MATE's section; Trip is the trip. The map shows TEAM's view under the
-  trip on the Trip tab, and MATE's catchment for that end on From and To.
+  with MATE's section; Trip is the trip. Both ends stay ringed and named on
+  the map on every tab. The trip's lines and stops are drawn on the Trip tab
+  only, over TEAM's view faded; From and To show MATE's catchment for that
+  end, with no trip lines.
 - **The Trip tab.** Walking, low-stress cycling and any-street cycling
   (comparison) from TEAM's pairs, kept to 20 minutes; public transport in all
   three windows, kept to 45, the one shown in bold (each is a button that
   changes When). Then the walker's trip in that window: a bar to scale (walks
   grey, waiting hatched, rides navy), the walk to the first stop, the rides
   with their route numbers, the walk from the last stop, and how often that
-  path was used. Rides drawn on the map follow the line's shape where the map
+  path was used. The minutes are rounded by the largest remainder, so the bar,
+  the three steps and the total in the title always add up. Rides drawn on the map follow the line's shape where the map
   draws it, and otherwise go straight from stop to stop.
 - **First and last mile, by profile** (an estimate): the walker's trip with
   each profile's own walk to and from the same stops on MATE's footpath map,
-  each as a range ("3, or 4"; "none" where the walk is over 15 minutes).
+  each as a range ("3, or 4"; "none" where the walk is over 15 minutes). A
+  line above the profiles says they are on MATE's footpath map, so their
+  walking can differ from TEAM's by a minute or two.
 - **On foot, by profile** (trips up to 3 km in a straight line): each
   profile's minutes on MATE's map, routed in the page on MATE's graph tiles
   for every profile and both views, with the route for the profile chosen
   drawn on the map in MATE's status colours and what it passes in words
   (metres by status, crossings and kerbs, steps, what nobody has recorded).
-- **The key** adds the trip's rows: both ends, the stops and ride or the route
-  on foot by status, and "No known barrier: nothing recorded says otherwise."
+  Its line gives the range first, then which route is drawn ("Manual
+  wheelchair: 35, or 40 min. Route shown: no known barrier, 35 min.").
+- **Fold summaries** name the profile in full and give the unit ("manual
+  wheelchair: 10, or 6 hexagons" on From and To, "manual wheelchair: 34, or
+  35 min" on Trip).
+- **The key**, on the Trip tab, keeps TEAM's scale (faded, without its notes)
+  and adds a line for each part drawn: the stops, the ride (and whether it is
+  drawn straight) and the walks; or whose route on foot it is, with its three
+  colours. A phone's strip over the map carries the same lines. The two ends
+  need no row: each is named on the map.
 - **The address** carries the destination as `d=` beside `o=`; a link with
   both opens on the Trip tab.

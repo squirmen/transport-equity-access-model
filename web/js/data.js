@@ -198,6 +198,25 @@ export function windowOf(data, thing, wanted) {
   return windows.includes(wanted) ? wanted : windows[0] || null;
 }
 
+/** The time standard the build sets for a service, in minutes ('errands' for the errand round). */
+export function defaultStandard(data, service) {
+  const spec = service === 'errands' ? data.meta.chains : data.meta.services?.[service];
+  return spec?.standard_minutes ?? 20;
+}
+
+/** Which of When and the standard differ from the build's defaults for what is on screen, for the count on
+ *  the Settings button. `thing` is as for windowsFor; `wanted` is When as set (null for the default), and a
+ *  window `thing` was not timed in reads as its usual one, as on the map. `standard` is the minutes in use
+ *  for `service`, or null where there is no standard. A link or a reload that spells out the defaults
+ *  changes nothing. */
+export function settingsChanged(data, thing, { wanted = null, service = null, standard = null } = {}) {
+  const out = [];
+  const windows = windowsFor(data, thing);
+  if (windows.length > 1 && windowOf(data, thing, wanted) !== windows[0]) out.push('when');
+  if (service && standard != null && standard !== defaultStandard(data, service)) out.push('standard');
+  return out;
+}
+
 /** Point every public transport layer at the window asked for.
  *
  *  Everything else reads `data.t`, `data.jobs`, `data.cost` and `data.access`

@@ -295,7 +295,8 @@ input[type="range"] { width: 100%; accent-color: var(--navy); }
 
 /* ------------------------------------------------------------------ the docked key */
 
-.key { flex: 0 0 auto; display: flex; flex-direction: column; max-height: 46%; min-height: 0; }
+/* At most 46% of the column, and less where the panel needs the room to show its headline (app.js fitKey). */
+.key { flex: 0 0 auto; display: flex; flex-direction: column; max-height: min(46%, var(--key-room, 100%)); min-height: 0; }
 .k-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px 8px 14px; border: 0; background: none; text-align: left; }
 .k-title { flex: none; color: var(--navy); font-size: var(--fs-sm); font-weight: 700; }
 .k-mode { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--fs-xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
@@ -329,6 +330,12 @@ button.k-row:hover { background: var(--wash); }
 .k-check { justify-self: center; width: 14px; height: 14px; border: 1.5px solid var(--line-strong); border-radius: 3px; background: #fff; }
 .k-check.is-on { border-color: var(--navy); background: var(--navy) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/12px no-repeat; }
 .k-sub { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+/* TEAM's scale while a trip is drawn: faded, as its hexagons are on the map. */
+.scale.is-faded .scale-bar { opacity: 0.45; }
+/* What a trip draws: short items on a line, wrapping as they need. */
+.k-trip { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; margin: 0; color: var(--ink-soft); font-size: var(--fs-xs); line-height: 1.35; }
+.k-trip-title { flex: 1 0 100%; color: var(--ink); font-weight: 600; }
+.k-trip-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
 .key-swatch { flex: none; }
 .key-square { width: 14px; height: 12px; border-radius: 2px; background: var(--swatch); }
@@ -438,9 +445,6 @@ button.k-row:hover { background: var(--wash); }
 .trip-mile { table-layout: fixed; }
 .trip-mile thead th:first-child, .trip-mile .mate-name { width: 37%; }
 .trip-mile td.num { padding-left: 6px; white-space: normal; }
-/* A trip's rows in the key, two to a line, so the key stays short. */
-.k-layers.is-trip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 6px; }
-.key-hex { width: 14px; height: 14px; border: 2.5px solid var(--swatch); border-radius: 4px; background: #fff; }
 .key-stop { width: 14px; height: 14px; border: 2.5px solid var(--swatch); border-radius: 50%; background: #fff; }
 .folds { display: flex; flex-direction: column; }
 .folds > .fold:last-child { border-bottom: 1px solid var(--line); }
@@ -829,7 +833,9 @@ body[data-place="open"] .maplibregl-ctrl-top-right .maplibregl-ctrl-group { marg
   .place-head { padding-top: 2px; }
 
   /* The key as one strip over the map, above the card. */
-  .key-strip { position: absolute; left: 8px; right: 8px; bottom: calc(var(--sheet-h, 56%) + 8px); z-index: 9; display: block; padding: 7px 10px; background: rgba(255, 255, 255, 0.96); border-radius: 10px; box-shadow: var(--shadow-1); }
+  .key-strip { position: absolute; left: 8px; right: 8px; bottom: calc(var(--sheet-h, 56%) + 8px); z-index: 9; display: flex; flex-direction: column; gap: 4px; padding: 7px 10px; background: rgba(255, 255, 255, 0.96); border-radius: 10px; box-shadow: var(--shadow-1); }
+  .key-strip .k-trip { gap: 2px 10px; font-size: var(--fs-2xs); }
+  .key-strip .k-trip-title { flex: 0 1 auto; }
 
   /* Zoom by pinch; the basemap is one chip that opens to the three. */
   .maplibregl-ctrl-top-right { padding-top: max(10px, env(safe-area-inset-top)); padding-right: 10px; }

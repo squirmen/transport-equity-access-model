@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import {
   cardFigures, catchment, catchmentModel, entries, kerbs, LOST, lighting, mateHash, minutesRange, narrow, profileOf,
-  ptWindow, range, readMateHash, servicesIn, statusShares, streets, variantOf,
+  profileSum, PROFILES, ptWindow, range, readMateHash, servicesIn, statusShares, streets, variantOf, withUnit,
 } from '../../web/js/mate.js';
 import { hatchImage } from '../../web/js/map.js';
 
@@ -13,6 +13,24 @@ test('a range gives the no-known-barrier figure, then the cautious one when it d
   assert.equal(range(null, 3), '–');
   assert.equal(range(4, null), '4, or none');
   assert.equal(range(3.4, 2.1, '%'), '3.4%, or 2.1%');
+});
+
+test('a fold\'s summary names the profile in full and gives the unit', () => {
+  // The review: "wheelchair 10, or 6" counted hexagons, "wheelchair 34, or 35" minutes, and "wheelchair" was only the
+  // manual one while the powered chair read "scooter".
+  // The figure is held on one line (no-break spaces); the name can wrap.
+  assert.equal(profileSum('manual_wheelchair', range(10, 6), 'hexagons'), 'manual wheelchair: 10,\u00a0or\u00a06\u00a0hexagons');
+  const sum = (key, text, unit) => profileSum(key, text, unit).replace(/\u00a0/g, ' ');
+  assert.equal(sum('powered_chair_scooter', range(12, 12), 'hexagons'), 'powered chair or scooter: 12 hexagons');
+  assert.equal(sum('pram', range(1, 1), 'hexagons'), 'pram or buggy: 1 hexagon');
+  assert.equal(sum('older_walker', '34, or 35', 'min'), 'older walker: 34, or 35 min');
+  assert.equal(sum('child', '34, or none', 'min'), 'child on their own: 34 min, or none');
+  assert.equal(sum('walk', 'over 45', 'min'), 'walking: over 45 min');
+  assert.equal(sum('cargo_bike', 'not worked out'), 'cargo bike: not worked out');
+  assert.equal(withUnit('none', 'min'), 'none');
+  assert.equal(withUnit('–', 'hexagons'), '–');
+  // Every profile has a name for a sentence, starting in lower case.
+  for (const p of PROFILES) assert.match(p.person, /^(a|an|someone) [a-z]/, p.key);
 });
 
 test('minutes run the other way: the cautious figure is the longer one', () => {

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { costLayer, setWindow, times, tripTime, USUAL, windowOf, windowsFor } from '../../web/js/data.js';
+import { costLayer, defaultStandard, setWindow, settingsChanged, times, tripTime, USUAL, windowOf, windowsFor } from '../../web/js/data.js';
 import { concentrationIndex, shortfallLeaning } from '../../web/js/equity.js';
 import { cheapestFareClasses } from '../../web/js/fares.js';
 
@@ -123,4 +123,24 @@ test('the lean of the shortfall says where it falls', () => {
   assert.match(shortfallLeaning(index), /heavily concentrated in more deprived areas/);
   assert.match(shortfallLeaning(0.01), /spread evenly/);
   assert.equal(shortfallLeaning(NaN), null);
+});
+
+test('the Settings count is of what differs from the defaults, not of what a link spells out', () => {
+  const data = makeData();
+  data.meta.services.gp.standard_minutes = 20;
+  data.meta.services.primary_school.standard_minutes = 15;
+  assert.equal(defaultStandard(data, 'gp'), 20);
+  assert.equal(defaultStandard(data, 'errands'), 20, 'no errand round in this build: 20 minutes');
+  // A reload writes t= and h= with the defaults in them: nothing differs.
+  assert.deepEqual(settingsChanged(data, 'gp', { wanted: 'interpeak', service: 'gp', standard: 20 }), []);
+  assert.deepEqual(settingsChanged(data, 'gp', { wanted: null, service: 'gp', standard: 20 }), []);
+  assert.deepEqual(settingsChanged(data, 'gp', { wanted: 'am_peak', service: 'gp', standard: 20 }), ['when']);
+  assert.deepEqual(settingsChanged(data, 'gp', { wanted: 'interpeak', service: 'gp', standard: 30 }), ['standard']);
+  // A school has only the morning peak, so Saturday asked for elsewhere leaves it at its default.
+  assert.deepEqual(settingsChanged(data, 'primary_school', { wanted: 'saturday', service: 'primary_school', standard: 15 }), []);
+  assert.deepEqual(settingsChanged(data, 'primary_school', { wanted: null, service: 'primary_school', standard: 20 }), ['standard']);
+  // Jobs: the window counts, there is no standard.
+  assert.deepEqual(settingsChanged(data, 'jobs', { wanted: 'am_peak' }), []);
+  assert.deepEqual(settingsChanged(data, 'jobs', { wanted: 'saturday' }), ['when']);
+  assert.deepEqual(settingsChanged(data, 'score:all', { wanted: USUAL }), []);
 });

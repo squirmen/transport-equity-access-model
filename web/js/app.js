@@ -3,8 +3,8 @@
 import { renderAbout } from './about.js';
 import {
   byQuintile, decileBands, FEWEST, fetchJson, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
-  choiceWithin, reasons as reasonCodes, setUrban, setWindow, times, tripTime, USUAL, weightedMedian, weightedShare,
-  windowOf, windowsFor,
+  choiceWithin, defaultStandard, reasons as reasonCodes, settingsChanged, setUrban, setWindow, times, tripTime, USUAL,
+  weightedMedian, weightedShare, windowOf, windowsFor,
 } from './data.js';
 import {
   byGroup as shortfallByGroup, concentrationBreaks, concentrationClasses, concentrationIndex, CONCENTRATED, fgt, leaning,
@@ -17,13 +17,13 @@ import {
 } from './fares.js';
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
-  BASEMAPS, cellAtPoint, cellCollection, createMap, elementControl, fitPlace, onCells, onPoints, OVERLAYS, paintCells, select,
-  setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setTrip, showDestinationsFor,
+  BASEMAPS, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, onCells, onPoints, OVERLAYS, paintCells,
+  select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setTrip, showDestinationsFor,
 } from './map.js';
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
   FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
-  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, TRIP_ENDS, VILLAGE,
+  PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
 } from './palette.js';
 import {
   goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes,
@@ -209,8 +209,7 @@ let painted = null;
 // ---------------------------------------------------------------- state and URL
 
 function standardFor(service) {
-  const fallback = service === 'errands' ? data.meta.chains?.standard_minutes : data.meta.services[service]?.standard_minutes;
-  return state.standard[service] ?? fallback ?? 20;
+  return state.standard[service] ?? defaultStandard(data, service);
 }
 
 function readHash() {
@@ -2061,7 +2060,7 @@ function renderStandard() {
   field.hidden = jobs;
   if (jobs) return;
   const value = standardFor(state.service);
-  const fallback = state.service === 'errands' ? data.meta.chains.standard_minutes : data.meta.services[state.service].standard_minutes;
+  const fallback = defaultStandard(data, state.service);
   $('standard').value = String(value);
   $('standard-value').textContent = `within ${value} min`;
   $('standard').setAttribute('aria-valuetext', `within ${value} minutes`);
@@ -2294,14 +2293,21 @@ function renderSettings() {
     parts.push('urban areas only');
     changed += 1;
   }
+  // When and the standard count only where they differ from the build's defaults, so a link or a reload
+  // that spells the defaults out shows no count.
+  const differs = settingsChanged(data, subject(), {
+    wanted: state.when,
+    service: $('standard-field').hidden ? null : state.service,
+    standard: $('standard-field').hidden ? null : standardFor(state.service),
+  });
   if (!$('when-field').hidden) {
     const { window, spec } = tripWindow();
     parts.push(window === USUAL ? 'usual times' : (spec.label || spec.when || ''));
-    if (state.when) changed += 1;
+    if (differs.includes('when')) changed += 1;
   }
   if (!$('standard-field').hidden) {
     parts.push(`${standardFor(state.service)} min`);
-    if (state.standard[state.service] != null) changed += 1;
+    if (differs.includes('standard')) changed += 1;
   }
   if (!$('limit-field').hidden) {
     parts.push(`jobs within ${jobsChoice().limit} min`);
@@ -2361,7 +2367,14 @@ function keyNow(catchment) {
   if (MATE && mate && focus != null && !card.picking && !tripTab && MATE_PLACES.includes(CITY) && mateHasTimes(focus)) {
     out.after = [el('p', 'k-sub', tripOpen() ? `Hexagon: ${card.tab === 'to' ? 'To' : 'From'}` : 'Hexagon picked'), mate.mapSwitch(mateState, setMate, 'key-mate-map')];
   }
-  if (tripOpen()) out.trip = tripKey();
+  // On the Trip tab, what the trip draws; TEAM's hexagons are faded under it, and so is their scale here.
+  // The scale keeps its title; its notes give way to the trip's lines.
+  const legend = tripLegendNow();
+  if (legend.length) {
+    out.trip = legend;
+    out.faded = true;
+    out.notes = [];
+  }
   out.onMap = [];
   for (const [k, spec2] of Object.entries(OVERLAYS)) {
     if (!state.overlays[k] || !spec2.key) continue;
@@ -2394,7 +2407,7 @@ function swatchOf(kind, colour, hatch = false) {
 function keyContent(spec, { compact = false } = {}) {
   const nodes = [];
   if (spec.scale && spec.scale.items && spec.scale.items.length) {
-    const box = el('div', 'scale');
+    const box = el('div', `scale${spec.faded ? ' is-faded' : ''}`);
     if (compact && spec.mode) box.append(el('span', 'k-what', spec.short || spec.mode));
     const bars = el('div', 'scale-bars');
     const columns = `repeat(${spec.scale.items.length}, minmax(0, 1fr))`;
@@ -2441,16 +2454,20 @@ function keyContent(spec, { compact = false } = {}) {
   const notes = (spec.notes || []).filter(Boolean);
   for (const text of compact ? notes.slice(0, 1) : notes) nodes.push(el('p', 'note', text));
   if (spec.after) nodes.push(...spec.after);
-  // A trip: its two ends, and what is drawn between them.
-  if (spec.trip && !compact) {
-    nodes.push(el('p', 'k-sub', 'Trip'));
-    const list = el('div', 'k-rows k-layers is-trip');
-    for (const row of spec.trip.rows) {
-      const item = el('div', 'k-row');
-      item.append(swatchOf(row.swatch, row.colour), el('span', 'k-text', row.label), el('span'));
-      list.append(item);
+  // A trip on the Trip tab: what is drawn, a short line for each part.
+  if (spec.trip && spec.trip.length) {
+    if (!compact) nodes.push(el('p', 'k-sub', 'Trip'));
+    for (const group of spec.trip) {
+      const line = el('p', 'k-trip');
+      line.dataset.group = `key-trip-${group.key}`;
+      if (group.title) line.append(el('span', 'k-trip-title', group.title));
+      for (const item of group.items) {
+        const part = el('span', 'k-trip-item');
+        part.append(swatchOf(item.swatch, item.colour), el('span', null, item.label));
+        line.append(part);
+      }
+      nodes.push(line);
     }
-    nodes.push(list, ...spec.trip.notes.map((text) => el('p', 'note', text)));
   }
   if (spec.onMap && spec.onMap.length) {
     nodes.push(el('p', 'k-sub', 'On the map'));
@@ -2492,12 +2509,37 @@ function renderKey(catchment) {
     float.setAttribute('role', 'group');
     document.body.append(float);
   }
-  const showFloat = phone() && state.selected != null && !$('place').hidden && spec.scale;
+  const showFloat = phone() && state.selected != null && !$('place').hidden && Boolean(spec.scale || spec.trip);
   float.hidden = !showFloat;
-  if (showFloat) float.replaceChildren(...keyContent({ mode: spec.mode, short: spec.short, scale: spec.scale }, { compact: true }));
+  if (showFloat) float.replaceChildren(...keyContent({ mode: spec.mode, short: spec.short, scale: spec.scale, faded: spec.faded, trip: spec.trip }, { compact: true }));
   window.requestAnimationFrame(() => {
     document.body.style.setProperty('--strip-h', showFloat ? `${Math.round(float.getBoundingClientRect().height) + 8}px` : '0px');
   });
+  fitKey();
+}
+
+/** Beside the map, the panel and the key share the left column. The panel keeps room down to the end of its
+ *  headline (the figure and its sentence), so a long key never hides it; the key takes what is left, up to its
+ *  usual share, and scrolls inside that. A phone shows the key elsewhere. */
+function fitKey() {
+  const key = $('key');
+  const body = $('panel-body');
+  const hero = $('view').querySelector('.hero');
+  const parts = hero ? [...hero.children].filter((node) => /hero-(figure|text|sub)/.test(node.className)) : [];
+  if (phone() || !parts.length || openDrawer || document.body.dataset.panel === 'collapsed' || !body.clientHeight) {
+    key.style.removeProperty('--key-room');
+    return;
+  }
+  const top = body.getBoundingClientRect().top - body.scrollTop;
+  const end = Math.max(...parts.map((node) => node.getBoundingClientRect().bottom)) - top;
+  const pad = parseFloat(getComputedStyle(body).paddingBottom) || 0;
+  const side = $('side');
+  const gap = parseFloat(getComputedStyle(side).rowGap) || 0;
+  // The panel outside its scrolling body: the header, the drawer buttons and the foot.
+  const rest = $('panel').getBoundingClientRect().height - body.clientHeight;
+  const room = side.clientHeight - gap - rest - Math.ceil(end + pad);
+  // Never less than the key's own header.
+  key.style.setProperty('--key-room', `${Math.max(Math.floor(room), 42)}px`);
 }
 
 // ---------------------------------------------------------------- drawers
@@ -2516,6 +2558,7 @@ function setDrawer(name) {
     button.setAttribute('aria-expanded', String(on));
     $(`drawer-${button.dataset.drawer}`).hidden = !on;
   }
+  fitKey();
 }
 
 /** The Layers drawer: grouped rows, each with its symbol and a caption, and
@@ -3153,12 +3196,14 @@ function tripShow(entry) {
   };
 }
 
-/** Draw the open trip on the map, or clear it. */
+/** Draw the open trip on the map, or clear it. Both ends are ringed and named on every tab; the lines and stops
+ *  are drawn on the Trip tab, where they are switched on and off and the key explains them, with TEAM's
+ *  hexagons faded under them. */
 function drawTrip() {
   if (!map) return;
   let spec = null;
   if (tripOpen()) {
-    const entry = tripEntry();
+    const entry = card.tab === 'trip' ? tripEntry() : null;
     const show = tripShow(entry);
     const drawing = entry && trips.view ? trips.view.tripDrawing({
       start: cellLngLat(state.selected),
@@ -3174,6 +3219,7 @@ function drawTrip() {
   if (signature === trips.drawn) return;
   try {
     setTrip(map, spec);
+    fadeCells(map, Boolean(spec?.drawing?.lines?.length));
     trips.drawn = signature;
     if (spec?.drawing?.stops?.length) keepStopsInView(spec.drawing.stops);
   } catch (error) {
@@ -3181,35 +3227,21 @@ function drawTrip() {
   }
 }
 
-/** The key's rows for the open trip. */
-function tripKey() {
+/** What the trip draws on the Trip tab, for the key: groups of short items (trip.js tripLegend). The two ends
+ *  need none: each is named on the map. */
+function tripLegendNow() {
+  if (!tripOpen() || card.tab !== 'trip' || !trips.view) return [];
   const entry = tripEntry();
   const show = tripShow(entry);
-  const rows = [
-    { swatch: 'hex', colour: TRIP_ENDS.from, label: `From: ${placeName(state.selected)}` },
-    { swatch: 'hex', colour: TRIP_ENDS.to, label: `To: ${placeName(card.dest)}` },
-  ];
-  const notes = [];
-  if (show.pt) {
-    rows.push(
-      { swatch: 'stop', colour: TRIP_ENDS.from, label: 'Boards at A, leaves at B' },
-      { swatch: 'line', colour: '#0c0c48', label: 'Bus, train or ferry' },
-      { swatch: 'dash', colour: '#55646c', label: 'Walk' },
-    );
+  return trips.view.tripLegend({
+    pt: show.pt,
+    foot: show.foot,
     // A ride follows its line only where the map draws one and there is no change.
-    if (!entry.shapes.get(tripWindowNow())) notes.push('The ride is drawn straight from A to B, not along its route.');
-  }
-  if (show.foot && mate) {
-    rows.push(
-      { swatch: 'line', colour: '#3b7fb6', label: 'No known barrier' },
-      { swatch: 'line', colour: '#e8890c', label: 'Harder' },
-      { swatch: 'dash', colour: '#8a938d', label: 'Not known' },
-    );
-    const who = mate.profileOf(mateState.profile).short;
-    const night = mateState.dark && mate.variantOf(mateState.profile, true) !== mateState.profile ? ', after dark' : '';
-    notes.push(`Route on foot for ${who.toLowerCase()}${night}${mateState.view === 'cautious' ? ', cautious' : ''}. No known barrier: nothing recorded says otherwise.`);
-  }
-  return { rows, notes };
+    straight: show.pt && !entry?.shapes.get(tripWindowNow()),
+    profile: mateState.profile,
+    dark: mateState.dark,
+    view: mateState.view,
+  });
 }
 
 /** Something new about the trip arrived or changed: draw it again. */
@@ -3796,6 +3828,7 @@ function wireControls() {
     else document.body.dataset.panel = 'collapsed';
     $('panel-toggle').setAttribute('aria-expanded', String(collapsed));
     $('panel-toggle').setAttribute('aria-label', collapsed ? 'Hide controls' : 'Show controls');
+    fitKey();
   });
   // Escape cancels picking a trip's destination first; then it closes what
   // was opened last: the area list, a drawer, the trip, then the card.
@@ -3869,6 +3902,13 @@ function wireControls() {
   };
   if (PHONE.addEventListener) PHONE.addEventListener('change', media);
   window.addEventListener('resize', () => window.requestAnimationFrame(sheetHeight));
+  // The headline moves when the column changes height, its text wraps afresh (fonts, or a stylesheet that
+  // arrives after the first drawing in WebKit), or the panel's content changes: the key fits again.
+  if (window.ResizeObserver) {
+    const refit = new ResizeObserver(() => fitKey());
+    refit.observe($('side'));
+    refit.observe($('view'));
+  }
 
   basemapButtons($('drawer-basemaps'));
   layerRows();
