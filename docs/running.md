@@ -138,20 +138,26 @@ python scripts/build_national_site.py --out SITE --city DATA/team DATA/team-well
 Copy the contents of `SITE` to a static web host, together with
 [`web/.htaccess`](../web/.htaccess) on Apache hosts.
 
-Some files in Auckland's folder are for the MATE preview (`?mate=1`) and
-the trips still to come. Before an upload:
+Some files in Auckland's folder are for the MATE preview and for trips, both
+behind `?mate=1`. Before an upload:
 
-- `data/auckland/pairs/` (about 370 MB, 2,574 files) is for trips between two
-  hexagons, which no page uses yet. Leave it out until one does.
+- `data/auckland/pairs/` (about 370 MB, 2,574 files) holds the trips between
+  two hexagons. Only a trip planned with `?mate=1` loads it: `index.json`,
+  then the tiles it lists, one at a time as they are needed. Upload
+  `index.json` and the tiles it lists, each with its `.br` and `.gz`.
+- `data/auckland/transit.json` names a trip's stops and draws its ride along
+  the line; it too is loaded only for a trip.
 - `data/auckland/mate/` is MATE's, built by MATE's `scripts/team_export.py`.
-  Only `?mate=1` loads it. Upload it only together with MATE's own map rebuilt
-  from the same build (MATE's `docs/team_export.md`), so the two agree on the
-  same footpaths.
-- `data/auckland/transit.json` is not loaded by any page yet; it can wait.
+  Only `?mate=1` loads it: `cells_mate`, `times`, `reach/`, `stops/` and
+  `graph/`, with a link to `profiles.html`. TEAM's page does not load
+  `stops.json`. Upload it only together with MATE's own map rebuilt from the
+  same build (MATE's `docs/team_export.md`), so the two agree on the same
+  footpaths.
 - Leave out the backups beside the files: `mate_before_*`,
-  `mate_before_pt_*` and anything ending in `.before-*`. The app needs no server
-code. It loads MapLibre GL and h3-js from unpkg and basemap tiles from Esri and
-OpenStreetMap.
+  `mate_before_pt_*` and anything ending in `.before-*`.
+
+The app needs no server code. It loads MapLibre GL and h3-js from unpkg and
+basemap tiles from Esri and OpenStreetMap.
 
 ## Checking the web app without a build
 
