@@ -1,6 +1,9 @@
 """Command line for TEAM.
 
     team destinations                  build the service and job destination sets
+    team destinations --only schools   rebuild only the schools from the directory snapshot
+    team schools split                 move an existing build to separate school runs
+    team schools check                 what the directory gives each school service
     team route --all                   run every routing job (resumable)
     team route --all --shard 1/3       route every third batch, to split work across processes
     team route services walk           run one job
@@ -44,11 +47,37 @@ def cmd_destinations(args: argparse.Namespace) -> int:
     from . import destinations
 
     settings = _settings(args)
+    if args.only == "schools":
+        from . import schools
+
+        points, table = schools.build(settings)
+        print(points.drop_duplicates(["school", "service"]).groupby("service").size().to_string())
+        return 0
     services = destinations.build_services(settings)
     jobs = destinations.build_jobs(settings)
     print(services.groupby("service").size().to_string())
     print(f"job cells: {len(jobs):,}  jobs: {jobs['jobs'].sum():,.0f}")
     return 0
+
+
+def cmd_schools(args: argparse.Namespace) -> int:
+    import json
+
+    from . import schools
+
+    settings = _settings(args)
+    if args.action == "split":
+        print(json.dumps(schools.split(settings), indent=2))
+        return 0
+    table = schools.school_table(settings)
+    directory = schools.place_directory(settings)
+    print(f"{len(directory)} open schools in {', '.join(schools.regions(settings)) or 'the file'}; {len(table)} in a school service")
+    missing = schools.unknown_types(settings, directory)
+    if missing:
+        print("types in no service and not excluded:", ", ".join(missing))
+    for service in schools.school_service_ids(settings):
+        print(service, json.dumps(schools.counting_line(table, service)))
+    return 1 if missing else 0
 
 
 def cmd_route(args: argparse.Namespace) -> int:
@@ -122,10 +151,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("destinations", help="build destination sets")
+    p.add_argument("--only", choices=["schools"], help="rebuild only this set")
     p.set_defaults(func=cmd_destinations)
 
+    p = sub.add_parser("schools", help="school directory checks and the move to separate school runs")
+    p.add_argument("action", choices=["check", "split"])
+    p.set_defaults(func=cmd_schools)
+
     p = sub.add_parser("route", help="run R5 routing")
-    p.add_argument("dataset", nargs="?", choices=["services", "jobs"])
+    p.add_argument("dataset", nargs="?", choices=["services", "jobs", "schools"])
     p.add_argument("mode", nargs="?")
     p.add_argument("--window", help="time window for public transport runs")
     p.add_argument("--limit", type=int, help="route only the first N origins (for timing tests)")

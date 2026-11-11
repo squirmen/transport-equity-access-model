@@ -314,7 +314,9 @@ def _destination_weights(settings, purpose: str) -> tuple[pd.Series, pd.DataFram
     if purpose == "jobs":
         table = pd.read_parquet(folder / "jobs.parquet").drop_duplicates("id")
         return table.set_index("id")["jobs"].astype("float64"), table
-    table = pd.read_parquet(folder / "services.parquet")
+    from .destinations import all_destinations
+
+    table = all_destinations(settings)
     table = table[table["service"] == purpose].drop_duplicates("id")
     return table.set_index("id")["weight"].astype("float64"), table
 

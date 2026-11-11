@@ -62,7 +62,7 @@ def _clean(value):
 # a second.
 CORE_CELL_KEYS = (
     "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
-    "freq", "t", "tw", "nearest", "urban", "zone", "vil", "areas",
+    "freq", "t", "tw", "nearest", "nearest_mode", "ties", "urban", "zone", "vil", "areas",
 )
 
 
@@ -151,23 +151,77 @@ def place_list(table: pd.DataFrame) -> tuple[list[dict], dict[str, int]]:
     return rows, {row["name"]: i for i, row in enumerate(rows)}
 
 
-def destination_list(destinations: pd.DataFrame) -> tuple[list[dict], dict[str, int]]:
+def destination_list(destinations: pd.DataFrame, schools: pd.DataFrame | None = None) -> tuple[list[dict], dict[str, int]]:
+    """Destinations for the site, one entry per place, in id order.
+
+    A school's entry also says what it is (see docs/schools.md): moe, kind,
+    medium, language, sex by service, years, roll, roll_date, scheme,
+    zone_from and routed_to.
+    """
     grouped = destinations.groupby("id", sort=True)
+    about = schools.set_index("school") if schools is not None and not schools.empty else None
     rows = []
     for dest_id, group in grouped:
         first = group.iloc[0]
-        rows.append(
-            {
-                "name": first["name"] if isinstance(first["name"], str) else None,
-                "services": sorted(group["service"].unique().tolist()),
-                "lon": round(float(first["lon"]), 5),
-                "lat": round(float(first["lat"]), 5),
-            }
-        )
+        row = {
+            "name": first["name"] if isinstance(first["name"], str) else None,
+            "services": sorted(group["service"].unique().tolist()),
+            "lon": round(float(first["lon"]), 5),
+            "lat": round(float(first["lat"]), 5),
+        }
+        if about is not None and dest_id in about.index:
+            row.update(school_entry(about.loc[dest_id], row["services"]))
+        rows.append(row)
     return rows, {str(dest_id): i for i, dest_id in enumerate(grouped.groups)}
 
 
-def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, dest_index: dict) -> dict:
+def school_entry(record: pd.Series, services: list[str]) -> dict:
+    def clean(value):
+        return None if value is None or (isinstance(value, float) and not np.isfinite(value)) else value
+
+    return {
+        "moe": int(record["moe"]),
+        "kind": clean(record["kind"]),
+        "medium": clean(record["medium"]),
+        "language": clean(record["language"]),
+        "sex": {s: clean(record.get(f"sex_{s}")) for s in services},
+        "years": [clean(record["years_from"]), clean(record["years_to"])],
+        "roll": int(record["roll"]) if pd.notna(record["roll"]) else None,
+        "roll_date": clean(record["roll_date"]),
+        "scheme": bool(record["scheme"]),
+        "zone_from": None,
+        "routed_to": int(record["entrances"]) if int(record["entrances"]) > 0 else "point",
+        "point": record["point"],
+    }
+
+
+def nearest_by_mode(settings: Settings, table: pd.DataFrame, dest_index: dict) -> dict:
+    """The destination reached in the time shown, for each service and mode,
+    as an index into destinations.json. The card names this one, so the name
+    always belongs to the time beside it."""
+    out: dict = {}
+    for service in settings.services:
+        for mode in WEB_MODES:
+            column = f"id_{service}_{mode}"
+            if column in table:
+                out.setdefault(service, {})[mode] = [dest_index.get(str(v)) if isinstance(v, str) else None for v in table[column]]
+    return out
+
+
+def ties_payload(school_state: dict | None, dest_index: dict) -> dict:
+    """Other schools reached in the same whole minute as the one named, per
+    service and mode: {cell index: [destination indices]}, in the site's order
+    (straight-line distance, then MoE number)."""
+    out: dict = {}
+    for (service, key), ties in (school_state or {}).get("ties", {}).items():
+        if key not in WEB_MODES:
+            continue
+        out.setdefault(service, {})[key] = {str(cell): [dest_index[d] for d in tied] for cell, tied in ties.items()}
+    return out
+
+
+def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, dest_index: dict,
+                 school_state: dict | None = None) -> dict:
     services = list(settings.services)
     nearest = {}
     for service in services:
@@ -244,7 +298,11 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "areas": _areas(table),
         "tw": by_window,
         "km": {s: _floats(table[f"km_{s}"], 2) for s in services},
+        # Nearest by the fastest counting mode. Kept for older pages; the card
+        # reads nearest_mode, which names the one for the mode on screen.
         "nearest": nearest,
+        "nearest_mode": nearest_by_mode(settings, table, dest_index),
+        "ties": ties_payload(school_state, dest_index),
         "jobs": jobs,
         "fair": fair,
         "jobsw": jobs_by_window,
@@ -414,11 +472,67 @@ def _area_records(frame: pd.DataFrame) -> list[dict]:
     return [_clean(r) for r in records]
 
 
-def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFrame, summary: dict, areas: dict) -> Path:
+def reach_payload(reach: pd.DataFrame, n: int, dest_index: dict, spread: bool) -> dict:
+    """One service and mode's reach lists: every school within the routing
+    limit from each cell, nearest first. Cell i's schools are d[o[i]:o[i+1]]."""
+    counts = np.bincount(reach["cell"].to_numpy(dtype="int64"), minlength=n) if len(reach) else np.zeros(n, dtype="int64")
+    offsets = np.concatenate([[0], np.cumsum(counts)]).astype("int64")
+    body = {
+        "o": offsets.tolist(),
+        "d": [dest_index[d] for d in reach["destination"]],
+        "m": reach["minutes"].astype("int64").tolist(),
+    }
+    if spread and "lo" in reach:
+        body["lo"] = reach["lo"].astype("int64").tolist()
+        body["hi"] = [None if v == 255 else int(v) for v in reach["hi"]]
+    return body
+
+
+def write_schools(settings: Settings, folder: Path, school_state: dict, dest_index: dict, n: int) -> dict:
+    """data/schools/<service>_<mode>.json, read only when a school choice is
+    made. Returns the file sizes, for the build log."""
+    from .routing import service_windows
+
+    out = folder / "schools"
+    if out.exists():
+        shutil.rmtree(out)
+    sizes = {}
+    for (service, key), reach in sorted(school_state.get("reach", {}).items()):
+        mode = max((m for m in settings.modes if key == m or key.startswith(f"{m}_")), key=len)
+        transit = settings.modes[mode]["kind"] == "transit"
+        window = (key[len(mode) + 1:] or service_windows(settings.services[service])[0]) if transit else None
+        body = {
+            "format": 1, "service": service, "mode": mode, "window": window,
+            "max_minutes": int(settings.routing.get("max_minutes", 60)),
+            "order": "minutes, then straight-line metres from the hexagon centre, then MoE number",
+            **reach_payload(reach, n, dest_index, spread=(key == "pt")),
+        }
+        path = out / f"{service}_{key}.json"
+        _dump(path, body)
+        sizes[path.name] = {
+            "pairs": int(len(reach)),
+            "json": path.stat().st_size,
+            "gz": path.with_suffix(".json.gz").stat().st_size,
+            "br": path.with_suffix(".json.br").stat().st_size if path.with_suffix(".json.br").exists() else None,
+        }
+    return sizes
+
+
+def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFrame, summary: dict, areas: dict,
+              school_state: dict | None = None) -> Path:
+    from . import schools as school_data
+
     data = settings.output_dir / "site" / "data"
     places, place_index = place_list(table)
-    dests, dest_index = destination_list(destinations)
-    core, more = split_cells(cell_payload(settings, table, place_index, dest_index))
+    listed = school_data.load_list(settings) if school_state and school_state.get("reach") else None
+    dests, dest_index = destination_list(destinations, listed)
+    core, more = split_cells(cell_payload(settings, table, place_index, dest_index, school_state))
+    # The card's nearest-by-mode for schools is sent first, about a tenth of
+    # the first file in Auckland; every service's follows in cells_more. The
+    # page merges the two files key by key, so the fuller copy replaces it.
+    school_ids = set(school_data.school_service_ids(settings))
+    more["nearest_mode"] = core["nearest_mode"]
+    core["nearest_mode"] = {s: v for s, v in core["nearest_mode"].items() if s in school_ids}
     _dump(data / "cells.json", core)
     _dump(data / "cells_more.json", more)
     _dump(data / "places.json", places)
@@ -500,6 +614,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "totals": {"cells": int(len(table)), "population": round(float(table["population"].sum()))},
         "destinations": destinations.groupby("service").size().to_dict(),
     }
+    if listed is not None:
+        meta["schools"] = school_data.meta_block(settings, listed)
+        meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table))
     _dump(
         data / "summary.json",
         {"meta": meta, **summary, "areas": {key: _area_records(frame) for key, frame in areas.items()}},
@@ -516,6 +633,7 @@ FIELD_NOTES = {
     "n_": "Number of destinations of this type within the service's standard time by this mode, or within 30 minutes "
           "where the standard is longer (counts are kept at 10, 15, 20 and 30 minutes).",
     "id_": "Internal id of the nearest destination.",
+    "moe": "Ministry of Education school number (School_Id).",
     "best_": "Fastest time using walking, low-stress cycling or public transport.",
     "via_": "The mode that gave the fastest time.",
     "meets_": "True when the fastest time is within the standard.",
@@ -577,8 +695,16 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
     pd.DataFrame({"field": flat.columns, "description": [_note(c) for c in flat.columns]}).to_csv(
         folder / "fields.csv", index=False
     )
+    from . import schools as school_data
+
+    listed = school_data.load_list(settings)
+    extra = []
+    if listed is not None and not listed.empty:
+        path = folder / f"team_{slug}_schools.csv"
+        listed.drop(columns=["entrances"]).rename(columns={"school": "id"}).to_csv(path, index=False)
+        extra.append(path)
     sums = []
-    for path in sorted(folder.glob(f"team_{slug}_h3.*")) + [folder / "fields.csv"]:
+    for path in sorted(folder.glob(f"team_{slug}_h3.*")) + extra + [folder / "fields.csv"]:
         sums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
     (folder / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
     write_downloads_page(folder, settings)
@@ -588,6 +714,7 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
 DOWNLOAD_NOTES = {
     "{slug}_h3.gpkg": "Every field for every populated hexagon, with the hexagon shapes (GeoPackage, for GIS).",
     "{slug}_h3.csv": "The same fields without shapes.",
+    "{slug}_schools.csv": "Every school counted, with its kind, teaching language, who it takes, years, roll and map point.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }

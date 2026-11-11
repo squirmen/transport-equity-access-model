@@ -50,7 +50,40 @@ def _service_runs(settings: Settings) -> list[tuple[str, str | None, Path]]:
     return runs
 
 
+def school_tag(settings: Settings, mode_id: str, window: str | None) -> str:
+    transit = settings.modes[mode_id]["kind"] == "transit"
+    return run_tag("schools", mode_id, window if transit else None, transit)
+
+
+def has_school_runs(settings: Settings) -> bool:
+    """Whether this build has its schools routed on their own (dataset "schools")."""
+    from .schools import school_service_ids
+
+    ids = school_service_ids(settings)
+    if not ids:
+        return False
+    window = settings.services[ids[0]]["window"]
+    return any(school_run_done(settings, school_tag(settings, m, window)) for m in settings.modes)
+
+
+def school_run_done(settings: Settings, tag: str) -> bool:
+    """A school run counts once its batches are combined and its manifest
+    written, so a build never reads a run still being routed."""
+    output = settings.output_dir / "routing" / f"{tag}.parquet"
+    return output.exists() and output.with_suffix(".json").exists()
+
+
 def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
+    """Minutes, counts and the nearest destination of each service by each mode.
+
+    With school runs of their own, school services are left to
+    `school_columns`. A time past the routing limit is dropped: R5 can return
+    a minute or more over it, and every count and pair stops at the limit.
+    """
+    from .schools import school_service_ids
+
+    skip = set(school_service_ids(settings)) if has_school_runs(settings) else set()
+    limit_minutes = float(settings.routing.get("max_minutes", 60))
     frames = []
     for mode_id, window, path in _service_runs(settings):
         if path.exists():
@@ -63,6 +96,8 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
     long = pd.concat(frames, ignore_index=True)
     columns: dict[str, pd.Series] = {}
     for service, spec in settings.services.items():
+        if service in skip:
+            continue
         counted = count_column(float(spec["standard_minutes"]))
         rows = long[long["service"] == service]
         windows = service_windows(spec)
@@ -74,15 +109,71 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
                 # reads one time per mode goes on reading the usual one.
                 suffix = f"_{window}" if transit and window != windows[0] else ""
                 name = f"{service}_{mode_id}{suffix}"
-                columns[f"t_{name}"] = by_origin["minutes"].reindex(origins).astype("float32")
+                minutes = by_origin["minutes"].reindex(origins).astype("float32")
+                columns[f"t_{name}"] = minutes.where(minutes <= limit_minutes)
                 columns[f"n_{name}"] = by_origin[counted].reindex(origins).fillna(0).astype("int32")
-                columns[f"id_{name}"] = by_origin["nearest_id"].reindex(origins)
+                columns[f"id_{name}"] = by_origin["nearest_id"].reindex(origins).where(minutes <= limit_minutes)
                 # Counts at every step, for how much choice a place has at
                 # whatever standard is chosen; the usual time only.
                 if not suffix and mode_id in settings.standard_modes:
                     for limit in COUNT_MINUTES:
                         columns[f"n{limit}_{name}"] = by_origin[f"n{limit}"].reindex(origins).fillna(0).astype("int16")
     return pd.DataFrame(columns, index=origins)
+
+
+def school_columns(settings: Settings, origins: pd.Index, origin_xy: np.ndarray) -> tuple[pd.DataFrame, dict]:
+    """The same columns as `service_table` for school services, from the
+    school runs' reach lists, with ties broken the same way every time:
+    minutes, then straight-line distance, then MoE number.
+
+    Returns the columns and, for the export, each reach list in that order
+    and the schools tied for nearest, keyed (service, mode key) where the
+    mode key is the column suffix (pt, or pt_<window> for another window).
+    """
+    from . import schools
+
+    listed = schools.load_list(settings)
+    state: dict = {"reach": {}, "ties": {}}
+    if listed is None or not has_school_runs(settings):
+        return pd.DataFrame(index=origins), state
+    xy = _nztm_points(listed["lon"].to_numpy(), listed["lat"].to_numpy())
+    listed = listed.assign(x=xy[:, 0], y=xy[:, 1])
+    n = len(origins)
+    columns: dict[str, pd.Series] = {}
+    for mode_id, mode in settings.modes.items():
+        transit = mode["kind"] == "transit"
+        for window in sorted({w for s in schools.school_service_ids(settings) for w in service_windows(settings.services[s])}) if transit else [None]:
+            pairs = schools.load_reach(settings, school_tag(settings, mode_id, window))
+            if pairs is None:
+                continue
+            ordered = schools.ordered_reach(pairs, origins, origin_xy, listed)
+            for service in schools.school_service_ids(settings):
+                spec = settings.services[service]
+                windows = service_windows(spec)
+                if transit and window not in windows:
+                    continue
+                suffix = f"_{window}" if transit and window != windows[0] else ""
+                name = f"{service}_{mode_id}{suffix}"
+                reach = ordered[ordered["service"] == service]
+                minutes, nearest, ties = schools.nearest_schools(reach, n)
+                columns[f"t_{name}"] = pd.Series(minutes, index=origins, dtype="float32")
+                limit = int(count_column(float(spec["standard_minutes"]))[1:])
+                columns[f"n_{name}"] = pd.Series(schools.counts_within(reach, n, limit), index=origins, dtype="int32")
+                columns[f"id_{name}"] = pd.Series(nearest, index=origins, dtype="object")
+                if not suffix and mode_id in settings.standard_modes:
+                    for step in COUNT_MINUTES:
+                        columns[f"n{step}_{name}"] = pd.Series(schools.counts_within(reach, n, step), index=origins, dtype="int16")
+                key = f"{mode_id}{suffix}"
+                state["reach"][(service, key)] = reach
+                state["ties"][(service, key)] = ties
+    return pd.DataFrame(columns, index=origins), state
+
+
+def _nztm_points(lon, lat) -> np.ndarray:
+    import geopandas as gpd
+
+    points = gpd.GeoSeries(gpd.points_from_xy(lon, lat), crs="EPSG:4326").to_crs("EPSG:2193")
+    return np.column_stack([points.x.to_numpy(), points.y.to_numpy()])
 
 
 def add_standards(table: pd.DataFrame, settings: Settings) -> pd.DataFrame:

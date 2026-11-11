@@ -175,7 +175,9 @@ def _weights(settings) -> dict[str, pd.Series]:
     out: dict[str, pd.Series] = {}
     jobs = pd.read_parquet(folder / "jobs.parquet")
     out["jobs"] = jobs.set_index("id")["jobs"].astype("float64")
-    services = pd.read_parquet(folder / "services.parquet")
+    from .destinations import all_destinations
+
+    services = all_destinations(settings)
     for service, rows in services.groupby("service"):
         out[str(service)] = rows.set_index("id")["weight"].astype("float64")
     return out
@@ -201,6 +203,11 @@ def _pair_tags(settings, purpose: str, mode_id: str, window: str | None = None) 
     if transit and window is None:
         window = purpose_windows(settings, purpose)[0]
     dataset = "jobs" if purpose == "jobs" else "services"
+    if settings.services.get(purpose, {}).get("school_types"):
+        from .measures import has_school_runs
+
+        if has_school_runs(settings):
+            dataset = "schools"
     return [run_tag(dataset, mode_id, window if transit else None, transit)]
 
 
@@ -209,7 +216,12 @@ def _pairs(settings, purpose: str, mode_id: str, cap: float, window: str | None 
 
     frames = []
     for tag in _pair_tags(settings, purpose, mode_id, window):
-        pairs = load_pairs(settings, tag)
+        if tag.startswith("schools_"):
+            from .schools import load_reach
+
+            pairs = load_reach(settings, tag)
+        else:
+            pairs = load_pairs(settings, tag)
         if pairs is None:
             continue
         if "service" in pairs.columns:

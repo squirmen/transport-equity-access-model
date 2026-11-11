@@ -23,7 +23,7 @@ data:
   gtfs: raw/hamilton/gtfs/busit_gtfs_2026-09-26.zip
   grid: processed/taupo/grid/taupo_h3_r9_population.parquet
   jobs_grid: processed/taupo/grid/taupo_h3_r9_v2_opportunities.parquet
-  schools: raw/hamilton/education/educationcounts_schools_hamilton.json
+  schools: raw/nz/education/moe_schools_directory_2026-11-12.csv
   ece: raw/hamilton/education/educationcounts_ece_hamilton.json
   census_sa1: raw/taupo/census/statsnz_census_sa1_2023_taupo.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
@@ -70,6 +70,13 @@ routing:
 # Modes that count towards an access standard. Cycling counts only on
 # low-stress routes. Car times are kept for reference and never count.
 standard_modes: [walk, bike_low_stress, pt]
+
+# Schools come from the Ministry's national directory snapshot (data.schools),
+# cut to these regional councils. docs/schools.md has the rules.
+schools:
+  regions: [Waikato Region]
+  buses: none_found        # school buses in the timetable: in_timetable or none_found
+  bus_note: "No school bus routes found in the timetable (by route type or by a school's name)."
 
 services:
   supermarket:
@@ -126,7 +133,7 @@ services:
     label: Intermediate school
     window: am_peak
     standard_minutes: 20
-    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Yr 7-10)]
+    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Year 7-10), Secondary (Year 7-10)]
   secondary_school:
     label: Secondary school
     window: am_peak

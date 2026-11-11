@@ -186,35 +186,13 @@ def facility_services(settings: Settings) -> pd.DataFrame:
 
 
 def school_services(settings: Settings) -> pd.DataFrame:
-    payload = json.loads(settings.data("schools").read_text(encoding="utf-8"))
-    records = payload["records"] if isinstance(payload, dict) else payload
-    type_to_services: dict[str, list[str]] = {}
-    for sid, service in settings.services.items():
-        for school_type in service.get("school_types", []):
-            type_to_services.setdefault(school_type, []).append(sid)
-    rows = []
-    for record in records:
-        status = str(record.get("Status") or "").strip().lower()
-        if status and "open" not in status:
-            continue
-        try:
-            lon, lat = float(record["Longitude"]), float(record["Latitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        roll = pd.to_numeric(record.get("Total"), errors="coerce")
-        for service in type_to_services.get(str(record.get("Org_Type") or "").strip(), []):
-            rows.append(
-                {
-                    "source_id": f"moe:{record.get('School_Id')}",
-                    "service": service,
-                    "name": record.get("Org_Name"),
-                    "source": "Ministry of Education school directory",
-                    "weight": float(roll) if pd.notna(roll) and roll > 0 else 1.0,
-                    "lon": lon,
-                    "lat": lat,
-                }
-            )
-    return pd.DataFrame(rows)
+    """Schools as routing points, one row per point and service (see schools.py)."""
+    from . import schools
+
+    table = schools.school_table(settings)
+    if table.empty:
+        return pd.DataFrame(columns=["source_id", "service", "name", "source", "weight", "lon", "lat"])
+    return schools.routing_points(table)
 
 
 def ece_services(settings: Settings) -> pd.DataFrame:
@@ -295,16 +273,46 @@ def tertiary_services(settings: Settings) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else empty
 
 
+def stable_ids(table: pd.DataFrame, previous: Path) -> pd.Series:
+    """Routing ids that stay the same from one build to the next.
+
+    A destination keeps the id it had in the last services.parquet, so runs
+    already routed stay valid when other destinations come or go. New ones
+    are numbered after the highest id used before.
+    """
+    if not previous.exists():
+        return pd.Series(pd.factorize(table["source_id"])[0].astype(str), index=table.index)
+    before = pd.read_parquet(previous, columns=["source_id", "id"]).drop_duplicates("source_id")
+    known = dict(zip(before["source_id"], before["id"].astype(str)))
+    numbers = pd.to_numeric(before["id"], errors="coerce")
+    next_id = int(numbers.max()) + 1 if numbers.notna().any() else 0
+    ids = {}
+    for source_id in pd.unique(table["source_id"]):
+        if source_id in known:
+            ids[source_id] = known[source_id]
+        else:
+            ids[source_id] = str(next_id)
+            next_id += 1
+    return table["source_id"].map(ids)
+
+
 def build_services(settings: Settings) -> pd.DataFrame:
-    """One row per (destination, service). A school can serve two year ranges."""
+    """One row per (destination, service), schools apart.
+
+    Schools are written to schools.parquet by schools.build and routed in
+    runs of their own, so a change to the school directory does not throw
+    away the other services' routing.
+    """
+    from . import schools
+
     facilities = facility_services(settings)
     # Whatever the register covers, OpenStreetMap is not asked for.
     covered = set(facilities["service"].unique()) if not facilities.empty else set()
     osm = osm_services(settings)
     if covered:
         osm = osm[~osm["service"].isin(covered)]
-    table = pd.concat([osm, facilities, school_services(settings), ece_services(settings), tertiary_services(settings)], ignore_index=True)
-    # School and early childhood directories come by region, and a region can
+    table = pd.concat([osm, facilities, ece_services(settings), tertiary_services(settings)], ignore_index=True)
+    # Early childhood directories come by region, and a region can
     # hold several towns. Keep what lies around this one: anything further
     # is beyond the routing limit anyway, and would only crowd the map.
     if "census_sa1" in settings.raw["data"] and settings.data("census_sa1").exists():
@@ -321,13 +329,43 @@ def build_services(settings: Settings) -> pd.DataFrame:
     if len(table) < before:
         log.info("dropped %d destination rows repeating an id", before - len(table))
     # Routing needs one id per physical point; the same point can serve several services.
-    table["id"] = pd.factorize(table["source_id"])[0].astype(str)
-    table = table.sort_values(["service", "source_id"]).reset_index(drop=True)
     path = settings.out("destinations", "services.parquet")
+    table["id"] = stable_ids(table, path)
+    table = table.sort_values(["service", "source_id"]).reset_index(drop=True)
     table.to_parquet(path, index=False)
-    counts = table.groupby("service").size().to_dict()
+    points, _ = schools.build(settings)
+    counts = {**table.groupby("service").size().to_dict(), **points.drop_duplicates(["school", "service"]).groupby("service").size().to_dict()}
     settings.out("destinations", "services_summary.json").write_text(json.dumps(counts, indent=2))
     return table
+
+
+def all_destinations(settings: Settings) -> pd.DataFrame:
+    """Every destination as the site lists it: one row per destination and
+    service, with schools at their map point (not their entrances), keyed by
+    school. Columns: id, service, name, lon, lat, source_id."""
+    folder = settings.output_dir / "destinations"
+    services = pd.read_parquet(folder / "services.parquet")
+    from . import schools
+
+    school_ids = schools.school_service_ids(settings)
+    listed = schools.load_list(settings)
+    if listed is None or not school_ids:
+        return services
+    from .measures import has_school_runs
+
+    if not has_school_runs(settings):
+        raise SystemExit("The schools have their own destination set but no routing yet. "
+                         "Run `team route --all` (or the schools_* runs) before `team build`.")
+    # Before the split, services.parquet still holds the schools.
+    services = services[~services["service"].isin(school_ids)]
+    rows = []
+    for record in listed.to_dict("records"):
+        for service in str(record["services"]).split(","):
+            rows.append({"id": record["school"], "source_id": record["school"], "service": service,
+                         "name": record["name"], "lon": record["lon"], "lat": record["lat"],
+                         "weight": float(record["roll"]) if record.get("roll") and record["roll"] > 0 else 1.0,
+                         "source": "Ministry of Education school directory"})
+    return pd.concat([services, pd.DataFrame(rows)], ignore_index=True)
 
 
 def build_jobs(settings: Settings) -> pd.DataFrame:

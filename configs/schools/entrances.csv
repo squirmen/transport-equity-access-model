@@ -1,0 +1,4 @@
+# Entrances students use on school mornings. A school with checked rows is routed to these instead of its map point,
+# and its time is the fastest of them. A row is used only when checked_by and checked_on are filled.
+# moe: School_Id. entrance: a short name. lon, lat: WGS84, on the public side of the gate. hours: when it is open on school days.
+moe,name,entrance,lon,lat,hours,source,checked_by,checked_on,notes

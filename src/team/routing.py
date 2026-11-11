@@ -281,11 +281,19 @@ def _targets(settings: Settings, dataset: str, window: str | None):
         table = chain_stops(settings)
         return table, _points(table)
     table = destinations.load_set(settings, dataset)
-    if dataset == "services" and window is not None:
+    if dataset == "services":
+        # Schools are routed in runs of their own (dataset "schools").
+        table = table[~table["service"].isin(school_services(settings))]
+    if dataset in ("services", "schools") and window is not None:
         # Each service is routed in the windows it lists.
         wanted = [sid for sid, spec in settings.services.items() if window in service_windows(spec)]
         table = table[table["service"].isin(wanted)]
     return table, _points(table)
+
+
+def school_services(settings: Settings) -> list[str]:
+    """Services filled from the school directory, routed as dataset "schools"."""
+    return [sid for sid, spec in settings.services.items() if spec.get("school_types")]
 
 
 def scope_digest(targets) -> str:
@@ -321,8 +329,11 @@ def is_current(settings: Settings, dataset: str, mode_id: str, window: str | Non
         return False
     table, targets = _targets(settings, dataset, window)
     # Runs finished before membership was recorded are judged on ids alone.
-    if "members" in record and dataset in ("services", "jobs"):
-        return record["members"] == members_digest(table)
+    if "members" in record and dataset in ("services", "jobs", "schools"):
+        digest = members_digest(table)
+        # A services run from before schools were routed on their own still
+        # covers everything else, once `team schools split` has checked it.
+        return digest in (record["members"], record.get("members_without_schools"))
     if "scope" in record:
         return record["scope"] == scope_digest(targets)
     return int(record.get("destinations", -1)) == len(targets)
@@ -417,6 +428,9 @@ def run(
     starts = batch_starts(len(origins), size, shard)
     todo = [s for s in starts if force or not (batch_dir / f"origins_{s:06d}.parquet").exists()]
 
+    # School runs keep the 10th and 90th percentiles of public transport
+    # times as well as the median, for "usually X to Y minutes".
+    percentiles = [10, 50, 90] if dataset == "schools" and transit else [50]
     log.info("%s: %d origins, %d destinations, departure %s + %s", tag, len(origins), len(targets), departure, window_length)
     if shard is not None:
         log.info("%s: shard %d/%d, %d of %d batches to route", tag, shard[0] + 1, shard[1], len(todo), len(starts))
@@ -438,7 +452,7 @@ def run(
                     destinations=targets,
                     departure=departure,
                     departure_time_window=window_length,
-                    percentiles=[50],
+                    percentiles=percentiles,
                     max_time=dt.timedelta(minutes=max_minutes),
                     snap_to_network=True,
                     **kwargs,
@@ -451,6 +465,11 @@ def run(
             matrix = pd.DataFrame({"from_id": chunk["id"].to_numpy(), "to_id": None, "travel_time": np.nan})
         if dataset == "jobs":
             summary, pairs = summarise_jobs(matrix, table, thresholds, max_minutes)
+        elif dataset == "schools":
+            from . import schools
+
+            pairs = schools.school_pairs(schools.collapse(matrix, table, max_minutes), table)
+            summary = schools.summarise(pairs)
         else:
             summary, pairs = summarise_services(matrix, table, max_minutes)
         pairs_dir.mkdir(parents=True, exist_ok=True)
@@ -480,6 +499,7 @@ def run(
         "departure": departure.isoformat(),
         "window_minutes": window_length.total_seconds() / 60,
         "max_minutes": max_minutes,
+        "percentiles": percentiles,
         "origins": int(len(origins)),
         "destinations": int(len(targets)),
         "scope": scope_digest(targets),
@@ -658,11 +678,21 @@ def plan(settings: Settings) -> list[tuple[str, str, str | None]]:
     for mode_id in ("walk", "bike_low_stress", "bike", "car"):
         runs.append(("services", mode_id, None))
     slow = "pt_slow" in settings.modes
+    others = [spec for sid, spec in settings.services.items() if sid not in school_services(settings)]
     for window in all_windows(settings):
-        if any(window in service_windows(spec) for spec in settings.services.values()):
+        if any(window in service_windows(spec) for spec in others):
             runs.append(("services", "pt", window))
             if slow:
                 runs.append(("services", "pt_slow", window))
+    if school_services(settings):
+        for mode_id in ("walk", "bike_low_stress", "bike", "car"):
+            if mode_id in settings.modes:
+                runs.append(("schools", mode_id, None))
+        for window in all_windows(settings):
+            if any(window in service_windows(settings.services[s]) for s in school_services(settings)):
+                runs.append(("schools", "pt", window))
+                if slow:
+                    runs.append(("schools", "pt_slow", window))
     for mode_id in settings.jobs["modes"]:
         if settings.modes[mode_id]["kind"] == "transit":
             runs += [("jobs", mode_id, window) for window in job_windows(settings)]
