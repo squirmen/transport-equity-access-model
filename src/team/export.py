@@ -627,7 +627,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
 FIELD_NOTES = {
     "h3": "H3 resolution 9 cell id (about 0.1 km²).",
     "population": "Usual residents, 2023 Census, spread from SA1 blocks by area.",
-    "t_": "Minutes to the nearest destination of this type by this mode (blank: none within 60 minutes). "
+    "t_": "Minutes to the nearest destination of this type by this mode, whole minutes rounded down (blank: none within 60 minutes). "
           "Public transport is in the service's usual window; a column ending in a window name "
           "(am_peak, interpeak, saturday) is the same trip in that window.",
     "n_": "Number of destinations of this type within the service's standard time by this mode, or within 30 minutes "

@@ -136,6 +136,13 @@ def school_columns(settings: Settings, origins: pd.Index, origin_xy: np.ndarray)
     state: dict = {"reach": {}, "ties": {}}
     if listed is None or not has_school_runs(settings):
         return pd.DataFrame(index=origins), state
+    # Half a set of school runs would quietly drop a mode's school times.
+    from .routing import plan
+
+    missing = [run_tag(d, m, w, w is not None) for d, m, w in plan(settings)
+               if d == "schools" and not school_run_done(settings, run_tag(d, m, w, w is not None))]
+    if missing:
+        raise SystemExit(f"School runs not finished: {', '.join(missing)}. Route them before building.")
     xy = _nztm_points(listed["lon"].to_numpy(), listed["lat"].to_numpy())
     listed = listed.assign(x=xy[:, 0], y=xy[:, 1])
     n = len(origins)

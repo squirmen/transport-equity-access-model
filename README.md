@@ -110,8 +110,9 @@ NSW's proposed Transport Access Indicator and to PTAL is set out in
 
 TEAM is for comparing places and for early work on where and how to improve
 access. It is not a project list, and the reasons it gives are screening rules
-rather than designs. It uses the nearest service, so school zones, GP
-enrolment and opening hours are not taken into account. Times come from
+rather than designs. It uses the nearest service, so GP enrolment and opening
+hours are not taken into account. Schools can be narrowed to state schools or
+to one school ([`docs/schools.md`](docs/schools.md)); school zones are not in yet. Times come from
 timetables and street data rather than observed trips. The limits are listed in
 full in [`docs/methodology.md`](docs/methodology.md#12-what-team-does-not-do).
 

@@ -1,6 +1,51 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (not yet released)
+
+Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
+School (MAGS). [`docs/schools.md`](docs/schools.md) has the rules.
+
+- **The card names the right school.** It named the nearest school by the
+  quickest way, beside the time for the way on screen. On the councillors'
+  slide (St Lukes, hexagon 89bb50021a3ffff) "9 min by public transport,
+  nearest Marist College" was a 9-minute walk to TKKM o Nga Maungarongo, with
+  Marist the nearest by low-stress cycling (6 min). The data now names the
+  school for each way (`nearest_mode`), and every school tied in the same
+  minute (`ties`). From that hexagon MAGS is 15 min on foot or by public
+  transport and 10 by low-stress bike; Marist is 12 on foot.
+- **Every school within reach, and what it is.** School runs keep every school
+  within 60 minutes of each hexagon, in files the page loads when asked
+  (`schools/<service>_<mode>.json`), and each school carries its kind, teaching
+  language, who it takes, years, roll and enrolment scheme. That is what the
+  page needs to count state schools only, or one school, without routing
+  again. Public transport school times also keep the 10th and 90th
+  percentiles over the departure minutes.
+- **One directory for every place.** Schools come from one copy of the
+  Ministry's national directory, fetched 12 November 2026 (rolls at 1 October
+  2026). Auckland's old copy had 10 of the 50 fields.
+- **Intermediate schools.** Every config spelt "Restricted Composite (Yr
+  7-10)", which matched no school, and Secondary (Year 7-10) schools were not
+  counted. Both now count for intermediate only: 5 schools in Auckland (3,887
+  students) and 4 around Hamilton (2,865).
+- **Times past the limit.** R5 returned times a minute or more past the
+  60-minute limit for some walks and rides to the point; these were published
+  (up to 80 min) although every count stopped at 60. They now show as over
+  60, for every service.
+- **School runs of their own.** Schools are routed apart from the other
+  services, so a change to the directory re-routes schools only. Before any
+  point changed, the school runs gave the same minutes as the services runs
+  for every pair. `team schools split` moves a build over.
+- **For checking points and entrances.** Corrected map points and checked
+  entrances can be added by hand (`configs/schools/`); none yet.
+  `scripts/school_points_review.py` writes the sheets to check them against
+  LINZ NZ Facilities and OpenStreetMap.
+
+What changed in the published figures is in the table below: the share of
+people within each school standard, before and after, and the hexagons whose
+time changed. Other services changed only where a time over 60 minutes is no
+longer shown.
+
+__SCHOOL_TABLE__
 
 - With `?mate=1` in the address, an Auckland hexagon's card has a section from
   MATE: each mobility profile's reach on foot and by public transport, what is

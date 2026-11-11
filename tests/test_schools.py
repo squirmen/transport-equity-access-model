@@ -440,3 +440,22 @@ def test_golden_figures_for_the_slide_hexagon():
     assert slide["one:70"]["secondary_school"]["pt"] == 12
     assert golden["checks"]["ok"]
     assert golden["figures"]["all"]["secondary_school"]["best"]["share"] >= golden["figures"]["state:both"]["secondary_school"]["best"]["share"]
+
+
+SITE = Path(os.environ["TEAM_SITE"]) if os.environ.get("TEAM_SITE") else None
+
+
+@pytest.mark.skipif(SITE is None, reason="set TEAM_SITE to a built site's data folder (holding <place>/cells.json)")
+@pytest.mark.parametrize("place", sorted(p.stem for p in (REPO / "configs").glob("*.yml")))
+def test_the_named_school_is_reached_in_the_time_shown(place):
+    """For every hexagon, school service and mode: the school cells.json names is the first in the
+    reach list, its minutes are the time shown, tied schools share the minute, nothing is over 60."""
+    import subprocess
+    import sys
+
+    folder = SITE / place
+    if not (folder / "schools").exists():
+        pytest.skip(f"{place} has no school reach lists in this site")
+    result = subprocess.run([sys.executable, str(REPO / "scripts" / "school_golden.py"), "--site", str(folder)],
+                            capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(REPO / "src")})
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
