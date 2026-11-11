@@ -327,7 +327,8 @@ function hashNow() {
     const c = map.getCenter();
     params.set('at', `${map.getZoom().toFixed(1)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`);
   }
-  window.history.replaceState(null, '', `#${params.toString()}`);
+  // A school number reads as sch=one:69, which is how it is written by hand.
+  window.history.replaceState(null, '', `#${params.toString().replace(/(^|&)sch=one%3A(\d+)/, '$1sch=one:$2')}`);
 }
 
 let hashTimer = 0;
@@ -864,6 +865,7 @@ function schoolCard() {
     maxMinutes,
     when: (data.meta.windows || {})[data.meta.services?.[service]?.window]?.when || null,
     schoolBuses: schoolsMeta().school_buses,
+    standardModes: data.meta.standard_modes,
   };
   return {
     short: words.short,
@@ -2334,7 +2336,8 @@ function compute() {
   if (state.view === 'fixes') return fixesModel();
   if (state.show === 'fare' && fareAvailable() && data.cost[state.service]) return fareSurfaceModel();
   if (state.show === 'burden' && fareAvailable() && data.cost[state.service] && incomeAvailable()) return burdenModel();
-  if (state.show === 'choice' && data.choice[state.service]) {
+  // Choice counts schools, which means nothing for one school.
+  if (state.show === 'choice' && data.choice[state.service] && appliedChoice()?.kind !== 'one') {
     const model = choiceModel();
     if (model) return model;
   }
@@ -3075,7 +3078,8 @@ function renderKey(catchment) {
   if (phone() && heroBox) {
     const strip = el('div', 'key-inline');
     strip.append(...keyContent(spec, { compact: true }));
-    heroBox.after(strip);
+    // After the line that says which schools are counted, which belongs to the headline.
+    ($('view').querySelector('.counting') || heroBox).after(strip);
   }
   // With the card open on a phone, the strip sits over the map, above the card.
   let float = $('key-strip');

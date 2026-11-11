@@ -326,29 +326,40 @@ function solve({ reach, n, destinations, ok, eligible, centres, standardModes, m
     choice[String(limit)] = most;
   }
 
-  // The straight line to the nearest school that counts here.
+  // The straight line to the nearest school that counts here. The nearest is
+  // found on a flat projection about the hexagon's own latitude, which ranks
+  // schools a few kilometres away as the sphere does, and only its distance
+  // is then worked out on the sphere.
   const km = new Float32Array(n).fill(NaN);
   if (centres) {
     const everywhere = [];
     const somewhere = [];
     for (let d = 0; d < destinations.length; d += 1) {
+      const dest = destinations[d];
+      if (!Number.isFinite(dest.lat) || !Number.isFinite(dest.lon)) continue;
       if (eligible[d] === 1) everywhere.push(d);
       else if (eligible[d] === 2) somewhere.push(d);
     }
+    const lat = Float64Array.from(destinations, (x) => x.lat);
+    const lon = Float64Array.from(destinations, (x) => x.lon);
     for (let i = 0; i < n; i += 1) {
       const centre = centres[i];
       if (!centre) continue;
+      const squeeze = Math.cos(centre[0] * RAD) ** 2;
       let best = Infinity;
-      for (const d of everywhere) {
-        const dist = kmBetween(centre, destinations[d]);
-        if (dist < best) best = dist;
-      }
-      for (const d of somewhere) {
-        if (!ok(i, d)) continue;
-        const dist = kmBetween(centre, destinations[d]);
-        if (dist < best) best = dist;
-      }
-      if (Number.isFinite(best)) km[i] = best;
+      let at = -1;
+      const consider = (d) => {
+        const dy = lat[d] - centre[0];
+        const dx = lon[d] - centre[1];
+        const flat = dy * dy + dx * dx * squeeze;
+        if (flat < best) {
+          best = flat;
+          at = d;
+        }
+      };
+      for (const d of everywhere) consider(d);
+      for (const d of somewhere) if (ok(i, d)) consider(d);
+      if (at >= 0) km[i] = kmBetween(centre, destinations[at]);
     }
   }
   return { t, near, ties, choice, km };
@@ -817,16 +828,22 @@ export function cardLines(ctx, mode, i, named = []) {
     return done();
   }
 
-  // State and In zone: girls and boys apart when they differ.
-  if (real && result && result.bySex) {
+  // State and In zone: girls and boys apart when they differ. Best without a
+  // car takes each one's own fastest way.
+  if (mode && result && result.bySex) {
     const g = result.bySex.girls;
     const b = result.bySex.boys;
+    const counting = ctx.standardModes || ['walk', 'bike_low_stress', 'pt'];
     const say = (s) => {
-      const t = s.t[real] ? s.t[real][i] : NaN;
+      let way = real;
+      if (!way) {
+        for (const m of counting) if (s.t[m] && Number.isFinite(s.t[m][i]) && !(s.t[m][i] >= (way ? s.t[way][i] : Infinity))) way = m;
+      }
+      const t = way && s.t[way] ? s.t[way][i] : NaN;
       if (!Number.isFinite(t)) return `none within ${maxMinutes} min`;
-      let ds = [s.near[real][i], ...(s.ties[real][i] || [])].filter((k) => k >= 0);
-      let how = HOW[real] || '';
-      if (real === 'pt' && s.t.walk && s.t.walk[i] === t) {
+      let ds = [s.near[way][i], ...(s.ties[way][i] || [])].filter((k) => k >= 0);
+      let how = HOW[way] || '';
+      if (way === 'pt' && s.t.walk && s.t.walk[i] === t) {
         ds = [s.near.walk[i], ...(s.ties.walk[i] || [])].filter((k) => k >= 0);
         how = 'on foot';
       }
@@ -835,6 +852,7 @@ export function cardLines(ctx, mode, i, named = []) {
     const gs = say(g);
     const bs = say(b);
     if (gs !== bs) lines.push(`For a girl: ${gs}. For a boy: ${bs}.`);
+    else if (!real) lines.push(`Nearest: ${gs}.`);
   }
 
   // The nearer schools this choice leaves out, so a reader can see why the

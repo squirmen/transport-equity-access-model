@@ -277,6 +277,10 @@ test("the slide's card under State, and the schools it leaves out", () => {
   assert.match(split.rest, /For a girl: Auckland Girls' Grammar School, 20 min by public transport\. For a boy: Boys High, 15 min by public transport\./);
   const best = verdictLine(data, 4, S, 30, 'best', null, cardFor(data, choice, result));
   assert.equal(best.strong, 'State secondary school: 15 min without a car.');
+  assert.match(best.rest, /^For a girl: Auckland Girls' Grammar School, 10 min on foot\. For a boy: Boys High, 15 min by public transport\./);
+  const same = verdictLine(data, 0, S, 30, 'best', null, cardFor(data, choice, result));
+  assert.equal(same.strong, 'State secondary school: 10 min without a car.');
+  assert.match(same.rest, /^Nearest: Mt Albert Grammar School, 10 min by low-stress cycling\./);
 });
 
 test('One school: its time by the way on screen, the spread, the zone and the nearest other state school', () => {

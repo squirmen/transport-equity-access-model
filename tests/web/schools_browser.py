@@ -108,7 +108,7 @@ def desktop(page: Page, base: str, hexagon: str, out: Path, engine: str, problem
     page.click("#school-results button >> nth=0")
     ready(page)
     seen = panel(page)
-    check(problems, f"{engine} one", "sch=one%3A" in seen["hash"], seen["hash"])
+    check(problems, f"{engine} one", "sch=one:" in seen["hash"], seen["hash"])
     check(problems, f"{engine} one", "Mt Albert Grammar School" in seen["band"], seen["band"])
     check(problems, f"{engine} one", seen["painted"] > 0, "the one-school map is blank")
     page.screenshot(path=str(out / f"{engine}-4-one-pt.png"))
