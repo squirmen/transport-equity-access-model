@@ -190,6 +190,8 @@ function viewRow(label, options, current, onPick) {
 // Who the figures are for: everyone in the place, or in the part of it the
 // map is on (a council, ward, local board or suburb).
 function residentsOf(model) {
+  // One school's zone names its own people: "the 61,700 people in its zone".
+  if (model && model.who) return model.who;
   return model && model.where ? `people in ${model.where}` : `people in ${place.name}`;
 }
 
@@ -327,7 +329,7 @@ const SEGMENT = {
  *  `kind` is 'service', 'jobs', 'errands' or 'score'. Returns
  *  { segments: [[mode, label, title]], more: [[mode, label]] }.
  */
-export function travelOptions(kind, { standardModes = [], slowWalk = false, jobsModes = [], roundModes = [], scoreModes = [], betaModes = [] } = {}) {
+export function travelOptions(kind, { standardModes = [], slowWalk = false, jobsModes = [], roundModes = [], scoreModes = [], betaModes = [], compare = ['bike', 'car'] } = {}) {
   const seg = (m, label) => [m, label || (SEGMENT[m] || [MODES[m]?.label || m])[0], (SEGMENT[m] || [null, MODES[m]?.label || m])[1]];
   if (kind === 'jobs') {
     return {
@@ -359,7 +361,7 @@ export function travelOptions(kind, { standardModes = [], slowWalk = false, jobs
       ...(slowWalk ? [['walk_slow', 'Walking, slower pace']] : []),
       ['bike', 'Any bike route (comparison)'],
       ['car', 'Car (comparison)'],
-    ],
+    ].filter(([m]) => m === 'walk_slow' || compare.includes(m)),
   };
 }
 
@@ -482,7 +484,7 @@ function oneNote(...texts) {
 
 /** Minutes, Choice, Fare and Fare burden: what the Access tab maps. */
 function accessViews(current, model, set) {
-  const options = [['minutes', 'Minutes', 'Minutes to the nearest one']];
+  const options = [['minutes', 'Minutes', model.oneSchool ? 'Minutes to the school' : 'Minutes to the nearest one']];
   if (model.canShowChoice !== false) options.push(['choice', 'Choice', 'How many are within the standard']);
   if (model.canShowFare) options.push(['fare', 'Fare', 'The cheapest fare to the nearest one in time']);
   if (model.canShowFare && model.canShowBurden) options.push(['burden', 'Fare burden', "That fare as a share of a day's income"]);
@@ -521,16 +523,191 @@ function robustSection(model) {
 export function renderAccess(root, model, set) {
   const short = SERVICE_SHORT[model.service] || '';
   setKey(root, {
-    mode: `Minutes to the nearest ${lowerName(short)}, ${MODE_KEY[model.mode] || model.mode}`,
+    mode: `${model.keyName || `Minutes to the nearest ${lowerName(short)}`}, ${MODE_KEY[model.mode] || model.mode}`,
     scale: scaleOf(model.legend, 3),
     notes: [`Blue is within the ${model.standard}-minute standard, orange beyond it.`, MODE_NOTES[model.mode]],
   });
   root.replaceChildren(...[
     accessViews('minutes', model, set),
     hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null),
-    oneNote(model.compare, fareText(model)),
+    oneNote(model.compare, fareText(model), model.zoneNote),
+    zoneAreas(model, set),
     robustSection(model),
   ].filter(Boolean));
+}
+
+/** One school's zone, area by area, the furthest first: the people in each
+ *  part of the zone and the share of them within the standard. */
+function zoneAreas(model, set) {
+  const z = model.zoneAreas;
+  if (!z || !z.rows.length) return null;
+  const list = el('ol', 'rank-list');
+  for (const row of z.rows) {
+    const item = el('li');
+    const button = el('button', 'rank-row');
+    button.type = 'button';
+    button.title = `Show ${row.name} on the map`;
+    button.append(
+      el('span', 'rank-name', row.name),
+      el('span', 'rank-meta', percent(1 - row.share)),
+      el('span', 'rank-reason', `of ${count(row.people)} ${peopleWord(row.people)} within ${model.standard} min`),
+    );
+    button.addEventListener('click', () => set({ zoomTo: row.area }));
+    item.append(button);
+    list.append(item);
+  }
+  return fold('zone-areas', z.title, z.rows[0] ? `${z.rows[0].name} ${percent(1 - z.rows[0].share)}` : null, [list]);
+}
+
+// ---------------------------------------------------------------- Schools
+
+const KIND_TEXT = {
+  all: ['All', 'Every school that teaches these years: state, state-integrated, private and charter'],
+  state: ['State', 'State schools taught in English'],
+  zone: ['In zone', 'State schools whose zone covers the home, and those with no zone'],
+  one: ['One school', 'Minutes to one school, picked by name or on the map'],
+};
+const STUDENT_TEXT = [
+  ['both', 'Girls and boys', 'Counted where both a girl and a boy can reach a school they can go to; the slower time'],
+  ['girls', 'Girls', "Co-ed and girls' schools"],
+  ['boys', 'Boys', "Co-ed and boys' schools"],
+];
+
+/** The Schools row under Getting to, for school services: which schools are
+ *  counted. `model` = { kinds, choice, school, status, find, csv, budget }. */
+export function renderSchools(root, model, set) {
+  if (!model) {
+    root.hidden = true;
+    root.replaceChildren();
+    return;
+  }
+  root.hidden = false;
+  const { choice } = model;
+  const pick = (kind) => set({ schools: { ...choice, kind } });
+
+  const head = el('div', 'pick');
+  const label = el('span', 'pick-label', 'Schools');
+  label.id = 'schools-label';
+  const segs = el('div', 'modes school-kinds');
+  segs.setAttribute('role', 'radiogroup');
+  segs.setAttribute('aria-labelledby', 'schools-label');
+  segs.dataset.group = 'schools-kind';
+  for (const kind of model.kinds) {
+    const [text, title] = KIND_TEXT[kind];
+    const button = el('button', null, text);
+    button.type = 'button';
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', String(kind === choice.kind));
+    button.dataset.value = kind;
+    button.title = title;
+    button.addEventListener('click', () => { if (kind !== choice.kind) pick(kind); });
+    segs.append(button);
+  }
+  // On a phone the four choices are one select in the same place.
+  const select = el('select', 'select school-select');
+  select.id = 'schools-select';
+  select.setAttribute('aria-labelledby', 'schools-label');
+  for (const kind of model.kinds) {
+    const option = el('option', null, KIND_TEXT[kind][0] === 'One school' ? 'One school…' : `${KIND_TEXT[kind][0]} schools`);
+    option.value = kind;
+    option.selected = kind === choice.kind;
+    select.append(option);
+  }
+  select.addEventListener('change', () => pick(select.value));
+  head.append(label, el('div', 'school-controls'));
+  head.lastChild.append(segs, select);
+  const parts = [head];
+
+  if (choice.kind === 'state' || choice.kind === 'zone') {
+    const row = viewRow('Students', STUDENT_TEXT, choice.students, (students) => set({ schools: { ...choice, students } }));
+    row.classList.add('school-students');
+    parts.push(row);
+  }
+
+  if (choice.kind === 'one') parts.push(...oneSchool(model, set));
+  if (model.status) parts.push(el('p', `note school-status${model.statusKind === 'error' ? ' is-error' : ''}`, model.status));
+  if (model.budget) parts.push(el('p', 'note', model.budget));
+  if (model.csv) {
+    const csv = el('button', 'text-button school-csv', 'Download hexagons as CSV');
+    csv.type = 'button';
+    csv.addEventListener('click', () => set({ schoolCsv: true }));
+    parts.push(csv);
+  }
+  root.replaceChildren(...parts);
+}
+
+/** One school: its name and facts, or a search box to find one. */
+function oneSchool(model, set) {
+  const { choice, school } = model;
+  const parts = [];
+  if (school && !model.searching) {
+    const line = el('div', 'school-name-row');
+    line.append(el('strong', 'school-name', school.name));
+    const change = el('button', 'text-button', 'Change');
+    change.type = 'button';
+    change.id = 'school-change';
+    change.addEventListener('click', () => set({ schoolSearching: true }));
+    line.append(change);
+    parts.push(line);
+    const facts = el('div', 'school-facts');
+    facts.append(...school.facts.map((text) => el('p', 'note', text)));
+    parts.push(facts);
+    if (school.hasZone) {
+      const box = el('label', 'check');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.id = 'school-zone-only';
+      input.checked = choice.zoneOnly !== false;
+      input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
+      box.append(input, el('span', null, 'Only people living in its zone'));
+      parts.push(box);
+    }
+    return parts;
+  }
+  const field = el('div', 'school-search');
+  const input = el('input', 'select school-input');
+  input.type = 'search';
+  input.id = 'school-search';
+  input.placeholder = "Type a school's name";
+  input.setAttribute('aria-label', 'Find a school');
+  input.autocomplete = 'off';
+  input.value = model.query || '';
+  const results = el('ul', 'school-results');
+  results.id = 'school-results';
+  results.setAttribute('aria-label', 'Schools found');
+  const show = () => {
+    const found = model.find(input.value);
+    results.replaceChildren(...found.map(([d, name, tag]) => {
+      const item = el('li');
+      const button = el('button', 'school-result');
+      button.type = 'button';
+      button.dataset.d = String(d);
+      button.append(el('span', 'school-result-name', name));
+      if (tag) button.append(el('span', 'school-result-tag', tag));
+      button.addEventListener('click', () => set({ schools: { ...choice, kind: 'one', moe: model.moeOf(d) }, schoolSearching: false, schoolFit: true, schoolQuery: '' }));
+      item.append(button);
+      return item;
+    }));
+    if (!found.length && input.value.trim()) results.append(el('li', 'note', 'No school of these years by that name.'));
+  };
+  input.addEventListener('input', () => {
+    model.remember(input.value);
+    show();
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') results.querySelector('button')?.click();
+    if (event.key === 'Escape' && school) set({ schoolSearching: false });
+  });
+  show();
+  field.append(input, results);
+  parts.push(field, el('p', 'note', model.hint));
+  if (school) {
+    const back = el('button', 'text-button', `Back to ${school.name}`);
+    back.type = 'button';
+    back.addEventListener('click', () => set({ schoolSearching: false }));
+    parts.push(back);
+  }
+  return parts;
 }
 
 /** How many of a service are within the standard, not only whether one is. */

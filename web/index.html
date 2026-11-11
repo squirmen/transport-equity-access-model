@@ -43,6 +43,7 @@
   <link rel="modulepreload" href="js/scope.js">
   <link rel="modulepreload" href="js/cities.js">
   <link rel="modulepreload" href="js/about.js">
+  <link rel="modulepreload" href="js/schools.js">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -90,6 +91,8 @@
             <label class="pick-label" for="goal" id="goal-label">Getting to</label>
             <select id="goal" class="select"></select>
           </div>
+          <!-- Which schools count, for school services only. app.js fills it. -->
+          <div class="school-field" id="school-field" hidden></div>
           <div class="pick" id="mode-field">
             <span class="pick-label" id="mode-label">Travel by</span>
             <div id="mode-picker" class="modes" role="radiogroup" aria-labelledby="mode-label" data-group="travel-by"></div>

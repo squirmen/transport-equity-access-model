@@ -86,7 +86,7 @@ test('the verdict band leads with the service and way on screen', () => {
   const meets = verdictLine(two, 0, 'gp', 20, 'best');
   assert.equal(meets.state, 'meets');
   assert.equal(meets.strong, 'GP: 2 min by low-stress cycling.');
-  assert.match(meets.rest, /The standard is 20 min\. Nearest: Hill Medical\./);
+  assert.equal(meets.rest, 'Nearest: Hill Medical. The standard is 20 min.');
   const misses = verdictLine(two, 1, 'gp', 20, 'pt');
   assert.equal(misses.state, 'misses');
   assert.equal(misses.strong, 'GP: 34 min by public transport.');

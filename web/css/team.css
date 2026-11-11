@@ -167,6 +167,30 @@ body[data-panel="collapsed"] .panel-toggle svg { transform: rotate(180deg); }
 .modes-more.is-on { border: 1px dashed var(--navy); color: var(--navy); background-color: var(--wash); }
 .modes-more:disabled { opacity: 0.5; }
 
+/* Schools: which ones count, under Getting to, for school services only. The
+   rows under the first line sit in the control column, under the choice. */
+.school-field { display: flex; flex-direction: column; gap: 6px; }
+.school-field[hidden] { display: none; }
+.school-controls { min-width: 0; }
+.school-kinds > button { padding: 2px 5px; }
+.school-select { display: none; }
+.school-field > :not(.pick) { margin-left: 82px; }
+.school-students button { white-space: nowrap; }
+.school-name-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; }
+.school-name { color: var(--navy); font-size: var(--fs-md); line-height: 1.3; }
+.school-name-row .text-button { min-height: 24px; font-size: var(--fs-xs); }
+.school-facts { display: flex; flex-direction: column; gap: 1px; }
+.school-search { display: flex; flex-direction: column; gap: 4px; }
+.school-input { padding-right: 10px; background-image: none; font-weight: 500; }
+.school-results { max-height: 220px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.school-result { display: flex; flex-direction: column; width: 100%; padding: 5px 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink); font-size: var(--fs-sm); text-align: left; }
+.school-result:hover, .school-result:focus-visible { background: var(--wash); color: var(--navy); }
+.school-result-tag { color: var(--muted); font-size: var(--fs-2xs); }
+.school-status.is-error { color: var(--misses-ink); }
+.school-csv { align-self: flex-start; min-height: 24px; padding: 0; font-size: var(--fs-xs); }
+.note.counting { color: var(--ink-soft); }
+.map-tag.is-school { margin: 0; }
+
 /* Each tab as wide as its label, so none wraps onto two lines. */
 .tabs { display: flex; justify-content: space-between; margin: 2px -14px 0; padding: 0 10px; border-bottom: 1px solid var(--line); }
 .tabs button { min-height: 40px; padding: 8px 6px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
@@ -801,6 +825,11 @@ body[data-place="open"] .maplibregl-ctrl-top-right .maplibregl-ctrl-group { marg
   .select, .modes-more, input, .row-pick .select, .mate-field .select { font-size: 16px; }
   .modes > button { padding: 2px 4px; font-size: var(--fs-md); }
   .views button { min-height: 36px; font-size: var(--fs-sm); }
+  /* On a phone the four school choices are one select in the same place. */
+  .school-kinds { display: none; }
+  .school-select { display: block; }
+  .school-field > :not(.pick) { margin-left: 0; }
+  .school-result { min-height: var(--touch); justify-content: center; }
   .fold > summary, .drawers button, .k-row, .area-item, .rank-row { min-height: var(--touch); }
   .hero-figure { font-size: 36px; }
   .tabs { margin: 0 -14px; }

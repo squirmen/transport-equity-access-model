@@ -1,0 +1,594 @@
+{
+ "note": "Hexagon 0 is real (St Lukes, 0.11 pairs cache); hexagons 1-4, Boys High and Open State College are made up.",
+ "h3": [
+  "89bb50021a3ffff",
+  "89bb50021a7ffff",
+  "89bb5002133ffff",
+  "89bb50021b3ffff",
+  "89bb5002107ffff"
+ ],
+ "centres": [
+  [
+   -36.88539088388131,
+   174.72991387682092
+  ],
+  [
+   -36.883543985399534,
+   174.72665350209644
+  ],
+  [
+   -36.88066041254632,
+   174.7337623646013
+  ],
+  [
+   -36.8886795397538,
+   174.7296196752743
+  ],
+  [
+   -36.88250710342242,
+   174.73702259145824
+  ]
+ ],
+ "pop": [
+  217.4,
+  150.0,
+  80.0,
+  120.0,
+  200.0
+ ],
+ "destinations": [
+  {
+   "name": "TKKM o Nga Maungarongo",
+   "services": [
+    "primary_school",
+    "intermediate_school",
+    "secondary_school"
+   ],
+   "lon": 174.7268,
+   "lat": -36.8884,
+   "moe": 4207,
+   "kind": "state",
+   "medium": "maori",
+   "sex": {
+    "primary_school": "co-ed",
+    "intermediate_school": "co-ed",
+    "secondary_school": "co-ed"
+   },
+   "years": "1-15",
+   "roll": 71,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": "point"
+  },
+  {
+   "name": "Marist College",
+   "services": [
+    "intermediate_school",
+    "secondary_school"
+   ],
+   "lon": 174.7261,
+   "lat": -36.8819,
+   "moe": 70,
+   "kind": "integrated",
+   "medium": "english",
+   "sex": {
+    "intermediate_school": "girls",
+    "secondary_school": "girls"
+   },
+   "years": "7-15",
+   "roll": 765,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": "point"
+  },
+  {
+   "name": "Mt Albert Grammar School",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.7253,
+   "lat": -36.8847,
+   "moe": 69,
+   "kind": "state",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "co-ed"
+   },
+   "years": "9-15",
+   "roll": 3635,
+   "roll_date": "2026-10-01",
+   "scheme": true,
+   "zone_from": "2018-06-06",
+   "routed_to": "point"
+  },
+  {
+   "name": "Auckland Girls' Grammar School",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.7537,
+   "lat": -36.8569,
+   "moe": 53,
+   "kind": "state",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "girls"
+   },
+   "years": "9-15",
+   "roll": 1300,
+   "roll_date": "2026-10-01",
+   "scheme": true,
+   "zone_from": "2009-01-01",
+   "routed_to": "point"
+  },
+  {
+   "name": "Western Springs College-Ngā Puna o Waiōrea",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.7175,
+   "lat": -36.862,
+   "moe": 48,
+   "kind": "state",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "co-ed"
+   },
+   "years": "9-15",
+   "roll": 1500,
+   "roll_date": "2026-10-01",
+   "scheme": true,
+   "zone_from": "2010-01-01",
+   "routed_to": "point"
+  },
+  {
+   "name": "Elim Christian College Mt Albert",
+   "services": [
+    "primary_school",
+    "intermediate_school",
+    "secondary_school"
+   ],
+   "lon": 174.7092,
+   "lat": -36.8891,
+   "moe": 3630,
+   "kind": "integrated",
+   "medium": "english",
+   "sex": {
+    "primary_school": "co-ed",
+    "intermediate_school": "co-ed",
+    "secondary_school": "co-ed"
+   },
+   "years": "1-15",
+   "roll": 449,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": "point"
+  },
+  {
+   "name": "King's College",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.8373,
+   "lat": -36.9598,
+   "moe": 89,
+   "kind": "private",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "boys"
+   },
+   "years": "9-15",
+   "roll": 1230,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": "point"
+  },
+  {
+   "name": "Hill Medical",
+   "services": [
+    "gp"
+   ],
+   "lon": 174.73,
+   "lat": -36.88
+  },
+  {
+   "name": "Boys High",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.735,
+   "lat": -36.87,
+   "moe": 99002,
+   "kind": "state",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "boys"
+   },
+   "years": "9-15",
+   "roll": 900,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": 2
+  },
+  {
+   "name": "Open State College",
+   "services": [
+    "secondary_school"
+   ],
+   "lon": 174.9,
+   "lat": -37.0,
+   "moe": 99001,
+   "kind": "state",
+   "medium": "english",
+   "sex": {
+    "secondary_school": "co-ed"
+   },
+   "years": "9-13",
+   "roll": 400,
+   "roll_date": "2026-10-01",
+   "scheme": false,
+   "zone_from": null,
+   "routed_to": "point"
+  }
+ ],
+ "cells": {
+  "t": {
+   "secondary_school": {
+    "walk": [
+     9,
+     null,
+     null,
+     26,
+     10
+    ],
+    "bike_low_stress": [
+     6,
+     18,
+     null,
+     9,
+     null
+    ],
+    "pt": [
+     9,
+     20,
+     null,
+     27,
+     15
+    ]
+   }
+  },
+  "nearest_mode": {
+   "secondary_school": {
+    "walk": [
+     0,
+     null,
+     null,
+     2,
+     3
+    ],
+    "bike_low_stress": [
+     1,
+     2,
+     null,
+     2,
+     null
+    ],
+    "pt": [
+     0,
+     2,
+     null,
+     1,
+     8
+    ]
+   }
+  },
+  "ties": {
+   "secondary_school": {
+    "walk": {},
+    "bike_low_stress": {},
+    "pt": {
+     "1": [
+      4
+     ]
+    }
+   }
+  },
+  "nearest": {
+   "secondary_school": [
+    1,
+    2,
+    null,
+    2,
+    3
+   ]
+  }
+ },
+ "schools": {
+  "secondary_school_walk": {
+   "format": 1,
+   "o": [
+    0,
+    5,
+    5,
+    5,
+    6,
+    9
+   ],
+   "d": [
+    0,
+    1,
+    2,
+    5,
+    4,
+    2,
+    3,
+    2,
+    8
+   ],
+   "m": [
+    9,
+    12,
+    15,
+    44,
+    46,
+    26,
+    10,
+    30,
+    31
+   ]
+  },
+  "secondary_school_bike_low_stress": {
+   "format": 1,
+   "o": [
+    0,
+    5,
+    6,
+    6,
+    7,
+    7
+   ],
+   "d": [
+    1,
+    0,
+    2,
+    4,
+    5,
+    2,
+    2
+   ],
+   "m": [
+    6,
+    7,
+    10,
+    27,
+    29,
+    18,
+    9
+   ]
+  },
+  "secondary_school_pt": {
+   "format": 1,
+   "o": [
+    0,
+    5,
+    7,
+    7,
+    9,
+    12
+   ],
+   "d": [
+    0,
+    1,
+    2,
+    5,
+    4,
+    2,
+    4,
+    1,
+    2,
+    8,
+    3,
+    2
+   ],
+   "m": [
+    9,
+    12,
+    15,
+    29,
+    32,
+    20,
+    20,
+    27,
+    28,
+    15,
+    20,
+    22
+   ],
+   "lo": [
+    9,
+    12,
+    15,
+    29,
+    27,
+    17,
+    18,
+    27,
+    25,
+    15,
+    20,
+    22
+   ],
+   "hi": [
+    9,
+    12,
+    15,
+    29,
+    38,
+    24,
+    23,
+    27,
+    33,
+    15,
+    20,
+    22
+   ]
+  }
+ },
+ "zones": {
+  "format": 1,
+  "date": "2026-07-14",
+  "schools": {
+   "2": {
+    "moe": 69,
+    "from": "2018-06-06",
+    "outline": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        174.72,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.89
+       ]
+      ]
+     ]
+    }
+   },
+   "3": {
+    "moe": 53,
+    "from": "2009-01-01",
+    "outline": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        174.72,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.89
+       ]
+      ]
+     ]
+    }
+   },
+   "4": {
+    "moe": 48,
+    "from": "2010-01-01",
+    "outline": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        174.72,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.89
+       ],
+       [
+        174.74,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.875
+       ],
+       [
+        174.72,
+        -36.89
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  "in": {
+   "secondary_school": {
+    "o": [
+     0,
+     1,
+     2,
+     2,
+     3,
+     4
+    ],
+    "d": [
+     2,
+     4,
+     2,
+     3
+    ]
+   }
+  },
+  "cut": {
+   "secondary_school": {
+    "o": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     1
+    ],
+    "d": [
+     2
+    ]
+   }
+  }
+ },
+ "meta": {
+  "standard_modes": [
+   "walk",
+   "bike_low_stress",
+   "pt"
+  ],
+  "routing_max_minutes": 60,
+  "schools": {
+   "directory": "2026-11-12",
+   "roll_date": "2026-10-01",
+   "zones": "2026-07-14",
+   "reach": {
+    "secondary_school": [
+     "walk",
+     "bike_low_stress",
+     "pt"
+    ]
+   }
+  }
+ }
+}

@@ -22,6 +22,8 @@ const HOW = {
   bike: 'cycling on any street',
   pt: 'by public transport',
   car: 'by car',
+  // Girls and boys together, each by their own fastest way.
+  best: 'without a car',
 };
 
 function row(label, value) {
@@ -63,18 +65,22 @@ export function timeFor(data, service, mode, i, zones = null) {
 }
 
 export function serviceVerdict(data, i, service, standard, viewMode, zones = null) {
+  // Girls and boys together have a best time of their own (schools.js): the
+  // slower of each one's fastest way, which no single way may give.
+  const own = zones == null ? data.best?.[service] : null;
   const fastest = bestMode(data, service, i, zones);
-  const best = fastest ? timeFor(data, service, fastest, i, zones) : NaN;
-  const mode = viewMode && viewMode !== 'best' ? viewMode : fastest;
-  const shown = mode ? timeFor(data, service, mode, i, zones) : NaN;
+  const best = own ? own[i] : fastest ? timeFor(data, service, fastest, i, zones) : NaN;
+  const ownBest = own && Number.isFinite(best) ? 'best' : null;
+  const mode = viewMode && viewMode !== 'best' ? viewMode : own ? ownBest : fastest;
+  const shown = mode === 'best' ? best : mode ? timeFor(data, service, mode, i, zones) : NaN;
   // With no route at all within the routing limit, the place misses the
   // standard; it is not a mode that "doesn't count".
   // Walking at the slower pace is walking, so it counts like walking does.
-  const counts = mode ? data.meta.standard_modes.includes(mode) || mode === 'walk_slow' : true;
+  const counts = mode ? data.meta.standard_modes.includes(mode) || mode === 'walk_slow' || mode === 'best' : true;
   const meets = counts && Number.isFinite(shown) && shown <= standard;
   const pricedOut = mode === 'pt' && zones != null
     && Number.isFinite(data.t[service]?.pt?.[i]) && !Number.isFinite(shown);
-  return { fastest, best, mode, shown, counts, meets, pricedOut };
+  return { fastest, best, mode, shown, counts, meets, pricedOut, own: Boolean(own) };
 }
 
 /** The main reason a service misses the standard here, as a REASON_GROUPS entry. */
@@ -100,12 +106,66 @@ function reasonFor(data, i, service, standard, zones, best) {
   return code in REASON_CLASS ? REASON_GROUPS[REASON_CLASS[code]] : null;
 }
 
-/** The verdict band for one service: { state, badge, strong, rest }. */
-export function verdictLine(data, i, service, standard, viewMode, zones = null) {
+/** The destinations reached from hexagon i in `mode`'s time, by `mode`: the
+ *  nearest and any reached in the same minute, as indexes into
+ *  destinations.json. Builds before 0.12 send only the nearest by the fastest
+ *  way, which names the way shown only when that is the fastest. */
+export function namedFor(data, service, mode, i) {
+  const byMode = data.nearestMode?.[service];
+  if (byMode) {
+    const m = mode === 'walk_slow' ? 'walk' : mode;
+    const near = byMode[m];
+    const k = near ? near[i] : null;
+    if (k == null || k < 0) return [];
+    const extra = data.ties?.[service]?.[m]?.[i] || [];
+    return [k, ...extra.filter((d) => d != null && d !== k)];
+  }
+  const k = data.nearest?.[service]?.[i];
+  if (k == null || mode !== bestMode(data, service, i)) return [];
+  return [k];
+}
+
+/** "A", "A or B", "A, B or C". */
+export function orNames(names) {
+  if (names.length <= 1) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+}
+
+/** How the time on screen was made, and what it reaches.
+ *
+ *  A public transport time may be a walk the whole way, when no bus or train
+ *  is quicker. Where it equals the walking time it is said as walking, and
+ *  the places named are those reached on foot in that time. Where walking is
+ *  quicker still (a trip by public transport may only walk 15 minutes
+ *  straight to the door), that is said too. Under a fare budget the priced
+ *  time may go somewhere else at the same minute, so nothing is named. */
+export function tripWords(data, service, mode, i, zones = null) {
+  const shown = timeFor(data, service, mode, i, zones);
+  const out = { how: HOW[mode] || '', onFoot: false, quicker: null, names: [] };
+  if (!Number.isFinite(shown) || mode === 'best') return out;
+  const priced = mode === 'pt' && zones != null;
+  if (mode === 'pt') {
+    const walk = data.t[service]?.walk?.[i];
+    if (Number.isFinite(walk) && walk === shown) {
+      out.how = 'on foot';
+      out.onFoot = true;
+      if (!priced) out.names = namedFor(data, service, 'walk', i);
+      return out;
+    }
+    if (Number.isFinite(walk) && walk < shown) out.quicker = walk;
+  }
+  if (!priced) out.names = namedFor(data, service, mode, i);
+  return out;
+}
+
+/** The verdict band for one service: { state, badge, strong, rest }.
+ *
+ *  `more` is for the service on screen when it is a school service:
+ *  { short, label(d), lines(mode, i, names, shown) }, from schools.js, giving
+ *  the choice's name, a tag after a school's name, and extra sentences. */
+export function verdictLine(data, i, service, standard, viewMode, zones = null, more = null) {
   const v = serviceVerdict(data, i, service, standard, viewMode, zones);
-  const name = SERVICE_SHORT[service] || service;
-  const nearest = data.nearest?.[service]?.[i];
-  const nearName = nearest != null && v.fastest ? data.destinations?.[nearest]?.name : null;
+  const name = more?.short || SERVICE_SHORT[service] || service;
   if (v.pricedOut) {
     return {
       state: 'misses',
@@ -123,14 +183,26 @@ export function verdictLine(data, i, service, standard, viewMode, zones = null) 
     };
   }
   if (!v.mode) {
-    return { state: 'misses', badge: 'Misses', strong: `${name}: over 60 min without a car.`, rest: `The standard is ${standard} min.` };
+    const extra = more ? more.lines(null, i, [], NaN) : [];
+    return { state: 'misses', badge: 'Misses', strong: `${name}: over 60 min without a car.`, rest: [...extra, `The standard is ${standard} min.`].join(' ') };
   }
-  const strong = `${name}: ${minutes(v.shown)} ${HOW[v.mode] || ''}.`;
+  const trip = tripWords(data, service, v.mode, i, zones);
+  const strong = `${name}: ${minutes(v.shown)} ${trip.how}.${trip.onFoot ? ' No bus or train is quicker.' : ''}`;
+  const bits = [];
+  if (Number.isFinite(trip.quicker)) bits.push(`Walking is quicker: ${minutes(trip.quicker)}.`);
+  if (trip.names.length && !(more && more.one)) {
+    const label = (k) => (more?.label ? more.label(k) : data.destinations?.[k]?.name || 'unnamed');
+    const all = trip.names.length > 2 ? 'all' : 'both';
+    bits.push(trip.names.length > 1
+      ? `Nearest: ${orNames(trip.names.map(label))}, ${all} ${minutes(v.shown)}.`
+      : `Nearest: ${label(trip.names[0])}.`);
+  }
+  if (more) bits.push(...more.lines(v.mode, i, trip.names, v.shown));
   if (v.meets) {
-    return { state: 'meets', badge: 'Meets', strong, rest: `The standard is ${standard} min.${nearName ? ` Nearest: ${nearName}.` : ''}` };
+    return { state: 'meets', badge: 'Meets', strong, rest: [...bits, `The standard is ${standard} min.`].join(' ') };
   }
   const reason = reasonFor(data, i, service, standard, zones, v.best);
-  return { state: 'misses', badge: 'Misses', strong, rest: `The standard is ${standard} min.${reason ? ` ${reason.label}.` : ''}` };
+  return { state: 'misses', badge: 'Misses', strong, rest: [...bits, `The standard is ${standard} min.${reason ? ` ${reason.label}.` : ''}`].join(' ') };
 }
 
 /** "Meets all 11 standards without a car." or which it misses. */
@@ -172,24 +244,28 @@ function tile({ figure, label }) {
   return box;
 }
 
-function serviceRow(data, i, service, standard, viewMode, zones, chosen) {  // eslint-disable-line max-statements
-  const { fastest, best, mode, shown, counts, meets, pricedOut } = serviceVerdict(data, i, service, standard, viewMode, zones);
+function serviceRow(data, i, service, standard, viewMode, zones, chosen, more = null) {  // eslint-disable-line max-statements
+  const { fastest, best, mode, shown, counts, meets, pricedOut, own } = serviceVerdict(data, i, service, standard, viewMode, zones);
   const state = !counts ? 'is-reference' : meets ? 'is-met' : 'is-missed';
   const details = el('details', `service-row ${state}${chosen ? ' is-chosen' : ''}`);
   details.dataset.service = service;
   const summary = el('summary');
   const badge = el('span', 'badge', !counts ? "Doesn't count" : meets ? 'Meets' : 'Misses');
-  const what = el('span', 'service-name', SERVICE_SHORT[service]);
+  const what = el('span', 'service-name', more?.short || SERVICE_SHORT[service]);
   const time = el('span', 'service-time', pricedOut
     ? 'costs too much'
     : mode ? `${minutes(shown)} · ${MODES[mode].short}` : 'over 60 min');
   summary.append(badge, what, time);
   details.append(summary);
-  if (mode && mode !== fastest && Number.isFinite(best)) {
+  const ownBest = mode === 'best';
+  if (mode && !ownBest && Number.isFinite(best) && (own || (fastest && mode !== fastest))) {
     const verdict = best <= standard ? `within the ${standard}-minute standard` : `still over ${standard} minutes`;
-    details.append(
-      el('p', 'service-reason', `Fastest without a car: ${MODES[fastest].short}, ${minutes(best)}, ${verdict}.`),
-    );
+    details.append(el('p', 'service-reason', own
+      ? `Fastest without a car, for a girl and a boy each by their own fastest way: ${minutes(best)}, ${verdict}.`
+      : `Fastest without a car: ${MODES[fastest].short}, ${minutes(best)}, ${verdict}.`));
+  }
+  if (ownBest) {
+    details.append(el('p', 'service-reason', 'The slower of the fastest times for a girl and for a boy, who may each travel a different way.'));
   }
   if (pricedOut) {
     const full = data.t[service].pt[i];
@@ -206,13 +282,18 @@ function serviceRow(data, i, service, standard, viewMode, zones, chosen) {  // e
   // The slower pace sits under walking, for places built with one.
   const modes = data.t[service]?.walk_slow ? ['walk', 'walk_slow', ...DETAIL_MODES.slice(1)] : DETAIL_MODES;
   for (const m of modes) {
+    // Under a school choice, a comparison way is worked out only while it is on screen.
+    if (!data.t[service]?.[m]) continue;
     const t = timeFor(data, service, m, i, zones);
     grid.append(el('span', 'mode-name', MODES[m].label), el('span', 'mode-time', minutes(t)));
   }
   details.append(grid);
-  const nearest = data.nearest[service]?.[i];
-  if (nearest != null && fastest && data.destinations[nearest]?.name) {
-    details.append(el('p', 'service-nearest', `Nearest by ${MODES[fastest].short}: ${data.destinations[nearest].name}`));
+  // Named for the fastest way, from the fastest way's own nearest. Under a
+  // fare budget the priced trip may go elsewhere, so nothing is named.
+  const named = fastest && !own && !(fastest === 'pt' && zones != null) ? namedFor(data, service, fastest, i) : [];
+  if (named.length && !more?.one) {
+    const label = (k) => (more?.label ? more.label(k) : data.destinations?.[k]?.name || 'unnamed');
+    details.append(el('p', 'service-nearest', `Nearest by ${MODES[fastest].short}: ${orNames(named.map(label))}`));
   }
   details.append(el('p', 'service-standard', `Standard: within ${standard} min. Straight-line distance ${metres((data.km[service]?.[i] ?? NaN) * 1000)}.`));
   return { node: details, meets: meets && counts, counts };
@@ -241,9 +322,11 @@ export function placeHeader(data, i) {
  *  destination is picked); `opts.slot` goes under the tiles (trips);
  *  `opts.extra` holds sections after TEAM's own, such as MATE's behind
  *  ?mate=1. `opts.key` prefixes the fold keys, so a trip's From and To cards
- *  fold apart. */
+ *  fold apart. `opts.school` is the schools wording for the service on
+ *  screen (see verdictLine), and `opts.schoolFold` a fold of its own that
+ *  goes first. */
 export function renderPlace(root, data, i, state, opts = {}) {
-  const { extra = [], slot = null, lead = null, key = 'card', top = null } = opts;
+  const { extra = [], slot = null, lead = null, key = 'card', top = null, schoolFold = null } = opts;
   const head = placeHeader(data, i);
   const standards = (s) => state.standard[s] ?? data.meta.services[s].standard_minutes;
 
@@ -257,10 +340,10 @@ export function renderPlace(root, data, i, state, opts = {}) {
   let band = lead;
   if (!band && state.measure === 'score') band = scoreLead(data, i, state);
   else if (!band && state.service === 'jobs') band = jobsLead(data, i, state, zones);
-  else if (!band && data.t[state.service]) band = verdictLine(data, i, state.service, standards(state.service), viewMode, zones);
+  else if (!band && data.t[state.service]) band = verdictLine(data, i, state.service, standards(state.service), viewMode, zones, opts.school || null);
 
   const services = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s]).map((s) =>
-    serviceRow(data, i, s, standards(s), viewMode, zones, s === state.service));
+    serviceRow(data, i, s, standards(s), viewMode, zones, s === state.service, s === state.service ? opts.school || null : null));
   const counted = services.filter((s) => s.counts);
   const servicesSum = counted.length ? `${services.filter((s) => s.meets).length} of ${services.length}` : null;
 
@@ -404,6 +487,7 @@ export function renderPlace(root, data, i, state, opts = {}) {
     el('div', 'folds', null),
   ].filter(Boolean));
   root.body.querySelector('.folds').append(...[
+    schoolFold,
     fold(`${key}-services`, heading, servicesSum, [...services.map((s) => s.node), untimed]),
     fold(`${key}-jobs`, 'Jobs within reach', jobTile.short, jobs.length ? jobs : [el('p', 'note', 'No job figures for this hexagon.')]),
     fold(`${key}-around`, 'Around here', aroundSum, around),
