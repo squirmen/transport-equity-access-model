@@ -365,9 +365,7 @@ test('names for headlines and the key', () => {
 test('facts about one school', () => {
   assert.deepEqual(schoolFacts(D[MAGS], S, { zone: { from: '2018-06-06' } }), [
     'State · co-ed · Years 9–15 · roll 3,635 (1 Oct 2026)',
-    'Zone in force from 6 Jun 2018.',
-    "Times go to the Ministry's map point for the school.",
-    'Ministry school number 69.',
+    "Zone in force from 6 Jun 2018. Times go to the Ministry's map point for the school. Ministry number 69.",
   ]);
   assert.match(schoolFacts(D[BOYS_HIGH], S).join(' '), /No enrolment scheme\. Times go to the nearest of 2 checked entrances\./);
   assert.match(schoolFacts(D[TKKM], S)[0], /^State · co-ed · Māori-medium · Years 1–15/);

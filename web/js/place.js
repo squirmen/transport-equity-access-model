@@ -413,7 +413,10 @@ export function renderPlace(root, data, i, state, opts = {}) {
   let better = NaN;
   if (scores && Number.isFinite(scores[i])) {
     standing.push(row(`Access score by ${MODES[scoreMode].short}`, `${Math.round(scores[i])} · ${placeNames.name} average is 100`));
-    better = rankAmong(scores, data.pop, i);
+    // Against everyone counted, but not narrowed to one school's zone: the
+    // score is about everything, not that school.
+    const counted = data.cellMask ? (data.urbanOn && data.urbanOnly ? data.urbanOnly.pop : data.everywhere?.pop) || data.pop : data.pop;
+    better = rankAmong(scores, counted, i);
     if (Number.isFinite(better)) standing.push(row('Better than', `${Math.floor(better * 100)}% of residents`));
   }
   if (data.cost && data.meta.fares) {

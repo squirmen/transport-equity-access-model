@@ -694,18 +694,18 @@ export function schoolFacts(dest, service, { zone = null } = {}) {
   const years = Array.isArray(dest.years) ? dest.years : String(dest.years || '').match(/\d+/g);
   if (years && years.length >= 2) bits.push(`Years ${years[0]}–${years[years.length - 1]}`);
   if (Number.isFinite(Number(dest.roll)) && dest.roll != null) bits.push(`roll ${thousands(dest.roll)}${dest.roll_date ? ` (${day(dest.roll_date)})` : ''}`);
-  const lines = [bits.join(' · ')];
+  const more = [];
   if (dest.scheme === true) {
-    lines.push(zone ? `Zone in force from ${day(zone.from || dest.zone_from) || 'a date not given'}.` : 'Has an enrolment scheme; its zone is not in this build.');
+    more.push(zone ? `Zone in force from ${day(zone.from || dest.zone_from) || 'a date not given'}.` : 'Has an enrolment scheme; its zone is not in this build.');
   } else if (dest.scheme === false) {
-    lines.push('No enrolment scheme.');
+    more.push('No enrolment scheme.');
   }
   const to = dest.routed_to;
-  lines.push(Number(to) > 0
+  more.push(Number(to) > 0
     ? `Times go to the nearest of ${to} checked ${Number(to) === 1 ? 'entrance' : 'entrances'}.`
     : "Times go to the Ministry's map point for the school.");
-  if (dest.moe != null) lines.push(`Ministry school number ${dest.moe}.`);
-  return lines;
+  if (dest.moe != null) more.push(`Ministry number ${dest.moe}.`);
+  return [bits.join(' · '), more.join(' ')];
 }
 
 /** Schools that teach a service whose name (or Ministry number) matches what
@@ -770,6 +770,9 @@ export function cardLines(ctx, mode, i, named = []) {
   const label = (d) => destinations[d]?.name || 'unnamed';
   const lines = [];
   const real = mode && mode !== 'best' ? (mode === 'walk_slow' ? 'walk' : mode) : null;
+  // Whether school buses are in the timetable differs by place (meta.schools.school_buses).
+  const buses = real === 'pt' && ctx.schoolBuses === false ? 'School buses are not in the timetable used, so a trip by school bus is not counted.' : null;
+  const done = () => (buses ? [...lines, buses] : lines);
 
   if (!choice || choice.kind === 'all') {
     // All: when the school named is not a state, English-medium co-ed school,
@@ -786,7 +789,7 @@ export function cardLines(ctx, mode, i, named = []) {
         lines.push(`For a boy: ${b ? b.text : `none within ${maxMinutes} min`}.`);
       }
     }
-    return lines;
+    return done();
   }
 
   if (choice.kind === 'one') {
@@ -811,7 +814,7 @@ export function cardLines(ctx, mode, i, named = []) {
       const other = nearestPhrase(reach, real, i, (k) => k !== d && isState(destinations[k]), { destinations, centre, maxMinutes });
       lines.push(other ? `Nearest other state school: ${other.text}.` : `No other state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
     }
-    return lines;
+    return done();
   }
 
   // State and In zone: girls and boys apart when they differ.
@@ -855,7 +858,7 @@ export function cardLines(ctx, mode, i, named = []) {
       lines.push(`Not counted: ${left.map((r) => `${label(r.d)}, ${Math.round(r.m)} min${why(r.d) ? ` (${why(r.d)})` : ''}`).join('; ')}.`);
     }
   }
-  return lines;
+  return done();
 }
 
 // ---------------------------------------------------------------- the CSV

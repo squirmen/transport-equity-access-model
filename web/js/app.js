@@ -863,6 +863,7 @@ function schoolCard() {
     centres: cellCentres,
     maxMinutes,
     when: (data.meta.windows || {})[data.meta.services?.[service]?.window]?.when || null,
+    schoolBuses: schoolsMeta().school_buses,
   };
   return {
     short: words.short,
@@ -5042,6 +5043,16 @@ async function init() {
     map.fitBounds(regionBounds(), { padding: placePadding(), duration: 0 });
     // A link to a trip shows both ends.
     if (tripOpen()) fitTrip();
+    else if (state.selected != null) {
+      // A link to a hexagon written by hand, with no map position in it,
+      // opens on that hexagon, clear of the card on a phone.
+      const [lat, lng] = h3.cellToLatLng(data.h3[state.selected]);
+      map.jumpTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13) });
+      if (phone()) keepInView(state.selected);
+    } else if (state.schools.kind === 'one') {
+      // A link to one school opens on it once its times are in.
+      schoolUi.fit = true;
+    }
   }
   $('loading').hidden = true;
   // Network lines only show when a layer is switched on, so they load after the first view.

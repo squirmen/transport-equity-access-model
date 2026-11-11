@@ -26,6 +26,32 @@ function link(label, href) {
   return a;
 }
 
+/** How the Schools row counts, for builds that say what each school is. */
+function schoolsHelp(meta) {
+  const s = meta.schools;
+  if (!s) return [];
+  const dated = (value) => (value ? new Date(`${value}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
+  const choices = [
+    'All: every school that teaches those years, whether state, state-integrated, private or charter, single-sex included. This is what TEAM showed before the row was added, and what a link without a choice shows.',
+    'State: state schools taught in English. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own.',
+  ];
+  if (s.zones) {
+    choices.push(`In zone: the state schools whose home zone covers at least half of a hexagon, and the state schools with no enrolment scheme. Zones are the Ministry of Education's, as at ${dated(s.zones) || 'the date in the build'}. Where a zone line crosses a hexagon, the headline says how many people live in such hexagons.`);
+  }
+  choices.push('One school: minutes to one school, found by name or by clicking its pin. With Only people living in its zone ticked, the figures count the people in its zone and nobody else.');
+  const listed = dated(s.directory);
+  return [
+    el('h3', null, 'Schools'),
+    para('For primary, intermediate and secondary schools, the Schools row under Getting to sets which schools count.'),
+    list(choices),
+    para(`A line under every headline says which schools are counted, with counts from the Ministry of Education's school directory${listed ? ` as at ${listed}` : ''}. `
+      + 'The card names the school reached in the time it shows, by the way of travelling shown. A public transport time that is no quicker than walking is a walk, and is said as one. '
+      + "Times are whole minutes from the routing, rounded down, so 30 min means under 31. They run from the middle of each hexagon to the Ministry's map point for the school, unless the school's details under One school say its entrances were checked."
+      + (s.school_buses === false ? ' School buses are not in the timetable used here, so a trip by school bus is not counted.' : '')
+      + (s.school_buses === true ? ' School buses in the timetable are counted.' : '')),
+  ];
+}
+
 export function renderAbout(root, meta) {
   const date = new Date(`${meta.routing_date}T12:00:00`).toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -68,6 +94,7 @@ export function renderAbout(root, meta) {
       'Click a hexagon for its card: the service on screen first, then every standard, three numbers and the detail folded under them.',
     ]),
     para(`Zoomed out, the figures in the panel are for all of ${place.name}. Zoom in and they are for the council, ward, local board or suburb in the middle of the map, whichever fills the view, with the larger areas around it on a line underneath. The area's name in the headline opens a list of areas to pick from. The map's colours and key stay the same.`),
+    ...schoolsHelp(meta),
     el('h3', null, 'Settings'),
     para('Under Settings: Who is counted can leave out rural land. When picks the weekday peak, weekday off-peak or a Saturday for public transport. The standard is the time a service should be within. Under Fares, a budget counts public transport only when the trip fits it, in dollars or as a share of local income, and Travelling as and Paying with set who is paying and how. The fare burden can count a week of daily trips after fare caps. Layers adds rail, frequent buses, stops, cycleways and the places you are getting to.'),
     el('h3', null, 'Standards'),
@@ -87,7 +114,9 @@ export function renderAbout(root, meta) {
     links,
     el('h3', null, 'Limits'),
     list([
-      'The nearest service is not always one you can use: school zones, GP enrolment, opening hours and store size are not modelled.',
+      meta.schools
+        ? 'The nearest service is not always one you can use. For schools, the Schools row can count only state or in-zone schools, or one school; GP enrolment, opening hours and store size are not modelled.'
+        : 'The nearest service is not always one you can use: school zones, GP enrolment, opening hours and store size are not modelled.',
       'Times come from timetables, not real-world reliability or crowding.',
       'Walking and cycling times allow for hills, but not lighting, footpath condition or benches.',
       'Census shares describe small areas, not individual households. No car and lower income are shares of households, applied to residents.',
