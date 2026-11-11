@@ -291,15 +291,19 @@ const POINT_LAYERS = ['school-pins', 'destinations', 'ov-stops'];
 let pinKey = null;
 let pinMarks = new Map();
 let schoolLabel = null;
+let labelOf = null;
 
 /** Show the schools of `spec.service` as pins, marking those `spec.counted`
  *  leaves out and the one school `spec.focus` picked, or hide them with null.
  *  `spec.key` changes whenever the marks would. */
 export function setSchoolPins(map, spec, destinations = []) {
   if (!map.getLayer('school-pins')) return;
-  if (schoolLabel) {
+  const focus = spec && spec.focus != null ? destinations[spec.focus] : null;
+  const label = focus && Number.isFinite(focus.lon) ? `${spec.focus}|${focus.name}` : null;
+  if (schoolLabel && label !== labelOf) {
     schoolLabel.remove();
     schoolLabel = null;
+    labelOf = null;
   }
   if (!spec) {
     map.setLayoutProperty('school-pins', 'visibility', 'none');
@@ -326,13 +330,13 @@ export function setSchoolPins(map, spec, destinations = []) {
     pinKey = spec.key;
   }
   map.setLayoutProperty('school-pins', 'visibility', 'visible');
-  const focus = spec.focus != null ? destinations[spec.focus] : null;
-  if (focus && Number.isFinite(focus.lon)) {
+  if (label && !schoolLabel) {
     const box = document.createElement('span');
     box.className = 'map-tag is-school';
     box.textContent = focus.name || '';
     box.setAttribute('aria-hidden', 'true');
     schoolLabel = new maplibregl.Marker({ element: box, anchor: 'left', offset: [12, 0] }).setLngLat([focus.lon, focus.lat]).addTo(map);
+    labelOf = label;
   }
 }
 
