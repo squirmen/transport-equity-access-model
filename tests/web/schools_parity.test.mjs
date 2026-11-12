@@ -105,7 +105,7 @@ function shareOf(times, weights, standard) {
     people += weights[i];
     if (Number.isFinite(times[i]) && times[i] <= standard) within += weights[i];
   }
-  return { people, share: people > 0 ? within / people : NaN };
+  return { people, within, share: people > 0 ? within / people : NaN };
 }
 
 const named = (place, out, mode, i) => {
@@ -137,6 +137,8 @@ for (const name of goldens) {
           const got = shareOf(out.t[mode], pop, standard);
           assert.ok(Math.abs(got.people - want.people) <= 0.1, `${label}: ${got.people} people, build ${want.people}`);
           assert.ok(Math.abs(got.share - want.share) <= 1e-6, `${label}: share ${got.share}, build ${want.share}`);
+          // One school's headline is this count (panel.js withinSentence).
+          if (want.people_within != null) assert.ok(Math.abs(got.within - want.people_within) <= 0.1, `${label}: ${got.within} people within, build ${want.people_within}`);
           if (urban && want.share_urban != null) {
             const u = shareOf(out.t[mode], urban, standard);
             assert.ok(Math.abs(u.share - want.share_urban) <= 1e-6, `${label} urban: share ${u.share}, build ${want.share_urban}`);
