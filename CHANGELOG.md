@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.12.0 (not yet released)
+## 0.12.0 (13 November 2026)
 
 Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
 School (MAGS), and public transport that takes the walk where it is quicker.
