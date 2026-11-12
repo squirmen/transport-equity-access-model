@@ -1,3 +1,7 @@
 # Corrected map points for schools whose directory point is wrong. A row is used only when checked_by and checked_on are filled.
 # moe: School_Id. lon, lat: WGS84. source: where the new point comes from. reason: what was wrong.
-moe,name,lon,lat,source,reason,checked_by,checked_on
+# rule: D5-1 for a point moved by rule (src/team/school_points.py, written by scripts/school_points_audit.py --write-points), blank for a person's check.
+moe,name,lon,lat,source,reason,rule,checked_by,checked_on
+232,Te Aute College,176.632475,-39.826358,"LINZ NZ Facilities 389 (OpenStreetMap way/149096375 agrees, IoU 0.70); directory point 176.629411,-39.826457; moved 263 m",directory point 250 m outside the school's grounds,D5-1,rule D5-1,2026-11-12
+3618,Te Kura aa Iwi o Ngaati Kauwhata,175.658326,-40.135626,"LINZ NZ Facilities 2735 (OpenStreetMap way/103387829 agrees, IoU 0.79); directory point 175.658024,-40.130208; moved 602 m",directory point 589 m outside the school's grounds,D5-1,rule D5-1,2026-11-12
+3641,Porirua Montessori Primary School,174.884891,-41.122002,"LINZ NZ Facilities 2729 (OpenStreetMap way/1464251069 agrees, IoU 0.93); directory point 174.882284,-41.121986; moved 219 m",directory point 185 m outside the school's grounds,D5-1,rule D5-1,2026-11-12
