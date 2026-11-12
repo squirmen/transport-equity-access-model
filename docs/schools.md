@@ -389,8 +389,10 @@ taught in English only; before schools across a regional boundary are added):
   in Auckland 721,011 people (57,442 children aged 5–10) live in hexagons
   whose residents are in more than one primary zone set, 442,498 (12,162 aged
   11–12) for intermediate and 294,662 (18,664 aged 13–17) for secondary.
-  `meta.schools.zones` also gives how many of them live outside the set
-  their hexagon is counted in.
+  Of those children, 14,247 aged 5–10 (11% of Auckland's), 2,797 aged 11–12
+  (6%) and 3,993 aged 13–17 (4%) live outside the zone set their hexagon is
+  counted in (`meta.schools.zones`, `children_outside_set`): the error the
+  one-set rule makes, which One school's shares do not.
 - **St Lukes** (hexagon 89bb50021a3ffff, on the councillors' slide): wholly
   in Mt Albert Grammar School's zone. For intermediate it is in Kowhai
   Intermediate's zone and 18% of its area is in Balmoral School's Zone B,
@@ -470,9 +472,11 @@ school. Inside a hexagon children live where residents do. Group shares
   more in the university cities (Dunedin 2,739, Auckland 2,324,
   Christchurch 1,564, Wellington 1,510, Hamilton 478, Palmerston North 317),
   fewer in most other places (Tauranga 635 fewer).
-- `cells.json` gives children to two decimals: to one decimal, rounding
-  drops about 0.2% of the children in a place, since many hexagons hold a
-  small fraction of one.
+- `cells.json` gives children to two decimals. Many hexagons hold a small
+  fraction of a child, and to one decimal they round to nothing: that drops
+  about 0.2% of a place's children, mostly far from schools, and would put
+  Wellington's intermediate figure (all schools, any way) at 85.4% rather
+  than 84.5%.
 
 ## What the site reads
 
