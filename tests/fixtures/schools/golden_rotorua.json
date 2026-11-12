@@ -90,9 +90,9 @@
    },
    "secondary_school": {
     "walk": {
-     "share": 0.704326,
-     "share_urban": 0.769915,
-     "people_within": 3534.2,
+     "share": 0.704731,
+     "share_urban": 0.769994,
+     "people_within": 3536.2,
      "people": 5017.9
     },
     "bike_low_stress": {
@@ -108,21 +108,21 @@
      "people": 5017.9
     },
     "pt": {
-     "share": 0.752189,
-     "share_urban": 0.822456,
-     "people_within": 3774.4,
+     "share": 0.752594,
+     "share_urban": 0.822535,
+     "people_within": 3776.4,
      "people": 5017.9
     },
     "car": {
-     "share": 0.999386,
+     "share": 0.999392,
      "share_urban": 1.0,
      "people_within": 5014.8,
      "people": 5017.9
     },
     "best": {
-     "share": 0.840809,
+     "share": 0.841141,
      "share_urban": 0.914209,
-     "people_within": 4219.1,
+     "people_within": 4220.7,
      "people": 5017.9
     }
    }

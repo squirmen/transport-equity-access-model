@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.12.1 (not yet released)
+
+### School map points checked by hand
+
+- **20 points checked, 14 moved.** Each school whose Ministry map point is
+  more than 50 m outside its LINZ grounds, and that rule D5-1 left alone,
+  was checked against its street address (LINZ address points), its LINZ
+  and OpenStreetMap grounds, its own website and aerial imagery
+  ([`docs/schools.md`](docs/schools.md), Points checked by hand). 14 points
+  move into the school's grounds and 6 stay. The furthest moves: OneSchool
+  Global, 2.7 km from its head office in Onehunga to its Auckland campus in
+  Māngere Bridge; Hare Krishna School, 814 m from a paddock to its
+  classrooms; TIPENE, 613 m from the gate on Great South Road to the school.
+  Twin Oaks Classical School and Te Kura o Manunui keep their points: LINZ's
+  grounds are the postal address and the old site.
+- **A point kept is recorded.** A checked row in `configs/schools/points.csv`
+  with no lon and lat keeps the Ministry's point. The audit marks the
+  schools a person checked (`checked`) and no longer lists them to check;
+  `meta.schools.points` says which moves were by rule and which by hand
+  (`by`) and lists the points kept.
+- **Routed again.** The 14 schools in Auckland (10), Christchurch (2),
+  Wellington (1) and Rotorua (1). Every other school's minutes and stops are
+  as published, and each run's 300-origin check matched.
+- **Figures.** On the default view (In zone) only Christchurch primary
+  school changes: 62.7% to 62.9% of children within 15 minutes on foot, and
+  64.2% to 64.4% by public transport or on foot. Under All, Auckland falls
+  by 0.05 to 0.28 points; Wellington primary and Rotorua secondary move by
+  under 0.1.
+
 ## 0.12.0 (13 November 2026)
 
 Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
