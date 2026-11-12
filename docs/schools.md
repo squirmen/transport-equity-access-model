@@ -107,7 +107,7 @@ departure minute from 7:00 to 8:59.
   services runs gave, for every pair and mode:
   [`scripts/check_school_runs.py`](../scripts/check_school_runs.py). Auckland:
   18.6 million pairs, 16.3 million of them by car, none different; all twenty
-  places, 39 million pairs, none different. The only schools left out of the
+  places, 38.0 million pairs, none different. The only schools left out of the
   comparison are the ones the new directory added or moved. Run it after every
   school routing: in Christchurch the first routing of one batch of 2,000
   hexagons gave two of them different times (by a minute by car, and by 3 to
