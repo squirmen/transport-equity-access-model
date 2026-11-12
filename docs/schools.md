@@ -193,8 +193,16 @@ choice is made.
 ```
 
 Each cell's list is in the order above (minutes, metres, MoE number), so the
-first school that a choice counts is its nearest. The largest Auckland file is
-under 0.6 MB brotli.
+first school that a choice counts is its nearest.
+
+By car nearly every school is within 60 minutes, so the car files are short
+lists (`complete: false`): for each cell, only the nearest school under All,
+State, State girls and State boys, and the schools tied with each. They answer
+those choices exactly; One school is not shown by car. The full car lists
+would be 9 MB brotli for Auckland; the short ones are 0.06 MB each.
+
+Auckland's eighteen files come to 4.5 MB brotli; the largest is primary
+school by public transport, 0.85 MB.
 
 ### `summary.json`
 

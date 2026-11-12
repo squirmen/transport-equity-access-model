@@ -880,3 +880,31 @@ def share_within(minutes: np.ndarray, weights: np.ndarray, limit: float) -> tupl
     total = float(weights[use].sum())
     hit = float(weights[use & np.isfinite(minutes) & (minutes <= limit)].sum())
     return (hit / total if total > 0 else float("nan")), total
+
+
+# Modes whose reach lists keep only the nearest school under each choice, to
+# keep the files small: by car nearly every school is within 60 minutes, and
+# car times never count towards a standard.
+SHORT_LIST_MODES = ("car",)
+
+
+def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str) -> pd.DataFrame:
+    """The first school in each cell's list for All, State, State girls and
+    State boys (and every school tied with it), in the same order. Exact for
+    those choices; One school is not available from it."""
+    about = listed.set_index("school")
+    groups = {
+        "all": pd.Series(True, index=about.index),
+        "state": (about["kind"] == "state") & (about["medium"] == "english"),
+    }
+    for student in ("girls", "boys"):
+        groups[f"state_{student}"] = groups["state"] & about[f"sex_{service}"].apply(lambda s: takes(s, student))
+    keep = np.zeros(len(reach), dtype=bool)
+    for mask in groups.values():
+        member = reach["destination"].map(mask).fillna(False).to_numpy(dtype=bool)
+        rows = reach[member]
+        if rows.empty:
+            continue
+        best = rows.groupby("cell")["minutes"].transform("min")
+        keep[np.flatnonzero(member)[(rows["minutes"] == best).to_numpy()]] = True
+    return reach[keep]

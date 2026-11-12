@@ -95,7 +95,9 @@ def main() -> int:
         choices += [(f"one:{m}", None) for m in args.one if any(d.get("moe") == m and service in d["services"] for d in dests)]
         for choice, student in choices:
             key = choice if student is None else f"{choice}:{student}"
-            times = schools.choice_times(reaches, dests, service, choice, student, standard_modes)
+            # A short list (car) answers All and State only.
+            usable = reaches if not choice.startswith("one:") else {m: r for m, r in reaches.items() if r.get("complete", True)}
+            times = schools.choice_times(usable, dests, service, choice, student, standard_modes)
             block = {}
             for mode, minutes in times.items():
                 share, total = schools.share_within(minutes, pop, standard)

@@ -459,3 +459,20 @@ def test_the_named_school_is_reached_in_the_time_shown(place):
     result = subprocess.run([sys.executable, str(REPO / "scripts" / "school_golden.py"), "--site", str(folder)],
                             capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(REPO / "src")})
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+
+
+def test_a_car_short_list_keeps_the_nearest_school_under_each_choice():
+    listed = pd.DataFrame([
+        {"school": "moe:1", "kind": "private", "medium": "english", "sex_secondary_school": "co-ed"},
+        {"school": "moe:2", "kind": "state", "medium": "english", "sex_secondary_school": "girls"},
+        {"school": "moe:3", "kind": "state", "medium": "english", "sex_secondary_school": "co-ed"},
+        {"school": "moe:4", "kind": "state", "medium": "english", "sex_secondary_school": "co-ed"},
+        {"school": "moe:5", "kind": "state", "medium": "other", "sex_secondary_school": "co-ed"},
+    ])
+    reach = pd.DataFrame({"cell": [0, 0, 0, 0, 0, 0], "destination": ["moe:5", "moe:1", "moe:2", "moe:3", "moe:4", "moe:1"],
+                          "minutes": [3, 3, 4, 6, 6, 9]}).iloc[:5]
+    kept = schools.short_list(reach, listed, "secondary_school")
+    # All: the kura and the private school tie at 3; State and State girls: the girls' school at 4;
+    # State boys: the two co-ed state schools tie at 6.
+    assert kept["destination"].tolist() == ["moe:5", "moe:1", "moe:2", "moe:3", "moe:4"]
+    assert schools.short_list(reach.iloc[[0, 1, 3]], listed, "secondary_school")["destination"].tolist() == ["moe:5", "moe:1", "moe:3"]

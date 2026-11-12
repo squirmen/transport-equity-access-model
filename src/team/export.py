@@ -488,10 +488,12 @@ def reach_payload(reach: pd.DataFrame, n: int, dest_index: dict, spread: bool) -
     return body
 
 
-def write_schools(settings: Settings, folder: Path, school_state: dict, dest_index: dict, n: int) -> dict:
+def write_schools(settings: Settings, folder: Path, school_state: dict, dest_index: dict, n: int,
+                  listed: pd.DataFrame | None = None) -> dict:
     """data/schools/<service>_<mode>.json, read only when a school choice is
     made. Returns the file sizes, for the build log."""
     from .routing import service_windows
+    from .schools import SHORT_LIST_MODES, short_list
 
     out = folder / "schools"
     if out.exists():
@@ -501,10 +503,16 @@ def write_schools(settings: Settings, folder: Path, school_state: dict, dest_ind
         mode = max((m for m in settings.modes if key == m or key.startswith(f"{m}_")), key=len)
         transit = settings.modes[mode]["kind"] == "transit"
         window = (key[len(mode) + 1:] or service_windows(settings.services[service])[0]) if transit else None
+        short = mode in SHORT_LIST_MODES and listed is not None
+        if short:
+            reach = short_list(reach, listed, service)
         body = {
             "format": 1, "service": service, "mode": mode, "window": window,
             "max_minutes": int(settings.routing.get("max_minutes", 60)),
             "order": "minutes, then straight-line metres from the hexagon centre, then MoE number",
+            # A short list holds only the nearest school under All, State,
+            # State girls and State boys, and those tied with it.
+            "complete": not short,
             **reach_payload(reach, n, dest_index, spread=(key == "pt")),
         }
         path = out / f"{service}_{key}.json"
@@ -616,7 +624,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
     }
     if listed is not None:
         meta["schools"] = school_data.meta_block(settings, listed)
-        meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table))
+        meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table), listed)
     _dump(
         data / "summary.json",
         {"meta": meta, **summary, "areas": {key: _area_records(frame) for key, frame in areas.items()}},
