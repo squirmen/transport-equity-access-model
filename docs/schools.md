@@ -106,9 +106,14 @@ departure minute from 7:00 to 8:59.
 - Before any point changed, the school runs gave exactly the minutes the
   services runs gave, for every pair and mode:
   [`scripts/check_school_runs.py`](../scripts/check_school_runs.py). Auckland:
-  2.29 million pairs by walking, both kinds of cycling and public transport at
-  both paces, none different. The only schools left out of the comparison are
-  the ones the new directory added or moved.
+  18.6 million pairs, 16.3 million of them by car, none different; all twenty
+  places, 39 million pairs, none different. The only schools left out of the
+  comparison are the ones the new directory added or moved. Run it after every
+  school routing: in Christchurch the first routing of one batch of 2,000
+  hexagons gave two of them different times (by a minute by car, and by 3 to
+  4 minutes on foot to two schools), while three other routings of the same
+  inputs, including the 0.11.0 services run, agree. That batch was routed
+  again and now matches.
 - Asking R5 for the 10th, 50th and 90th percentiles gives the same median as
   asking for the 50th alone (checked on 300 origins and all 551 Auckland
   schools: 33,741 pairs, none different).
