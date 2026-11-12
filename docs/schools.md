@@ -268,6 +268,12 @@ build's rules exactly:
   would have said it wrongly in 17 hexagons (15 for secondary school, 2 for
   intermediate) across Auckland, Christchurch, Dunedin, Hamilton,
   Invercargill and Nelson.
+- **None by public transport, but a walk.** A public transport trip may walk
+  only so far straight to the door, so where no bus helps a school 22 minutes
+  away on foot can be over 60 minutes by public transport (a girl in central
+  Blenheim, to Marlborough Girls' College). The card then says "Walking is
+  quicker" and names the school within reach on foot. The figures are not
+  changed: public transport is counted as R5 routes it.
 
 ## Figures for testing the site
 
