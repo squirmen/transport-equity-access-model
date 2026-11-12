@@ -102,6 +102,32 @@ To time a run before committing to it, route the first few origins:
 team --data-root DATA route services pt --window interpeak --limit 500
 ```
 
+### Enrolment zones and school-age children
+
+In zone needs the Ministry's zone file (`data.zones`) and LINZ address points
+for the place (`data.addresses`); school-age weights need the 2023 census age
+bands and the 2018 single-year shape (`data.census_ages`,
+`data.census_ages_sa2`, `data.census_age_shape`). A build without them still
+runs: it leaves In zone out and counts all residents. Neither needs routing
+again. [`schools.md`](schools.md) has the rules.
+
+```sh
+python scripts/fetch_address_points.py --data-root DATA [--city auckland ...]  # LINZ address points, no key
+python scripts/fetch_census_ages.py --data-root DATA      # 2018 SA2 polygons and the single-year shape
+team --config CONFIG --data-root DATA --out OUT zones check   # zone statuses and the schools to look at
+team --config CONFIG --data-root DATA --out OUT ages check    # children by group against Stats NZ's totals
+python scripts/check_zones_eagle.py --zones ZONE_ZIP --scratch SCRATCH_DIR   # a check only; writes to scratch
+```
+
+`fetch_census_ages.py --ade FILE` makes the shape from the 2023 single years
+by SA2 instead, from a table downloaded by hand from Aotearoa Data Explorer
+(`CEN23_POP_001`); point `census_age_shape` at the file it writes.
+
+The school and early childhood figures on the page count children of the
+service's ages from `cells.json`'s `ages`. `summary.json`'s `services` and
+`areas` tables are still worked out over all residents; the page does not
+read them for school services.
+
 ### Splitting a run across processes
 
 r5py routes one origin at a time within a process, so long runs go faster
@@ -154,14 +180,17 @@ SITE/data/auckland` writes only the map overlays and the stop and line names
                          schools_summary.json
   routing/               one parquet per run, with a JSON manifest
   routing/batches/       the per-batch files behind each run
+  ages/ages_summary.json children by group: totals and the checks against Stats NZ
+  zones/                 hexagon_zones.parquet, school_zones.parquet (read by the downloads)
   team_cells.parquet     every measure for every hexagon
   site/                  upload-ready web app
     index.html, css/, js/, assets/
     data/                cells.json, cells_more.json, summary.json, places.json,
                          destinations.json, overlays.json, transit.json,
-                         chains.json, chains/, schools/
+                         chains.json, chains/, schools/ (with zones.json and
+                         zone_outlines_<service>.json)
     downloads/           team_auckland_h3.gpkg, .csv, team_auckland_schools.csv,
-                         fields.csv, SHA256SUMS.txt
+                         team_auckland_school_zones.csv, fields.csv, SHA256SUMS.txt
 ```
 
 ## Publishing

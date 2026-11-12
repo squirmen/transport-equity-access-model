@@ -557,133 +557,6 @@ def choice_times(reach: pd.DataFrame, keep: set[str], n: int) -> tuple[np.ndarra
 
 
 # ---------------------------------------------------------------------------
-# Zones (from the Ministry's enrolment scheme file, when it is in)
-
-
-ZONE_YEARS_RE = re.compile(r"\(Years?\s*(\d+)\s*-\s*(\d+)\)", re.I)
-
-
-def service_years(level: str | None) -> tuple[int, int]:
-    return {"primary": (1, 6), "intermediate": (7, 8), "secondary": (9, 13)}.get(level or "", (1, 13))
-
-
-def zone_years(name: str) -> tuple[int, int] | None:
-    """Year levels a zone is for, from its name ('... (Year 7-8)'); None for all."""
-    found = ZONE_YEARS_RE.search(str(name or ""))
-    return (int(found.group(1)), int(found.group(2))) if found else None
-
-
-def _column(frame: pd.DataFrame, *names: str) -> str | None:
-    lower = {c.lower(): c for c in frame.columns}
-    for name in names:
-        if name.lower() in lower:
-            return lower[name.lower()]
-    return None
-
-
-def read_zones(path: Path, snapshot: dt.date) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """The Ministry's enrolment zones, as (in effect, not yet in effect).
-
-    Reads any file GDAL reads (the Ministry ships MapInfo TAB in a zip; give
-    the .TAB or the zip with 'zip://'). Columns kept: moe, name, approved,
-    effective, years_from, years_to, geometry (NZTM). A zone is in effect on
-    the snapshot date when its effective date is on or before it.
-    """
-    import geopandas as gpd
-
-    zones = gpd.read_file(path)
-    if zones.crs is None:
-        raise SystemExit(f"{path} has no projection; check the .prj or .tab before using it.")
-    zones = zones.to_crs("EPSG:2193")
-    sid = _column(zones, "School_ID", "SchoolID", "Inst_ID", "Institution_Number", "School_Number")
-    name = _column(zones, "School_name", "SchoolName", "Name", "Institution_Name")
-    approved = _column(zones, "Approval_date", "ApprovalDate", "Approved")
-    effective = _column(zones, "Effective_date", "EffectiveDate", "Effective")
-    if not sid or not effective:
-        raise SystemExit(f"{path}: no school number or effective date column in {list(zones.columns)}")
-    out = gpd.GeoDataFrame({
-        "moe": pd.to_numeric(zones[sid], errors="coerce").astype("Int64"),
-        "name": zones[name] if name else "",
-        "approved": pd.to_datetime(zones[approved], errors="coerce").dt.date if approved else None,
-        "effective": pd.to_datetime(zones[effective], errors="coerce").dt.date,
-    }, geometry=zones.geometry.make_valid(), crs="EPSG:2193")
-    years = out["name"].apply(zone_years)
-    out["years_from"] = [y[0] if y else None for y in years]
-    out["years_to"] = [y[1] if y else None for y in years]
-    current = out["effective"].apply(lambda d: d is not None and pd.notna(d) and d <= snapshot)
-    return out[current].reset_index(drop=True), out[~current].reset_index(drop=True)
-
-
-def zone_cover(zones, cells: pd.Index, half: float = 0.5) -> pd.DataFrame:
-    """Share of each hexagon each zone covers: rows of zone index, cell
-    position and share, for shares above zero. A hexagon is in a zone when the
-    share is at least `half`; a share between 0 and 1 means the line cuts it."""
-    import geopandas as gpd
-    import h3
-    from shapely.geometry import Polygon
-
-    hexes = gpd.GeoDataFrame(
-        {"cell": np.arange(len(cells))},
-        geometry=[Polygon([(lng, lat) for lat, lng in h3.cell_to_boundary(c)]) for c in cells],
-        crs="EPSG:4326",
-    ).to_crs("EPSG:2193")
-    hexes["area"] = hexes.geometry.area
-    joined = gpd.overlay(hexes, zones.reset_index(names="zone")[["zone", "geometry"]], how="intersection", keep_geom_type=True)
-    joined["share"] = joined.geometry.area / joined["area"]
-    out = joined.groupby(["zone", "cell"], as_index=False)["share"].sum()
-    out["share"] = out["share"].clip(upper=1.0)
-    out["inside"] = out["share"] >= half
-    out["cut"] = out["share"] < 1.0 - 1e-6
-    return out[out["share"] > 1e-9].reset_index(drop=True)
-
-
-def in_zone_sets(schools: pd.DataFrame, zones, cover: pd.DataFrame, service: str, n: int,
-                 student: str | None = None) -> tuple[list[set[str]], np.ndarray, list[str]]:
-    """Schools a student living in each cell can enrol at, for one service.
-
-    State English-medium schools whose zone covers at least half the cell,
-    plus state English-medium schools with no enrolment scheme (which must
-    take any student who applies). Year-level zones count only for the
-    service whose years they cover. Returns the sets, a flag for cells a
-    counted zone's line crosses, and the zoned schools with no zone in the file.
-    """
-    level = None
-    for prefix, lvl in SERVICE_LEVELS.items():
-        if service == prefix:
-            level = lvl
-    lo, hi = service_years(level)
-    keep = eligible(schools, service, "state", student)
-    counted = schools[keep]
-    open_to_all = set(counted.loc[~counted["scheme"], "school"])
-    zoned = counted[counted["scheme"]]
-    by_moe = {int(m): s for m, s in zip(zoned["moe"], zoned["school"])}
-    applies = []
-    for z, row in zones.reset_index(drop=True).iterrows():
-        school = by_moe.get(int(row["moe"])) if pd.notna(row["moe"]) else None
-        if school is None:
-            continue
-        if row["years_from"] is not None and pd.notna(row["years_from"]):
-            if row["years_to"] < lo or row["years_from"] > hi:
-                continue
-        applies.append((z, school))
-    sets = [set(open_to_all) for _ in range(n)]
-    cut = np.zeros(n, dtype=bool)
-    with_zone = set()
-    if applies:
-        zone_school = dict(applies)
-        rows = cover[cover["zone"].isin(zone_school)]
-        for zone, cell, inside, crosses in zip(rows["zone"], rows["cell"], rows["inside"], rows["cut"]):
-            school = zone_school[int(zone)]
-            with_zone.add(school)
-            if inside:
-                sets[int(cell)].add(school)
-            if crosses:
-                cut[int(cell)] = True
-    missing = sorted(set(zoned["school"]) - {s for _, s in applies})
-    return sets, cut, missing
-
-
-# ---------------------------------------------------------------------------
 # Moving an existing build to separate school runs
 
 
@@ -768,8 +641,12 @@ def data_dates(settings: Settings) -> dict:
     return out
 
 
-def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool = False) -> dict:
-    """The schools part of summary.json's meta."""
+def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool | None = None) -> dict:
+    """The schools part of summary.json's meta. `zones` is filled by the
+    export from zones.write once zones.json is written."""
+    from . import zones as zone_data
+
+    zones_in = zone_data.available(settings) if zones_in is None else zones_in
     spec = settings.raw.get("schools") or {}
     source = settings.data("schools")
     meta = snapshot_meta(source)
@@ -785,7 +662,7 @@ def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool = False
         },
         "dates": data_dates(settings),
         "services": services,
-        "choices": ["all", "state", "one"] + (["zone"] if zones_in else []),
+        "choices": ["all", "state", "zone", "one"] if zones_in else ["all", "state", "one"],
         "zones": None,
         "routed_to": {
             "point": int(((schools["entrances"] == 0) & (schools["point"] == "directory")).sum()),
@@ -808,13 +685,22 @@ STUDENTS = ("both", "girls", "boys")
 GOLDEN_MODES = ("walk", "bike_low_stress", "bike", "pt", "car")
 
 
-def published_counts(dests: list[dict], service: str, choice: str, student: str | None) -> set[int]:
+def published_counts(dests: list[dict], service: str, choice: str, student: str | None,
+                     zones: dict | None = None) -> set[int]:
     """Destination indices a choice counts, from destinations.json entries.
 
     all: every school serving the service. state: kind 'state' and medium
-    'english'. A student ('girls' or 'boys') keeps the schools whose sex for
-    the service is co-ed or theirs. 'one:<moe>' is that school alone.
+    'english'. zone: of those, the ones counted for everyone, whatever the
+    home, by their status in zones.json (no scheme, or no usable map); the
+    zoned ones are counted per cell from zones.json's `in` (zone_cells). A
+    student ('girls' or 'boys') keeps the schools whose sex for the service
+    is co-ed or theirs. 'one:<moe>' is that school alone.
     """
+    from .zones import EVERYONE
+
+    if choice == "zone" and zones is None:
+        raise ValueError("the In zone choice needs zones.json")
+    statuses = (zones or {}).get("schools", {})
     out = set()
     for i, d in enumerate(dests):
         if service not in d.get("services", []) or "moe" not in d:
@@ -823,7 +709,9 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
             if d["moe"] == int(choice.split(":")[1]):
                 out.add(i)
             continue
-        if choice == "state" and not (d.get("kind") == "state" and d.get("medium") == "english"):
+        if choice in ("state", "zone") and not (d.get("kind") == "state" and d.get("medium") == "english"):
+            continue
+        if choice == "zone" and (statuses.get(str(i)) or {}).get("status") not in EVERYONE:
             continue
         if student in ("girls", "boys") and not takes((d.get("sex") or {}).get(service), student):
             continue
@@ -831,14 +719,40 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
     return out
 
 
-def published_times(reach: dict, keep: set[int]) -> tuple[np.ndarray, np.ndarray]:
+def zone_cells(dests: list[dict], zones: dict, service: str, student: str | None) -> np.ndarray:
+    """The zoned schools In zone counts in each cell, as keys cell * (number
+    of destinations + 1) + destination index: zones.json's `in` set for the
+    service, kept to the schools that take the student."""
+    block = zones["in"].get(service) or {"o": [0], "d": []}
+    offsets = np.asarray(block["o"], dtype="int64")
+    dest = np.asarray(block["d"], dtype="int64")
+    cell = np.repeat(np.arange(len(offsets) - 1), np.diff(offsets))
+    allowed = published_counts(dests, service, "state", student)
+    keep = np.isin(dest, np.fromiter(allowed, dtype="int64", count=len(allowed))) if allowed else np.zeros(len(dest), bool)
+    return cell[keep] * (len(dests) + 1) + dest[keep]
+
+
+def _counted(reach: dict, keep: set[int], cells_keys: np.ndarray | None, size: int) -> np.ndarray:
+    offsets = np.asarray(reach["o"], dtype="int64")
+    dest = np.asarray(reach["d"], dtype="int64")
+    counted = np.isin(dest, np.fromiter(keep, dtype="int64", count=len(keep))) if keep else np.zeros(len(dest), dtype=bool)
+    if cells_keys is not None and len(cells_keys):
+        cell = np.repeat(np.arange(len(offsets) - 1), np.diff(offsets))
+        counted |= np.isin(cell * (size + 1) + dest, cells_keys)
+    return counted
+
+
+def published_times(reach: dict, keep: set[int], cells_keys: np.ndarray | None = None,
+                    size: int = 0) -> tuple[np.ndarray, np.ndarray]:
     """Minutes to the first counted school in each cell's reach list (NaN
-    where none), and its destination index (-1)."""
+    where none), and its destination index (-1). `cells_keys` (zone_cells,
+    with `size` the number of destinations) adds the schools counted only in
+    some cells."""
     offsets = np.asarray(reach["o"], dtype="int64")
     dest = np.asarray(reach["d"], dtype="int64")
     minutes = np.asarray(reach["m"], dtype="float64")
     n = len(offsets) - 1
-    counted = np.isin(dest, np.fromiter(keep, dtype="int64", count=len(keep))) if keep else np.zeros(len(dest), dtype=bool)
+    counted = _counted(reach, keep, cells_keys, size)
     cell = np.repeat(np.arange(n), np.diff(offsets))
     out_t = np.full(n, np.nan)
     out_d = np.full(n, -1, dtype="int64")
@@ -850,9 +764,16 @@ def published_times(reach: dict, keep: set[int]) -> tuple[np.ndarray, np.ndarray
     return out_t, out_d
 
 
+def _keep(dests, service, choice, student, zones):
+    keep = published_counts(dests, service, choice, student, zones)
+    keys = zone_cells(dests, zones, service, student) if choice == "zone" else None
+    return keep, keys
+
+
 def choice_times(reaches: dict[str, dict], dests: list[dict], service: str, choice: str,
-                 student: str | None, standard_modes: list[str]) -> dict[str, np.ndarray]:
-    """Minutes by mode, and 'best', for one choice.
+                 student: str | None, standard_modes: list[str], zones: dict | None = None) -> dict[str, np.ndarray]:
+    """Minutes by mode, and 'best', for one choice (In zone needs `zones`,
+    the place's zones.json).
 
     For girls and boys together (student 'both'), a mode's time is the slower
     of the girls' and the boys' times by that mode, and the best time is the
@@ -860,13 +781,13 @@ def choice_times(reaches: dict[str, dict], dests: list[dict], service: str, choi
     own quickest way, and the hexagon counts only if both get there in time.
     """
     if choice in ("state", "zone") and student in (None, "both"):
-        girls = choice_times(reaches, dests, service, choice, "girls", standard_modes)
-        boys = choice_times(reaches, dests, service, choice, "boys", standard_modes)
+        girls = choice_times(reaches, dests, service, choice, "girls", standard_modes, zones)
+        boys = choice_times(reaches, dests, service, choice, "boys", standard_modes, zones)
         return {m: np.fmax(girls[m], boys[m]) + np.where(np.isnan(girls[m]) | np.isnan(boys[m]), np.nan, 0.0) for m in girls}
-    keep = published_counts(dests, service, choice, student)
+    keep, keys = _keep(dests, service, choice, student, zones)
     out = {}
     for mode, reach in reaches.items():
-        out[mode], _ = published_times(reach, keep)
+        out[mode], _ = published_times(reach, keep, keys, len(dests))
     stack = np.vstack([out[m] for m in standard_modes if m in out])
     out["best"] = np.where(np.isnan(stack).all(axis=0), np.nan, np.nanmin(np.where(np.isnan(stack), np.inf, stack), axis=0))
     out["best"] = np.where(np.isinf(out["best"]), np.nan, out["best"])
@@ -874,21 +795,22 @@ def choice_times(reaches: dict[str, dict], dests: list[dict], service: str, choi
 
 
 def choice_named(reaches: dict[str, dict], dests: list[dict], service: str, choice: str,
-                 student: str | None, cell: int) -> dict[str, list[int]]:
+                 student: str | None, cell: int, zones: dict | None = None) -> dict[str, list[int]]:
     """The schools named for one cell under a choice, by mode: the first
     counted school in the cell's reach list and every counted school tied
     with it, in the list's order (minutes, metres, MoE number), as MoE
     numbers. For girls and boys together, the slower one's schools; both
     sets, in list order, when their times are equal."""
     def one(student_: str | None) -> dict[str, tuple[float, list[int]]]:
-        keep = published_counts(dests, service, choice, student_)
+        keep, keys = _keep(dests, service, choice, student_, zones)
+        here = set() if keys is None else {int(k % (len(dests) + 1)) for k in keys if k // (len(dests) + 1) == cell}
         out = {}
         for mode, reach in reaches.items():
             lo, hi = reach["o"][cell], reach["o"][cell + 1]
             best, ids = None, []
             for k in range(lo, hi):
                 d, m = reach["d"][k], reach["m"][k]
-                if m is None or d not in keep:
+                if m is None or (d not in keep and d not in here):
                     continue
                 if best is None:
                     best = m
@@ -912,6 +834,19 @@ def choice_named(reaches: dict[str, dict], dests: list[dict], service: str, choi
                 out[mode] = moe(reach, gk if g > b else bk if b > g else gk + bk)
         return out
     return {mode: moe(reaches[mode], ks) for mode, (_, ks) in one(student).items()}
+
+
+def zone_share(zones: dict, service: str, dest: int, n: int) -> np.ndarray:
+    """Each cell's share of residents living in one school's zone, from
+    zones.json's `share` (0 where none): the weight for One school's headline."""
+    block = zones["share"].get(service) or {"o": [0] * (n + 1), "d": [], "w": []}
+    offsets = np.asarray(block["o"], dtype="int64")
+    cell = np.repeat(np.arange(n), np.diff(offsets))
+    d = np.asarray(block["d"], dtype="int64")
+    w = np.asarray(block["w"], dtype="float64")
+    out = np.zeros(n)
+    out[cell[d == dest]] = w[d == dest]
+    return out
 
 
 def share_within(minutes: np.ndarray, weights: np.ndarray, limit: float) -> tuple[float, float]:
