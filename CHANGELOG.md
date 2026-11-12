@@ -52,7 +52,12 @@ School (MAGS), and public transport that takes the walk where it is quicker.
   budget count every school, so they are off under State, In zone and One
   school, and the page says so.
 - **Commuting cost.** A home where half the jobs within 45 minutes are a walk
-  away pays no fare and is left out of the commuting burden.
+  away pays no fare and is left out of the commuting burden. Auckland: 1.9×
+  (most against least deprived) for 1,531,000 people in 0.11.0, 1.8× for
+  1,135,000 now; Wellington 1.9× for 486,000, now 1.7× for 295,000;
+  Christchurch 2.0× for 498,000, now 2.1× for 321,000. In Blenheim and
+  Tokoroa every home's typical commute is now a walk, so no fare is counted
+  (0.11.0: 1.7× for 31,000 people, and 2.8% of a week's income).
 - **Stops near a school.** Under One school: every stop and station within a
   15-minute walk of the school's point, with its stop number, walk, routes
   and the trips arriving from 7 to 9am on the routing day. School buses that
