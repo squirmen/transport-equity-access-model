@@ -84,7 +84,10 @@ the school runs give the same minutes as the services runs did, school by
 school, for every school whose point did not move.
 
 For Auckland the school runs took about 15 minutes for walking, cycling and
-public transport and about 80 minutes for the car, in three processes.
+public transport and about an hour for the car, in three processes. Shards of
+one place must not start together on a network r5py has not cached yet: they
+write the same cache file and fail. Route one shard first, or one process a
+place.
 
 Review sheets for school map points and entrances, for a person to check:
 
