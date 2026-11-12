@@ -67,10 +67,20 @@ def test_steps_after_routing(settings: Settings, tmp_path: Path):
     write(routing / "services_bike.parquet", service_rows({a: (6, "0"), b: (15, "1")}))
     write(routing / "services_car.parquet", service_rows({a: (3, "0"), b: (6, "1"), c: (9, "1")}))
     write(routing / "services_interpeak_pt.parquet", service_rows({a: (15, "0"), b: (28, "1")}))
+    # The pairs behind the walking and public transport runs, from which
+    # public transport is merged with walking.
+    pairs = tmp_path / "cache" / "pairs"
+    write(pairs / "services_walk" / "origins_000000.parquet", pd.DataFrame(
+        {"origin": [a, b], "destination": ["0", "1"], "service": "gp", "minutes": np.array([12, 40], dtype="uint8")}))
+    write(pairs / "services_interpeak_pt" / "origins_000000.parquet", pd.DataFrame(
+        {"origin": [a, b], "destination": ["0", "1"], "service": "gp", "minutes": np.array([15, 28], dtype="uint8")}))
 
     table = measures.service_table(settings, origins)
     assert table.loc[a, "t_gp_walk"] == 12
     assert np.isnan(table.loc[c, "t_gp_walk"])
+    # A 15-minute trip by public transport next to a 12-minute walk is the walk.
+    assert (table.loc[a, "t_gp_pt"], table.loc[a, "t_gp_pt_r5"]) == (12, 15)
+    assert table.loc[b, "t_gp_pt"] == 28
     table = measures.add_standards(table, settings)
     assert table["meets_gp"].tolist() == [True, False, False]
     assert table.loc[a, "via_gp"] == "bike_low_stress"
@@ -83,6 +93,10 @@ def test_steps_after_routing(settings: Settings, tmp_path: Path):
     write(
         tmp_path / "cache" / "pairs" / "jobs_am_peak_pt" / "origins_000000.parquet",
         pd.DataFrame({"origin": [a, a, b, c], "destination": ["x", "y", "y", "y"], "minutes": np.array([10, 25, 20, 40], dtype="uint8")}),
+    )
+    write(
+        tmp_path / "cache" / "pairs" / "jobs_walk" / "origins_000000.parquet",
+        pd.DataFrame({"origin": [a, b], "destination": ["x", "y"], "minutes": np.array([12, 40], dtype="uint8")}),
     )
     demand = pd.Series({a: 100.0, b: 300.0, c: 50.0})
     job_columns = measures.job_table(settings, origins, demand)
