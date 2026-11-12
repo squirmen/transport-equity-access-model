@@ -164,7 +164,8 @@ A school is routed to its checked entrances if it has any, and otherwise to
 its map point: the Ministry's, or a corrected one. Its time is the fastest of
 its entrances.
 
-- `configs/schools/points.csv` replaces a directory point that is wrong.
+- `configs/schools/points.csv` replaces a directory point that is wrong. A
+  row with no `lon` and `lat` records a point a person checked and kept.
 - `configs/schools/entrances.csv` lists entrances students use on school
   mornings, with the hours they are open.
 
@@ -225,15 +226,89 @@ opened since 2023. The rule moves three:
 | Te Kura aa Iwi o Ngaati Kauwhata (3618) | Palmerston North | 589 m | 602 m |
 | Porirua Montessori Primary School (3641) | Wellington | 185 m | 219 m |
 
-Every other school that needs a look is listed, unchanged, in
-`school_points_to_check.csv` (with a map link): more than 50 m outside its
-own grounds, inside another school's grounds, more than 150 m from a
-walkable way or from where R5 links it, or with no LINZ grounds. The furthest
-outside are Twin Oaks Classical School (4.5 km; no OpenStreetMap grounds),
-OneSchool Global (2.5 km; the two sources disagree) and Hare Krishna School
-(592 m; they disagree). Each place's audit is `destinations/school_points_audit.csv`;
-`meta.schools.points` gives the rule, the moves and the counts, and the
-schools CSV gives `point_source` and `point_moved_m`.
+Every other school that needs a look is listed in
+`school_points_to_check.csv` (with a map link) until a person checks it:
+more than 50 m outside its own grounds, inside another school's grounds,
+more than 150 m from a walkable way or from where R5 links it, or with no
+LINZ grounds. Each place's audit is `destinations/school_points_audit.csv`,
+always of the Ministry's point; its `checked` column is "moved" or "kept"
+for a school a person checked. `meta.schools.points` gives the rule, the
+moves (`by` "rule" or "check"), the points kept and the count still to
+check, and the schools CSV gives `point_source` and `point_moved_m`.
+
+### Points checked by hand (0.12.1)
+
+The 0.12.1 review checked the 20 schools more than 50 m outside their LINZ
+grounds that rule D5-1 left alone, each against:
+
+- the directory's street address, matched to its LINZ address point (LINZ
+  NZ Addresses, https://data.linz.govt.nz/layer/105689-nz-addresses/, CC BY
+  4.0, from its public ArcGIS copy);
+- its LINZ NZ Facilities and OpenStreetMap grounds, as above;
+- the school's own website (address, campus pages, map links), read on
+  13 November 2026;
+- Esri World Imagery (public tiles, no key), with the capture date its
+  metadata gives at the point.
+
+14 points move and 6 stay. A moved point is inside the school's LINZ
+grounds: the LINZ address point of the school's address where that is in
+the grounds and not out in a field, the school's own map pin, a point at the
+main entrance or drop-off read off the aerial image, or 10 m in from the
+edge as rule D5-1 does, from the directory point or from the address point.
+A point stays where LINZ's grounds are an old site, a postal address or
+another part of a shared campus, or where the point is at the school's
+street address inside its OpenStreetMap grounds. Each row in `points.csv` gives its sources,
+the directory point and the metres moved, with `checked_by` "0.12.1 review"
+and `checked_on` 13 November 2026, for Tim Welch to confirm. The evidence
+(aerial images with both sources' grounds drawn, website copies, the address
+matches) is in the review's scratch folder, `v3/v3-points/evidence`.
+
+| School | Place | Outside its LINZ grounds | Decision | Source | Moved |
+| --- | --- | ---: | --- | --- | ---: |
+| Twin Oaks Classical School (3698) | Auckland | 4,536 m | Kept | Website: the campus is the church community centre at 422 Mt Albert Road, where the point is. LINZ's grounds are an office at 300 Great South Road, the directory's postal address | 0 |
+| OneSchool Global (472) | Auckland | 2,538 m | Moved | Website: Auckland campus at 37 Miller Road, Māngere Bridge, in LINZ's and OpenStreetMap's grounds. The directory point is the head office in Onehunga | 2,651 m |
+| Hare Krishna School (4204) | Auckland | 592 m | Moved | The school's own map link, in LINZ's and OpenStreetMap's grounds; the directory point is in a paddock | 814 m |
+| Te Kura o Manunui (1699) | Tauranga | 346 m | Kept | Moved to 72 Millers Road in February 2024 (SunLive); the point is at the new site, in OpenStreetMap's grounds. LINZ's are the old site | 0 |
+| TIPENE (3687) | Auckland | 340 m | Moved | LINZ's grounds (February 2026) and the aerial image; the directory point is the gate on Great South Road, about 600 m by the drive from the school | 613 m |
+| Elim Christian College Mt Albert (3630) | Auckland | 155 m | Moved | LINZ address point of 1-3 McLean Street, in both sources' grounds; the directory point is on the railway across New North Road | 248 m |
+| Mangawhai Hills College (3691) | Auckland | 147 m | Moved | LINZ address point of 106 Tara Road (directory and website), in LINZ's grounds; imagery (November 2023) predates the school | 241 m |
+| City Impact Church School (481) | Auckland | 134 m | Moved | LINZ's grounds, the school's building in the church campus, 10 m in; the directory point is the campus entrance on East Coast Road | 145 m |
+| North West College (3686) | Auckland | 125 m | Moved | LINZ's grounds at 111 Lincoln Road (Years 7-8; website), 10 m in from the address point; the directory point is behind another building | 164 m |
+| St Mark's School, Christchurch (4135) | Christchurch | 99 m | Moved | LINZ address point of 33 Cholmondeley Avenue (website), in both sources' grounds; the directory point is on tennis courts | 165 m |
+| Tyndale Park Christian School (52) | Auckland | 80 m | Moved | LINZ address point of 180 Murphys Road (website), on the school's drive, in both sources' grounds | 125 m |
+| St John the Evangelist Catholic School (1491) | Auckland | 76 m | Kept | At its street address, 14 Otara Road, inside its OpenStreetMap grounds | 0 |
+| TKKM o Waiuku (3102) | Auckland | 76 m | Kept | Shares Waipipi School's site and entrance; LINZ's grounds are a corner of it | 0 |
+| Avonside Girls' High School (324) | Christchurch | 72 m | Kept | Shares one campus and building with Shirley Boys' High School at 209 Travis Road | 0 |
+| KingsGate School (603) | Auckland | 72 m | Moved | The entrance by the car park, in both sources' grounds; the directory point is on the house at 58 Blake Road next door | 167 m |
+| Mangaroa School (2899) | Wellington | 69 m | Moved | LINZ address point of 93 Flux Road, in both sources' grounds; the directory point is on the house section next door | 108 m |
+| Elim Christian College Henderson (3628) | Auckland | 69 m | Moved | LINZ address point of 80 Central Park Drive, at the campus drive, in both sources' grounds; the directory point is in townhouses next door | 338 m |
+| TKKM o Ruamata (1165) | Rotorua | 65 m | Moved | Both sources' grounds, 10 m in from the address point of 1005 Te Ngae Road; the directory point is across the drive | 132 m |
+| Gilberthorpe School (3346) | Christchurch | 63 m | Moved | The car park by the classrooms, in both sources' grounds; the directory point is in the reserve next door | 100 m |
+| Nelson College for Girls Prep School (4121) | Nelson | 62 m | Kept | On Nelson College for Girls' campus at its main entrance, sharing its address | 0 |
+
+A kept point is not a correction: the card still says times go to the
+Ministry's map point. Imagery for Auckland is from January 2024, before Twin
+Oaks, TIPENE and North West College opened (2025), so for those the website
+and LINZ's 2026 grounds carry the decision. North West College has a second
+campus in 2026, Years 9-10 at 199 Universal Drive, about 1 km north, which is
+not routed; the school says it will all be at Universal Drive from 2027.
+
+**What the moves change.** Times to the 14 moved schools change; every
+other school's are as published. On the default view (In zone) only
+Christchurch primary school moves, through Gilberthorpe School: 62.7% to
+62.9% of children aged 5–10 within 15 minutes on foot, and 64.2% to 64.4% by
+public transport or on foot (48 more children). Under All, Auckland falls by
+0.05 to 0.28 points (secondary school by low-stress bike 84.5% to 84.2%, 311
+fewer children aged 13–17 within 30 minutes), most of it near Hare Krishna
+School, now at its classrooms 800 m up the drive, and City Impact Church
+School; Wellington primary falls and Rotorua secondary rises by under 0.1
+point. One school changes most for the schools that moved furthest:
+OneSchool Global, children aged 13–17 within 30 minutes on foot, 835 to
+1,751; Hare Krishna School, children aged 5–10 within 15 minutes on foot,
+163 to 13. Near MAGS, Elim Christian College Mt Albert, now on McLean Street
+rather than the railway across New North Road, is the nearest school of
+every kind from hexagon 89bb501522bffff by every way: 5 minutes on foot,
+10 before.
 
 ## Routing
 
@@ -324,6 +399,14 @@ places, for every school mode including car. Each reroute ended with 300 sampled
 routed to every school in a fresh process; every pair matched
 (`verified` in each run's manifest), and `check_school_runs.py --before`
 found every other school's pairs unchanged.
+
+In 0.12.1 it routed the 14 schools whose points the hand check moved
+(Points checked by hand), in four places at once on one machine: Auckland,
+10 schools, in 92 minutes in two processes; Christchurch, 2, in 62 minutes;
+Wellington, 1, in 20 minutes; Rotorua, 1, in under 2. Every run's
+300-origin check matched, `check_school_runs.py --before` found every other
+school's pairs unchanged, and `team schools stops` gave every other school
+the same stops.
 
 ## Stops near a school
 
@@ -1074,8 +1157,11 @@ For Tim Welch to settle before or after the release:
   median trip uses is not.
 - Checked entrances. Mt Albert Grammar School's candidates are listed and
   unused; trips end at the Alberton Avenue side, as Google Maps routes them.
-- Moving a map point by hand: the points rule D5-1 does not move are listed
-  for a person to check.
+- A person's check of the map points within 50 m of their grounds, inside
+  another school's grounds or far from the streets: they are listed in each
+  place's audit. Only those more than 50 m outside were checked (0.12.1).
+- A school with two campuses has one point: North West College's Years 9-10
+  campus is not routed.
 - Car times to one school, and two schools side by side.
 - Arriving by the school bell, rather than leaving at any minute from 7 to 9.
 - Rolls for Years 9 to 13 only, as weights.

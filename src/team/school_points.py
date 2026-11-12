@@ -29,7 +29,13 @@ from the edge (the grounds' representative point if they are narrower than
 20 m). Every other school that needs a look (more than 50 m outside its own
 grounds, inside another school's grounds, more than 150 m from a walkable way
 or from where R5 links it, or with no LINZ grounds) is listed for a person to
-check and is not changed.
+check and is not changed by the rule.
+
+A person's check goes into configs/schools/points.csv with a blank rule: a
+new point (lon, lat) with its sources, or no point, which keeps the Ministry's
+(schools.kept_points). The audit marks those schools `checked` ("moved" or
+"kept") and they are no longer listed to check. The audit always measures the
+directory's point.
 """
 
 from __future__ import annotations
@@ -156,10 +162,13 @@ def iou(a, b) -> float:
     return float(a.intersection(b).area / union) if union > 0 else 0.0
 
 
-def audit(listed: pd.DataFrame, linz, osm, ways=None, snapped: dict[int, float] | None = None) -> pd.DataFrame:
+def audit(listed: pd.DataFrame, linz, osm, ways=None, snapped: dict[int, float] | None = None,
+          checked: dict[int, str] | None = None) -> pd.DataFrame:
     """Every school's directory point against its grounds and the network, and
     what rule D5-1 does with it. `listed` is a school_list (dir_lon, dir_lat
-    are the directory's point); `snapped` gives metres to R5's link, by MoE."""
+    are the directory's point); `snapped` gives metres to R5's link, by MoE;
+    `checked` gives the schools a person has checked, "moved" or "kept"
+    (schools.checked_points)."""
     import geopandas as gpd
     from shapely.geometry import Point
 
@@ -247,12 +256,22 @@ def audit(listed: pd.DataFrame, linz, osm, ways=None, snapped: dict[int, float] 
             "r5_link_m": None if not np.isfinite(snap_m) else round(float(snap_m), 1),
             "flags": "; ".join(flags) or None,
             "move": move,
+            "checked": (checked or {}).get(moe),
             "new_lon": round(new_ll.x, 6) if new_ll is not None else None,
             "new_lat": round(new_ll.y, 6) if new_ll is not None else None,
             "moved_m": round(float(new.distance(point)), 1) if new is not None else None,
             "map": f"https://www.openstreetmap.org/?mlat={y:.6f}&mlon={x:.6f}#map=17/{y:.6f}/{x:.6f}",
         })
     return pd.DataFrame(rows)
+
+
+def to_check(audited: pd.DataFrame) -> pd.Series:
+    """Schools still listed for a person: flagged, not moved by rule D5-1 and
+    not checked by a person."""
+    out = audited["flags"].notna() & ~audited["move"].astype(bool)
+    if "checked" in audited:
+        out &= audited["checked"].isna()
+    return out
 
 
 def point_rows(audited: pd.DataFrame, checked_on: str) -> pd.DataFrame:
@@ -299,7 +318,7 @@ def audit_place(settings, work: Path, snapped: dict[int, float] | None = None, l
     linz = read_linz_grounds(settings.data("school_grounds"))
     osm = osm_school_areas(settings.data("osm"), work)
     ways = walkable_ways(settings.data("osm"), work)
-    out = audit(listed, linz, osm, ways, snapped)
+    out = audit(listed, linz, osm, ways, snapped, schools.checked_points())
     out.insert(0, "place", settings.raw["name"])
     return out
 

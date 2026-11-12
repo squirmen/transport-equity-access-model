@@ -274,8 +274,11 @@ def test_auckland_secondary_share_by_public_transport():
     # 79.82% as R5 routes it; 84.49% taking walking where it is quicker, as the
     # round-2 spec's preview from round 1's cells (schools over the regional
     # boundary change it by less than 0.01 points); 84.65% once the five Years
-    # 7-10 schools count for secondary school (the 0.12.0 review).
-    assert share == pytest.approx(0.8465, abs=0.0001)
+    # 7-10 schools count for secondary school (the 0.12.0 review); 84.49% once
+    # the 0.12.1 review moved ten Auckland school points into their grounds
+    # (most of the fall is near Hare Krishna School, now at its classrooms 800 m
+    # up the drive, and City Impact Church School).
+    assert share == pytest.approx(0.8449, abs=0.0001)
     assert meta["formats"]["school_reach"] == 2 and meta["pt_or_walk"]["r5_columns"] == "_r5"
 
 

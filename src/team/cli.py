@@ -106,7 +106,8 @@ def cmd_schools(args: argparse.Namespace) -> int:
         folder.mkdir(parents=True, exist_ok=True)
         audited.to_csv(folder / "school_points_audit.csv", index=False)
         print(f"{len(audited)} schools, {int(audited['move'].sum())} moved by rule {school_points.RULE}, "
-              f"{int((audited['flags'].notna() & ~audited['move']).sum())} to check: {folder / 'school_points_audit.csv'}")
+              f"{int(audited['checked'].notna().sum())} checked by a person, "
+              f"{int(school_points.to_check(audited).sum())} to check: {folder / 'school_points_audit.csv'}")
         return 0
     record: dict = {}
     directory = schools.place_directory(settings, record)

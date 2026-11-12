@@ -14,27 +14,27 @@
   "all": {
    "primary_school": {
     "walk": {
-     "share": 0.76568,
-     "share_urban": 0.80533,
-     "people_within": 100057.8,
+     "share": 0.764021,
+     "share_urban": 0.803783,
+     "people_within": 99841.1,
      "people": 130678.4
     },
     "bike_low_stress": {
-     "share": 0.808405,
-     "share_urban": 0.848625,
-     "people_within": 105641.1,
+     "share": 0.807893,
+     "share_urban": 0.848117,
+     "people_within": 105574.2,
      "people": 130678.4
     },
     "bike": {
-     "share": 0.934764,
-     "share_urban": 0.977146,
-     "people_within": 122153.5,
+     "share": 0.934753,
+     "share_urban": 0.977153,
+     "people_within": 122152.0,
      "people": 130678.4
     },
     "pt": {
-     "share": 0.772449,
-     "share_urban": 0.812531,
-     "people_within": 100942.4,
+     "share": 0.77079,
+     "share_urban": 0.810984,
+     "people_within": 100725.6,
      "people": 130678.4
     },
     "car": {
@@ -44,35 +44,35 @@
      "people": 130678.4
     },
     "best": {
-     "share": 0.851346,
-     "share_urban": 0.893823,
-     "people_within": 111252.5,
+     "share": 0.850601,
+     "share_urban": 0.893066,
+     "people_within": 111155.2,
      "people": 130678.4
     }
    },
    "intermediate_school": {
     "walk": {
-     "share": 0.686704,
-     "share_urban": 0.725181,
-     "people_within": 31166.2,
+     "share": 0.685276,
+     "share_urban": 0.723769,
+     "people_within": 31101.4,
      "people": 45385.1
     },
     "bike_low_stress": {
-     "share": 0.753009,
-     "share_urban": 0.795134,
-     "people_within": 34175.4,
+     "share": 0.751159,
+     "share_urban": 0.793138,
+     "people_within": 34091.5,
      "people": 45385.1
     },
     "bike": {
-     "share": 0.903371,
-     "share_urban": 0.948162,
-     "people_within": 40999.6,
+     "share": 0.903362,
+     "share_urban": 0.948161,
+     "people_within": 40999.2,
      "people": 45385.1
     },
     "pt": {
-     "share": 0.725353,
-     "share_urban": 0.766489,
-     "people_within": 32920.2,
+     "share": 0.723906,
+     "share_urban": 0.765057,
+     "people_within": 32854.6,
      "people": 45385.1
     },
     "car": {
@@ -82,47 +82,47 @@
      "people": 45385.1
     },
     "best": {
-     "share": 0.802257,
-     "share_urban": 0.847003,
-     "people_within": 36410.5,
+     "share": 0.801143,
+     "share_urban": 0.845801,
+     "people_within": 36360.0,
      "people": 45385.1
     }
    },
    "secondary_school": {
     "walk": {
-     "share": 0.750089,
-     "share_urban": 0.796927,
-     "people_within": 80908.5,
+     "share": 0.748438,
+     "share_urban": 0.795439,
+     "people_within": 80730.4,
      "people": 107865.2
     },
     "bike_low_stress": {
-     "share": 0.844532,
-     "share_urban": 0.896393,
-     "people_within": 91095.6,
+     "share": 0.841653,
+     "share_urban": 0.893252,
+     "people_within": 90785.1,
      "people": 107865.2
     },
     "bike": {
-     "share": 0.92201,
-     "share_urban": 0.975094,
-     "people_within": 99452.8,
+     "share": 0.922013,
+     "share_urban": 0.975141,
+     "people_within": 99453.1,
      "people": 107865.2
     },
     "pt": {
-     "share": 0.846906,
-     "share_urban": 0.8998,
-     "people_within": 91351.7,
+     "share": 0.845203,
+     "share_urban": 0.898258,
+     "people_within": 91168.0,
      "people": 107865.2
     },
     "car": {
-     "share": 0.997942,
-     "share_urban": 0.999966,
-     "people_within": 107643.2,
+     "share": 0.997909,
+     "share_urban": 0.999947,
+     "people_within": 107639.6,
      "people": 107865.2
     },
     "best": {
-     "share": 0.889095,
-     "share_urban": 0.943068,
-     "people_within": 95902.4,
+     "share": 0.887765,
+     "share_urban": 0.941715,
+     "people_within": 95758.9,
      "people": 107865.2
     }
    }
@@ -2704,28 +2704,28 @@
   "89bb501522bffff": {
    "all": {
     "primary_school": {
-     "walk": 10,
-     "bike_low_stress": 8,
-     "bike": 5,
-     "pt": 10,
-     "car": 2,
-     "best": 8
+     "walk": 5,
+     "bike_low_stress": 5,
+     "bike": 3,
+     "pt": 5,
+     "car": 1,
+     "best": 5
     },
     "intermediate_school": {
-     "walk": 10,
-     "bike_low_stress": 10,
-     "bike": 8,
-     "pt": 10,
-     "car": 2,
-     "best": 10
+     "walk": 5,
+     "bike_low_stress": 5,
+     "bike": 3,
+     "pt": 5,
+     "car": 1,
+     "best": 5
     },
     "secondary_school": {
-     "walk": 10,
-     "bike_low_stress": 8,
-     "bike": 8,
-     "pt": 10,
-     "car": 2,
-     "best": 8
+     "walk": 5,
+     "bike_low_stress": 5,
+     "bike": 3,
+     "pt": 5,
+     "car": 1,
+     "best": 5
     }
    },
    "state:both": {
@@ -4394,7 +4394,7 @@
     "intermediate_school": {
      "walk": 8,
      "bike_low_stress": 7,
-     "bike": 7,
+     "bike": 5,
      "pt": 8,
      "car": 1,
      "best": 7
@@ -8218,20 +8218,16 @@
       3630
      ],
      "bike_low_stress": [
-      1282,
-      1359
+      3630
      ],
      "bike": [
-      1282
+      3630
      ],
      "pt": [
       3630
      ],
      "car": [
-      3630,
-      1282,
-      1412,
-      1359
+      3630
      ]
     },
     "intermediate_school": {
@@ -8256,11 +8252,10 @@
       3630
      ],
      "bike_low_stress": [
-      69
+      3630
      ],
      "bike": [
-      3630,
-      69
+      3630
      ],
      "pt": [
       3630
@@ -11177,7 +11172,7 @@
       70
      ],
      "bike": [
-      70
+      3630
      ],
      "pt": [
       70
@@ -15996,13 +15991,13 @@
   "89bb501522bffff": {
    "all": {
     "primary_school": {
-     "3630": 10
+     "3630": 5
     },
     "intermediate_school": {
-     "3630": 10
+     "3630": 5
     },
     "secondary_school": {
-     "3630": 10
+     "3630": 5
     }
    },
    "state:both": {
