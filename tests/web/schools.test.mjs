@@ -469,3 +469,18 @@ test('girls and boys: on foot only when it is for the student whose time is show
   assert.equal(both.ptFoot.mask[0], 1);
   assert.deepEqual([both.ptFoot.near[0], ...(both.ptFoot.ties[0] || [])], [AGGS], "the girl's walk sets the time");
 });
+
+test('none within the hour by public transport, but a walk: the card says so', () => {
+  // As in central Blenheim: a public transport trip may walk only so far
+  // straight to the door, so a 22-minute walk can be "over 60 min by public
+  // transport" when no bus helps.
+  const walk = decodeReach({ format: 1, o: [0, 2], d: [BOYS_HIGH, AGGS], m: [11, 22] }, 1);
+  const pt = decodeReach({ format: 1, o: [0, 1], d: [BOYS_HIGH], m: [11] }, 1);
+  const data = { t: { [S]: { walk: Float32Array.of(22), pt: Float32Array.of(NaN) } } };
+  assert.equal(tripWords(data, S, 'pt', 0).quicker, 22, 'Walking is quicker: 22 min');
+  const all = cardLines({ destinations: D, service: S, choice: { kind: 'all' }, reach: { walk, pt } }, 'pt', 0, [BOYS_HIGH]);
+  assert.ok(all.includes("Nearest state school for a girl: none within 60 min by public transport, though Auckland Girls' Grammar School is 22 min on foot."), all.join(' | '));
+  const state = chooseSchools({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt }, n: 1, standardModes: ['walk', 'pt'] });
+  const lines = cardLines({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt }, result: state }, 'pt', 0, []);
+  assert.ok(lines.some((l) => l.startsWith("For a girl: none within 60 min by public transport, though Auckland Girls' Grammar School is 22 min on foot.")), lines.join(' | '));
+});

@@ -142,7 +142,14 @@ export function orNames(names) {
 export function tripWords(data, service, mode, i, zones = null) {
   const shown = timeFor(data, service, mode, i, zones);
   const out = { how: HOW[mode] || '', onFoot: false, quicker: null, names: [] };
-  if (!Number.isFinite(shown) || mode === 'best') return out;
+  if (mode === 'best') return out;
+  if (!Number.isFinite(shown)) {
+    // None within the limit by public transport, but on foot there is one:
+    // a trip by public transport may walk only so far straight to the door.
+    const walk = mode === 'pt' && zones == null ? data.t[service]?.walk?.[i] : NaN;
+    if (Number.isFinite(walk)) out.quicker = walk;
+    return out;
+  }
   const priced = mode === 'pt' && zones != null;
   if (mode === 'pt') {
     const walk = data.t[service]?.walk?.[i];

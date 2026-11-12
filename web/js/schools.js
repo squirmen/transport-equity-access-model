@@ -909,11 +909,17 @@ export function cardLines(ctx, mode, i, named = []) {
       const state = (students) => (d) => isState(destinations[d]) && admits(destinations[d], service, students);
       const g = nearestPhrase(reach, real, i, state('girls'), { destinations, maxMinutes });
       const b = nearestPhrase(reach, real, i, state('boys'), { destinations, maxMinutes });
+      // None by public transport may still be a walk: say so.
+      const none = (students) => {
+        const walk = real === 'pt' && reach.walk ? nearestPhrase(reach, 'walk', i, state(students), { destinations, maxMinutes }) : null;
+        const base = `none within ${maxMinutes} min ${HOW[real] || ''}`.trim();
+        return walk ? `${base}, though ${orList(walk.ds.map(label))} ${walk.ds.length > 1 ? 'are' : 'is'} ${Math.round(walk.m)} min on foot` : base;
+      };
       if (!g && !b) lines.push(`No state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
       else if (g && b && g.text === b.text) lines.push(`Nearest state school: ${g.text}.`);
       else {
-        lines.push(`Nearest state school for a girl: ${g ? g.text : `none within ${maxMinutes} min`}.`);
-        lines.push(`For a boy: ${b ? b.text : `none within ${maxMinutes} min`}.`);
+        lines.push(`Nearest state school for a girl: ${g ? g.text : none('girls')}.`);
+        lines.push(`For a boy: ${b ? b.text : none('boys')}.`);
       }
     }
     return done();
@@ -958,7 +964,14 @@ export function cardLines(ctx, mode, i, named = []) {
         for (const m of counting) if (s.t[m] && Number.isFinite(s.t[m][i]) && !(s.t[m][i] >= (way ? s.t[way][i] : Infinity))) way = m;
       }
       const t = way && s.t[way] ? s.t[way][i] : NaN;
-      if (!Number.isFinite(t)) return `none within ${maxMinutes} min`;
+      if (!Number.isFinite(t)) {
+        const base = `none within ${maxMinutes} min${way ? ` ${HOW[way] || ''}` : ' without a car'}`.trim();
+        // None by public transport may still be a walk: say so.
+        const walk = way === 'pt' && s.t.walk ? s.t.walk[i] : NaN;
+        if (!Number.isFinite(walk)) return base;
+        const ds = [s.near.walk[i], ...(s.ties.walk[i] || [])].filter((k) => k >= 0);
+        return `${base}, though ${orList(ds.map(label))} ${ds.length > 1 ? 'are' : 'is'} ${Math.round(walk)} min on foot`;
+      }
       let ds = [s.near[way][i], ...(s.ties[way][i] || [])].filter((k) => k >= 0);
       let how = HOW[way] || '';
       if (way === 'pt' && s.t.walk && s.t.walk[i] === t) {

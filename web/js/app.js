@@ -1038,7 +1038,8 @@ function downloadSchools() {
     `Public transport: median over ${(data.meta.windows || {})[data.meta.services[service]?.window]?.when || 'the usual window'}, timetable of ${data.meta.routing_date}.`,
     'moe_<mode> is the Ministry school number of the nearest school counted by that way; tied schools are joined with |.',
     choice.students === 'both' && result && result.bySex ? 'Girls and boys: each minutes_<mode> is the slower of the girls and boys columns; minutes_best is the slower of each one\'s fastest way.' : null,
-    meta.directory ? `School list as at ${meta.directory}${meta.roll_date ? `; rolls at ${meta.roll_date}` : ''}.` : null,
+    // The counting line above gives the directory date already.
+    meta.roll_date ? `Rolls at ${meta.roll_date}.` : null,
     meta.dates ? `Data dates: timetable written ${meta.dates.timetable_written || 'not recorded'}, OpenStreetMap ${meta.dates.osm_downloaded || 'not recorded'}, routing day ${meta.dates.routing_date || data.meta.routing_date}.` : null,
     meta.bus_note ? meta.bus_note : null,
     meta.zones ? `Zones as at ${typeof meta.zones === 'string' ? meta.zones : data.schoolZones?.date || 'the date in the build'}.` : null,
