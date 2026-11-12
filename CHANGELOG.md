@@ -71,7 +71,8 @@ under Points checked by hand.
   with no lon and lat keeps the Ministry's point. The audit marks the
   schools a person checked (`checked`) and no longer lists them to check;
   `meta.schools.points` says which moves were by rule and which by hand
-  (`by`) and lists the points kept.
+  (`by`) and lists the points kept. About, under Schools, says a point can
+  be moved or kept after a check by hand, and how many were here.
 - **Routed again.** The 14 schools in Auckland (10), Christchurch (2),
   Wellington (1) and Rotorua (1). Every other school's minutes and stops are
   as published, and each run's 300-origin check matched.
