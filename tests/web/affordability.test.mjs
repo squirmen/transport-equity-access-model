@@ -58,16 +58,25 @@ test('burden bands break at 2.5, 5 and 10 percent', () => {
   assert.deepEqual([0, 0.02, 0.025, 0.049, 0.05, 0.1, 0.3].map(burdenClass), [0, 1, 2, 2, 3, 4, 4]);
 });
 
-test('the bus-only count needs no fare where the trip is really a walk', () => {
+test('the bus-only count needs no fare where the trip is a walk (z0)', () => {
+  // From 0.12.0 public transport is the quicker of the trip and the walk,
+  // and the build sends the walks within the fare cap as z0, which need no
+  // fare. A 12-minute walk beats the 15-minute trip, so nobody pays. A
+  // 25-minute walk is over the standard, so the 18-minute trip boards.
   const data = {
     n: 4,
     meta: { standard_modes: ['walk', 'pt'], fares: { kind: 'zones', zone_cap: 2 } },
-    // A 12-minute walk beats the 15-minute trip, so nobody pays. A 25-minute
-    // walk is too far to be the public transport trip, so that one boards.
     t: { gp: { walk: f32([12, 50, 25, 50]) } },
-    cost: { gp: { z1: f32([15, 40, 18, null]), z2: f32([15, 18, 18, null]) } },
+    cost: { gp: { z0: f32([12, null, 25, null]), z1: f32([12, 40, 18, null]), z2: f32([12, 18, 18, null]) } },
   };
   assert.deepEqual(Array.from(cheapestZones(data, 'gp', 20, { walkable: false })), [0, 2, 1, -2]);
+  // A build before 0.12.0 has no z0, and its public transport time is R5's
+  // own: a trip in time boards something and pays.
+  const before = { ...data, cost: { gp: { z1: f32([15, 40, 18, null]), z2: f32([15, 18, 18, null]) } } };
+  assert.deepEqual(Array.from(cheapestZones(before, 'gp', 20, { walkable: false })), [1, 2, 1, -2]);
+  // With no fare affordable, z0 is what public transport reaches.
+  assert.deepEqual(Array.from(times(data, 'gp', 'pt', 0)).map((v) => (Number.isNaN(v) ? null : v)), [12, null, 25, null]);
+  assert.ok(Number.isNaN(times(before, 'gp', 'pt', 0)[0]), 'an older build reaches nothing with no fare');
 });
 
 test('cycling counts as free even when walking is too slow', async () => {

@@ -4,8 +4,16 @@ The values are made up. They have a plausible shape (times grow with distance,
 deprivation varies across the area, a few places have indirect walks or no
 low-stress route) so every view and control can be exercised. Never publish them.
 
+The schools follow the 0.12.0 round-2 export (docs/schools.md): attributes in
+destinations.json, a reach list per service and mode in schools/ (format 2,
+public transport as the quicker of the trip and the walk, R5's own minutes in
+`r5`), children by age in cells.json `ages`, R5's minutes in `ptr`, walks
+needing no fare as cost `z0`, zones.json format 2 (each state school with a
+scheme zones the hexagons nearest it; hexagons near a zone line are split
+60:40), zone outlines, and stops near each school.
+
     python tests/fixtures/make_web_fixture.py
-    open http://localhost:8812/web/?data=../tests/fixtures/web/
+    open "http://localhost:8812/web/?city=web&data=../tests/fixtures/"
 
 A larger area, for checking speed at the size of a real build:
 
@@ -95,6 +103,201 @@ def cap(value: float) -> int | None:
     return int(round(value)) if value <= 60 else None
 
 
+SCHOOL_YEARS = {"primary_school": [1, 6], "intermediate_school": [7, 8], "secondary_school": [9, 13]}
+AGE_OF = {"early_childhood": "0_4", "primary_school": "5_10", "intermediate_school": "11_12", "secondary_school": "13_17"}
+AGE_SHARE = {"0_4": 5 / 15, "5_10": 6 / 15, "11_12": 2 / 15, "13_17": 5 / 15}
+
+
+def csr(rows, weights=False):
+    """Offsets and flat lists, as the reach lists and zones.json hold them."""
+    o, d, w = [0], [], []
+    for row in rows:
+        for key, value in row:
+            d.append(key)
+            w.append(value)
+        o.append(len(d))
+    return {"o": o, "d": d, "w": w} if weights else {"o": o, "d": d}
+
+
+def school_files(cells, centres, destinations, dest_points, t, nearest, fields, cost, slow, severed, meta):
+    """The schools part of the round-2 export, worked out from made-up pair
+    times, which also replace the school services' times in `t`."""
+    rng = random.Random(11)
+    files = {}
+    n = len(cells)
+    ptr = {}
+    nearest_mode = {}
+    ties = {}
+    zones = {"format": 2, "source": {"file": "made up", "version": "2026-10-02", "downloaded": "2026-11-12", "licence": "none: made up"},
+             "reference_date": "2026-11-12", "rule": "made up for the fixture", "schools": {}, "in": {}, "share": {}, "split": {}}
+    outlines = {}
+    stops = {"format": 1, "date": "2026-09-15", "window": ["07:00", "08:59"], "max_walk_minutes": 15, "gtfs": "made_up_gtfs.zip",
+             "stops": [], "schools": {}}
+    counts = {}
+    moe = 9000
+    for service, years in SCHOOL_YEARS.items():
+        schools = dest_points[service]
+        for k, (d, point) in enumerate(schools):
+            moe += 1
+            state = k % 4 != 3
+            girls = service == "secondary_school" and k == 1
+            dest = destinations[d]
+            dest.update({
+                "name": f"Testville {('State' if state else 'Integrated')} {service.split('_')[0].title()} {k + 1}",
+                "moe": moe, "kind": "state" if state else "integrated", "medium": "english", "language": "english",
+                "sex": {service: "girls" if girls else "co-ed"}, "years": years, "roll": 300 + 37 * k, "roll_date": "2026-10-01",
+                "scheme": state and k % 2 == 0, "routed_to": "point", "point": "directory",
+            })
+            status = ("in_force" if k != 4 else "upcoming_used") if dest["scheme"] else "none"
+            dest["zone"] = {"status": status, "from": "2027-01-01" if status == "upcoming_used" else ("2018-06-06" if status == "in_force" else None), "next": None}
+            dest["zone_from"] = dest["zone"]["from"]
+            zones["schools"][str(d)] = {"moe": moe, "status": status, "from": dest["zone"]["from"], "next": None,
+                                        "polygons": {service: [moe]} if status != "none" else {}}
+            # Two stops near each school, made up.
+            rows = []
+            for j in range(2):
+                stops["stops"].append({"id": f"{moe}-{j}", "code": str(moe * 10 + j), "name": f"{dest['name']} stop {j + 1}", "station": None,
+                                       "lat": round(point[1] + 0.002 * (j + 1), 5), "lon": round(point[0] + 0.001 * (j - 0.5), 5)})
+                trips = rng.randint(0, 12)
+                rows.append({"s": len(stops["stops"]) - 1, "walk": 2 + 5 * j, "metres": 150 + 400 * j,
+                             "routes": [{"route": f"{10 + j}", "mode": "bus", "headsigns": ["Testville centre"], "trips": trips}] if trips else [], "trips": trips})
+            stops["schools"][str(d)] = rows
+        # Pair times, made up from the straight line; R5's public transport
+        # walks all the way only up to 15 minutes.
+        pairs = {m: [[] for _ in range(n)] for m in ["walk", "bike_low_stress", "bike", "pt_r5", "car"]}
+        for i, centre in enumerate(centres):
+            for d, point in schools:
+                dist = km(centre, point)
+                walk = dist / 4.8 * 60 * rng.uniform(1.15, 1.45) * (2.6 if severed[i] else 1)
+                bus = 5 + rng.uniform(3, 10) + dist / 18 * 60 * 1.3 + (12 if slow[i] else 0)
+                r5 = min(bus, walk) if walk <= 15 else bus
+                for mode, value in (("walk", walk), ("bike_low_stress", dist / 15 * 60 * rng.uniform(1.3, 1.9) + 1), ("bike", dist / 15 * 60 * 1.2 + 1),
+                                    ("pt_r5", r5), ("car", 2 + dist / 30 * 60 * 1.3)):
+                    minutes = math.floor(value)
+                    if minutes <= 60:
+                        pairs[mode][i].append((d, minutes, round(dist * 1000)))
+        def ordered(row):
+            return sorted(row, key=lambda e: (e[1], e[2], destinations[e[0]]["moe"]))
+        lists = {}
+        for mode in ["walk", "bike_low_stress", "bike", "car"]:
+            rows = [ordered(r) for r in pairs[mode]]
+            lists[mode] = {"format": 2, "service": service, "mode": mode, "complete": True, **csr([[(d, m) for d, m, _ in r] for r in rows])}
+            lists[mode]["m"] = lists[mode].pop("w", None) or [m for r in rows for _, m, _ in r]
+        merged_rows, rk, rm, lo, hi = [], [], [], [], []
+        for i in range(n):
+            walk = {d: m for d, m, _ in pairs["walk"][i]}
+            r5 = {d: (m, metres) for d, m, metres in pairs["pt_r5"][i]}
+            metres = {d: x for d, _, x in pairs["walk"][i] + pairs["pt_r5"][i]}
+            row = []
+            for d in set(walk) | set(r5):
+                own = r5.get(d, (None,))[0]
+                m = min(x for x in (own, walk.get(d)) if x is not None)
+                row.append((d, m, metres[d], own, d in walk and (own is None or own > walk[d])))
+            merged_rows.append(ordered(row))
+        flat = 0
+        for row in merged_rows:
+            for d, m, _, own, listed in row:
+                if listed:
+                    rk.append(flat)
+                    rm.append(own)
+                spread = rng.randint(0, 4)
+                lo.append(m if listed else max(0, m - spread))
+                hi.append(m if listed else min(60, m + spread) if m + spread <= 60 else None)
+                flat += 1
+        lists["pt"] = {"format": 2, "service": service, "mode": "pt", "window": "am_peak", "complete": True, "pt_or_walk": True,
+                       **csr([[(d, m) for d, m, *_ in r] for r in merged_rows]), "lo": lo, "hi": hi, "r5": {"k": rk, "m": rm}}
+        lists["pt"]["m"] = [m for r in merged_rows for _, m, *_ in r]
+        for mode in ["walk", "bike_low_stress", "bike", "car"]:
+            lists[mode]["m"] = [m for r in (ordered(x) for x in pairs[mode]) for _, m, _ in r]
+        # The comparison ways (any bike route, car) are left out to keep the
+        # fixture small: the page then shows Best for them, as it does for a
+        # build without them.
+        for mode in ("walk", "bike_low_stress", "pt"):
+            files[f"schools/{service}_{mode}.json"] = lists[mode]
+        # The times shown under All are the lists' nearest.
+        nearest_mode[service] = {}
+        ties[service] = {}
+        for mode, body in lists.items():
+            times, near, tied = [], [], {}
+            for i in range(n):
+                a, b = body["o"][i], body["o"][i + 1]
+                if a == b:
+                    times.append(None)
+                    near.append(None)
+                    continue
+                times.append(body["m"][a])
+                near.append(body["d"][a])
+                same = [body["d"][k] for k in range(a + 1, b) if body["m"][k] == body["m"][a]]
+                if same:
+                    tied[str(i)] = same
+            t[service][mode] = times
+            nearest_mode[service][mode] = near
+            ties[service][mode] = tied
+        nearest[service] = nearest_mode[service]["walk"]
+        r5_nearest = []
+        for i in range(n):
+            own = [m for _, m, _ in pairs["pt_r5"][i]]
+            r5_nearest.append(min(own) if own else None)
+        ptr[service] = {str(i): r5_nearest[i] for i in range(n)
+                        if t[service]["pt"][i] is not None and (r5_nearest[i] is None or r5_nearest[i] > t[service]["pt"][i])}
+        for z in range(1, 5):
+            cost[service][f"z{z}"] = list(t[service]["pt"])
+        # Zones: each zoned school zones the hexagons nearer it than any other
+        # zoned school; hexagons almost as near another are split 60:40.
+        zoned = [(d, point) for d, point in schools if zones["schools"][str(d)]["status"] in ("in_force", "upcoming_used")]
+        in_rows, share_rows, split = [], [], []
+        members = {d: [] for d, _ in zoned}
+        for i, centre in enumerate(centres):
+            ranked = sorted(zoned, key=lambda e: km(centre, e[1]))
+            if not ranked:
+                in_rows.append([])
+                share_rows.append([])
+                continue
+            first = ranked[0]
+            members[first[0]].append(centre)
+            second = ranked[1] if len(ranked) > 1 else None
+            if second and km(centre, second[1]) < km(centre, first[1]) * 1.08:
+                in_rows.append([(first[0], None)])
+                share_rows.append(sorted([(first[0], 0.6), (second[0], 0.4)]))
+                split.append(i)
+            else:
+                in_rows.append([(first[0], None)])
+                share_rows.append([(first[0], 1.0)])
+        zones["in"][service] = csr(in_rows)
+        zones["share"][service] = csr(share_rows, weights=True)
+        zones["split"][service] = split
+        outlines[service] = {"format": 1, "service": service, "simplified_m": 5, "schools": {}}
+        for d, pts in members.items():
+            if not pts:
+                continue
+            w, e = min(p[0] for p in pts) - 0.002, max(p[0] for p in pts) + 0.002
+            so, no = min(p[1] for p in pts) - 0.002, max(p[1] for p in pts) + 0.002
+            outlines[service]["schools"][str(d)] = {"type": "Polygon", "coordinates": [[[round(w, 5), round(so, 5)], [round(e, 5), round(so, 5)],
+                                                                                        [round(e, 5), round(no, 5)], [round(w, 5), round(no, 5)], [round(w, 5), round(so, 5)]]]}
+        st = [d for d, _ in schools if destinations[d]["kind"] == "state"]
+        counts[service] = {"all": len(schools), "state": len(st), "kind": {"state": len(st), "integrated": len(schools) - len(st), "private": 0, "charter": 0},
+                           "state_maori": 0, "state_pacific": 0, "state_language_unknown": 0,
+                           "state_sex": {"co-ed": sum(1 for d in st if destinations[d]["sex"][service] == "co-ed"),
+                                         "girls": sum(1 for d in st if destinations[d]["sex"][service] == "girls"), "boys": 0}}
+    for k, body in outlines.items():
+        files[f"schools/zone_outlines_{k}.json"] = body
+    files["schools/zones.json"] = zones
+    files["schools/stops.json"] = stops
+    # Every other service: R5 walks all the way only up to 15 minutes, so
+    # where walking is quicker past that, R5's own time is kept in ptr.
+    meta["schools"] = {
+        "directory": {"file": "made up", "retrieved": "2026-11-12T10:00:00+13:00", "roll_dates": {"2026-10-01": sum(len(dest_points[s]) for s in SCHOOL_YEARS)}},
+        "dates": {"directory": "2026-11-12", "timetable_written": "2026-08-29", "osm_downloaded": "2026-05-04", "routing_date": "2026-09-15"},
+        "services": counts, "choices": ["all", "state", "zone", "one"],
+        "zones": {"source": zones["source"], "reference_date": "2026-11-12", "counts": {}, "upcoming": [], "split_people": {}, "children_in_split": {}},
+        "buses": "none_found", "bus_note": "Testville's timetable has no school buses.",
+        "stops": {"file": "schools/stops.json", "date": "2026-09-15", "window": ["07:00", "08:59"], "gtfs": "made_up_gtfs.zip", "schools_with_none": 0},
+        "points": {"audited": sum(len(dest_points[s]) for s in SCHOOL_YEARS), "moved": [], "to_check": 0, "rule": "D5-1"},
+        "files": {name.split("/", 1)[1]: {} for name in files if name.startswith("schools/") and "_" in name.split("/", 1)[1] and not name.endswith(("zones.json", "stops.json")) and "zone_outlines" not in name},
+    }
+    return files, ptr, nearest_mode, ties
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Write a synthetic TEAM web dataset.")
     parser.add_argument("--out", default=str(OUT), help="folder to write the JSON files to")
@@ -148,6 +351,7 @@ def main() -> None:
     access = {m: {k: [] for k in ACCESS_KEYS} for m in ["walk", "pt", "bike_low_stress"]}
     distance_between = zone_distance(ZONE_ADJACENCY)
 
+    severed_at, slow_at, walk_at, bus_at = [], [], {s: [] for s in SERVICES}, {s: [] for s in SERVICES}
     for cell, centre in zip(cells, centres):
         east = (centre[0] - CBD[0]) / (BBOX[2] - BBOX[0])
         south = (CBD[1] - centre[1]) / (BBOX[3] - BBOX[1])
@@ -156,6 +360,8 @@ def main() -> None:
         severed = random.random() < 0.08
         no_low_stress = east > 0.15 and random.random() < 0.6
         slow_bus = south > 0.3
+        severed_at.append(severed)
+        slow_at.append(slow_bus)
         frequency = max(0.0, round(random.gauss(10 - 12 * max(east, south), 4), 1))
         fields["pop"].append(pop)
         fields["place"].append(parent_index[h3.cell_to_parent(cell, 7)])
@@ -189,6 +395,8 @@ def main() -> None:
             t[service]["bike"].append(cap(bike_any))
             t[service]["pt"].append(cap(min(bus, walk)))
             t[service]["car"].append(cap(car))
+            walk_at[service].append(cap(walk))
+            bus_at[service].append(cap(bus) if walk > 15 else cap(min(bus, walk)))
 
         to_cbd = km(centre, CBD)
         # Zone by ring out from the centre, with the west put in its own zone.
@@ -298,16 +506,36 @@ def main() -> None:
         ]},
     }
 
+    school, ptr, nearest_mode, ties = school_files(cells, centres, destinations, dest_points, t, nearest, fields, cost, slow_at, severed_at, meta)
+    for service in SERVICES:
+        if service in SCHOOL_YEARS:
+            continue
+        ptr[service] = {str(i): bus_at[service][i] for i in range(len(cells))
+                        if t[service]["pt"][i] is not None and (bus_at[service][i] is None or bus_at[service][i] > t[service]["pt"][i])}
+    # Walks need no fare: z0 is the walk within the fare cap.
+    for service in SERVICES:
+        cost[service]["z0"] = [w if w is not None and w <= 45 else None for w in t[service]["walk"]]
+    cost["jobs"]["z0"] = list(jobs["walk"]["45"])
+    ages = {g: [round(p * k / 100 * f, 1) for p, k in zip(fields["pop"], fields["kids"])] for g, f in AGE_SHARE.items()}
+    meta["formats"] = {"cells": 2, "school_reach": 2, "zones": 2, "zone_outlines": 1, "school_stops": 1}
+    meta["pt_or_walk"] = {"rule": "public transport or walking, whichever is quicker", "slow_factor": 1.3333,
+                          "covers": ["services", "schools", "fares"], "not_covered": ["cell-to-cell trips and MATE (?mate=1)"], "r5_columns": "_r5"}
+    meta["ages"] = {"groups": {g: {"label": f"children aged {g.replace('_', '–')}", "ages": [int(x) for x in g.split("_")],
+                                   "years": {"5_10": "Years 1–6", "11_12": "Years 7–8", "13_17": "Years 9–13"}.get(g, "early childhood")} for g in AGE_SHARE},
+                    "services": {s: g for s, g in AGE_OF.items() if s in SERVICES}, "shape": "made up"}
+
     out.mkdir(parents=True, exist_ok=True)
-    payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "jobs": jobs,
-               "fair": fair, "access": access, "cost": cost, "zone": zone_of, "groups": groups}
+    payload = {"h3": cells, **fields, "freq": freq, "t": t, "km": km_out, "nearest": nearest, "nearest_mode": nearest_mode, "ties": ties,
+               "jobs": jobs, "fair": fair, "access": access, "cost": cost, "zone": zone_of, "groups": groups, "ages": ages, "ptr": ptr}
     files = {
         "cells.json": payload,
         "summary.json": {"meta": meta, "services": [], "jobs": [], "areas": {}},
         "places.json": places,
         "destinations.json": destinations,
         "overlays.json": overlays,
+        **school,
     }
+    (out / "schools").mkdir(exist_ok=True)
     for name, content in files.items():
         (out / name).write_text(json.dumps(content, separators=(",", ":")), encoding="utf-8")
     print(f"wrote {len(cells)} synthetic cells to {out}")

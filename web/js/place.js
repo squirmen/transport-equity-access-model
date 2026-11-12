@@ -4,11 +4,12 @@
 // a line for every standard, three numbers, then folded sections, each with a
 // short summary so folding hides nothing.
 
-import { bestMode, costLayer, pricedLayer, tripTime } from './data.js';
+import { ageGroupFor, ageWords } from './ages.js';
+import { bestMode, costLayer, pricedLayer, tripTime, windowsFor } from './data.js';
 import { fare, freeTravel, money, paymentKey } from './fares.js';
 import { diagnoseCell } from './diagnose.js';
 import { fold } from './fold.js';
-import { count, el, metres, minutes, MODES, place as placeNames } from './format.js';
+import { count, el, metres, minutes, MODES, place as placeNames, transit } from './format.js';
 import { lowerName, SERVICE_ORDER, SERVICE_SHORT } from './panel.js';
 import { REASON_CLASS, REASON_GROUPS } from './palette.js';
 
@@ -131,22 +132,46 @@ export function orNames(names) {
   return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
 }
 
+/** R5's own public transport time from hexagon i, by bus or train, where
+ *  the time shown may be a walk: under a school choice from the choice's
+ *  reach lists (data.r5t), otherwise from cells.json's `ptr`, which lists
+ *  only the hexagons where R5 is slower than walking or has nothing within
+ *  the routing limit, for the usual window only. NaN for nothing within the
+ *  limit; undefined where the build does not say. */
+export function busTime(data, service, i) {
+  const own = data.r5t?.[service];
+  if (own) return own[i];
+  // A choice whose lists do not say: cells.json's figure is for All.
+  if (data.schoolsAll?.[service]) return undefined;
+  const ptr = data.ptr?.[service];
+  if (!ptr) return undefined;
+  const usual = data.meta?.services ? windowsFor(data, service)[0] : null;
+  if (usual && data.activeWindow?.[service] && data.activeWindow[service] !== usual) return undefined;
+  const key = String(i);
+  if (!Object.prototype.hasOwnProperty.call(ptr, key)) return undefined;
+  return ptr[key] == null ? NaN : ptr[key];
+}
+
 /** How the time on screen was made, and what it reaches.
  *
  *  A public transport time may be a walk the whole way, when no bus or train
  *  is quicker. Where it equals the walking time it is said as walking, and
- *  the places named are those reached on foot in that time. Where walking is
- *  quicker still (a trip by public transport may only walk 15 minutes
- *  straight to the door), that is said too. Under a fare budget the priced
- *  time may go somewhere else at the same minute, so nothing is named. */
+ *  the places named are those reached on foot in that time. From 0.12.0 a
+ *  public transport time is the quicker of the trip and the walk
+ *  (transit.orWalk), and `bus` is then R5's own time by bus or train. Before
+ *  that, a trip by public transport could walk only 15 minutes straight to
+ *  the door, and where walking was quicker still that is said (`quicker`).
+ *  Under a fare budget the priced time may go somewhere else at the same
+ *  minute, so nothing is named. */
 export function tripWords(data, service, mode, i, zones = null) {
   const shown = timeFor(data, service, mode, i, zones);
-  const out = { how: HOW[mode] || '', onFoot: false, quicker: null, names: [] };
+  const out = { how: HOW[mode] || '', onFoot: false, quicker: null, bus: undefined, names: [] };
   if (mode === 'best') return out;
+  const orWalk = transit.orWalk;
   if (!Number.isFinite(shown)) {
     // None within the limit by public transport, but on foot there is one:
     // a trip by public transport may walk only so far straight to the door.
-    const walk = mode === 'pt' && zones == null ? data.t[service]?.walk?.[i] : NaN;
+    const walk = mode === 'pt' && zones == null && !orWalk ? data.t[service]?.walk?.[i] : NaN;
     if (Number.isFinite(walk)) out.quicker = walk;
     return out;
   }
@@ -159,14 +184,29 @@ export function tripWords(data, service, mode, i, zones = null) {
     if (foot ? foot.mask[i] === 1 : Number.isFinite(walk) && walk === shown) {
       out.how = 'on foot';
       out.onFoot = true;
+      // R5's own time, where it is slower than the walk or missing. Where it
+      // equals the walk, R5's trip is that walk (it walks up to 15 minutes
+      // all the way), so there is no bus time to give.
+      if (orWalk && !priced) {
+        const bus = busTime(data, service, i);
+        if (bus !== undefined && !(Number.isFinite(bus) && bus <= shown)) out.bus = bus;
+      }
       if (foot) out.names = foot.near[i] >= 0 ? [foot.near[i], ...(foot.ties[i] || [])] : [];
       else if (!priced) out.names = namedFor(data, service, 'walk', i);
       return out;
     }
-    if (Number.isFinite(walk) && walk < shown) out.quicker = walk;
+    if (!orWalk && Number.isFinite(walk) && walk < shown) out.quicker = walk;
   }
   if (!priced) out.names = namedFor(data, service, mode, i);
   return out;
+}
+
+/** The line after "15 min on foot. No bus or train is quicker.": R5's own
+ *  time by bus or train, or that there is none within the hour. Null where
+ *  the build does not say, or the time is not a walk. */
+export function busLine(trip, maxMinutes = 60) {
+  if (!trip || !trip.onFoot || trip.bus === undefined) return null;
+  return Number.isFinite(trip.bus) ? `By bus or train: ${minutes(trip.bus)}.` : `No bus or train gets there within ${maxMinutes} min.`;
 }
 
 /** The verdict band for one service: { state, badge, strong, rest }.
@@ -187,11 +227,13 @@ export function headline(data, i, service, standard, viewMode, zones = null, nam
   return { v, trip, strong: `${name}: ${minutes(v.shown)} ${trip.how}.${trip.onFoot ? ' No bus or train is quicker.' : ''}` };
 }
 
-/** The map's tooltip for a service: the card's first sentence, and walking
- *  where it is quicker than the public transport time the map shows. */
+/** The map's tooltip for a service: the card's first sentence, then, where
+ *  that is a walk, R5's own time by bus or train (or, in a build before
+ *  0.12.0, walking where it is quicker than the public transport time). */
 export function tooltipLines(data, i, service, standard, viewMode, zones = null, name = undefined) {
   const { trip, strong } = headline(data, i, service, standard, viewMode, zones, name);
-  return [strong, trip && Number.isFinite(trip.quicker) ? `Walking is quicker: ${minutes(trip.quicker)}.` : null].filter(Boolean);
+  const max = data.meta?.routing_max_minutes || 60;
+  return [strong, trip && Number.isFinite(trip.quicker) ? `Walking is quicker: ${minutes(trip.quicker)}.` : busLine(trip, max)].filter(Boolean);
 }
 
 export function verdictLine(data, i, service, standard, viewMode, zones = null, more = null) {
@@ -219,12 +261,15 @@ export function verdictLine(data, i, service, standard, viewMode, zones = null, 
   }
   const bits = [];
   if (Number.isFinite(trip.quicker)) bits.push(`Walking is quicker: ${minutes(trip.quicker)}.`);
+  const bus = busLine(trip, data.meta?.routing_max_minutes || 60);
+  if (bus) bits.push(bus);
   if (trip.names.length && !(more && more.one)) {
     const label = (k) => (more?.label ? more.label(k) : data.destinations?.[k]?.name || 'unnamed');
     const all = trip.names.length > 2 ? 'all' : 'both';
+    const nearest = more?.nearestLabel || 'Nearest';
     bits.push(trip.names.length > 1
-      ? `Nearest: ${orNames(trip.names.map(label))}, ${all} ${minutes(v.shown)}.`
-      : `Nearest: ${label(trip.names[0])}.`);
+      ? `${nearest}: ${orNames(trip.names.map(label))}, ${all} ${minutes(v.shown)}.`
+      : `${nearest}: ${label(trip.names[0])}.`);
   }
   if (more) bits.push(...more.lines(v.mode, i, trip.names, v.shown));
   if (v.meets) {
@@ -381,10 +426,11 @@ export function renderPlace(root, data, i, state, opts = {}) {
   const windows = data.meta.windows || {};
   const jobsWindow = data.activeWindow?.jobs;
   const jobsWhen = jobsWindow && jobsWindow !== data.meta.jobs.window ? `, ${windows[jobsWindow]?.label || jobsWindow}` : '';
-  const jobsLayer = zones != null && zones > 0 ? costLayer(data, 'jobs', zones) : null;
+  // With no fare affordable, the jobs within reach on foot (z0), where the build sends them.
+  const jobsLayer = zones != null ? costLayer(data, 'jobs', zones) : null;
   for (const [mode, label] of [['pt', 'Public transport'], ['bike_low_stress', 'Low-stress cycling'], ['walk', 'Walking']]) {
     const priced = mode === 'pt' && zones != null;
-    const share = priced ? (zones <= 0 ? 0 : jobsLayer?.[i]) : data.jobs[mode]?.['45']?.[i];
+    const share = priced ? (zones <= 0 && !jobsLayer ? 0 : jobsLayer?.[i]) : data.jobs[mode]?.['45']?.[i];
     if (Number.isFinite(share)) {
       const total = data.meta.jobs.total;
       const name = mode === 'pt' ? `${label}, 45 min${jobsWhen}${priced ? ', on this budget' : ''}` : `${label}, 45 min`;
@@ -419,7 +465,11 @@ export function renderPlace(root, data, i, state, opts = {}) {
     return row(label, `${share}%${heads}`);
   };
   const labels = data.meta.groups || {};
+  // The children the figures for the service on screen count, where they do.
+  const ageKey = ageGroupFor(data.meta, data.ages, state.service);
+  const kids = ageKey ? ageWords(data.meta, ageKey) : null;
   const people = [
+    kids && Number.isFinite(data.ages[ageKey][i]) ? row(`${kids.many[0].toUpperCase()}${kids.many.slice(1)} (2023 Census)`, `about ${count(data.ages[ageKey][i])}`) : null,
     row('Neighbourhood deprivation', Number.isFinite(data.nzdep[i]) ? `NZDep ${data.nzdep[i]} of 10` : 'not given'),
     group('no_car', labels.no_car || 'Households without a car'),
     group('children', labels.children || 'Children under 15'),
@@ -442,9 +492,9 @@ export function renderPlace(root, data, i, state, opts = {}) {
   let better = NaN;
   if (scores && Number.isFinite(scores[i])) {
     standing.push(row(`Access score by ${MODES[scoreMode].short}`, `${Math.round(scores[i])} · ${placeNames.name} average is 100`));
-    // Against everyone counted, but not narrowed to one school's zone: the
-    // score is about everything, not that school.
-    const counted = data.cellMask ? (data.urbanOn && data.urbanOnly ? data.urbanOnly.pop : data.everywhere?.pop) || data.pop : data.pop;
+    // Against everyone who lives in the place (or its urban areas): the score
+    // is about everything, not one school's zone or one age group.
+    const counted = (data.urbanOn && data.urbanOnly ? data.urbanOnly.pop : data.everywhere?.pop) || data.pop;
     better = rankAmong(scores, counted, i);
     if (Number.isFinite(better)) standing.push(row('Better than', `${Math.floor(better * 100)}% of residents`));
   }
@@ -570,7 +620,8 @@ function jobsLead(data, i, state, zones) {
   const limits = Object.keys(data.jobs[mode]).map(Number).sort((a, b) => a - b);
   const limit = limits.includes(Number(state.jobsLimit)) ? Number(state.jobsLimit) : limits[limits.length - 1];
   const priced = mode === 'pt' && zones != null && data.cost.jobs;
-  const share = priced ? (zones <= 0 ? 0 : costLayer(data, 'jobs', zones)?.[i]) : data.jobs[mode][String(limit)]?.[i];
+  const onBudget = priced ? costLayer(data, 'jobs', zones) : null;
+  const share = priced ? (zones <= 0 && !onBudget ? 0 : onBudget?.[i]) : data.jobs[mode][String(limit)]?.[i];
   if (!Number.isFinite(share)) return { state: 'info', strong: 'No job figure for this hexagon.', rest: '' };
   const jobs = (share / 100) * data.meta.jobs.total;
   const minutesLimit = priced ? (data.meta.fares.max_minutes || limit) : limit;

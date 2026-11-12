@@ -441,6 +441,11 @@ button.k-row:hover { background: var(--wash); }
 .map-tag.is-to { margin-bottom: 6px; background: #1f6178; }
 .map-tag.is-stop { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 2.5px solid var(--navy); background: #fff; color: var(--navy); font-size: 10.5px; font-weight: 800; line-height: 1; box-shadow: none; }
 .map-tag.is-route { border-radius: 4px; }
+/* Stops near the school under One school: the walking minutes to it. */
+.map-tag.is-school-stop { min-width: 18px; padding: 0 4px; border: 1.5px solid var(--navy); border-radius: 4px; background: #fff; color: var(--navy); font-size: 10px; line-height: 14px; text-align: center; box-shadow: none; }
+.key-stop { width: 14px; height: 12px; border: 1.5px solid var(--navy, #0c0c48); border-radius: 3px; background: #fff; }
+.stop-list { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-xs); line-height: 1.45; }
+.stop-list li + li { margin-top: 3px; }
 .end-head .map-tag { margin: 0; }
 /* The Trip tab. */
 .place-trip .mate-table th { font-weight: 600; }

@@ -252,16 +252,6 @@ export function incomeZones(meta, daily, share, state) {
   return out;
 }
 
-// A public transport trip may be a walk the whole way when the walk is short
-// enough, and then nobody pays for it. Routing allows up to 15 minutes of
-// walking, so a trip no faster than walking inside that limit is taken to be
-// a walk.
-const WALK_ONLY_MINUTES = 15.5;
-
-function walkOnly(walk, pt) {
-  return Number.isFinite(walk) && walk <= WALK_ONLY_MINUTES && Number.isFinite(pt) && pt >= walk - 0.5;
-}
-
 /** The fewest zones that reach the nearest one inside the standard: 0 when no
  *  fare is needed, -2 when the place is routed but nothing gets there in time,
  *  and -1 when there is no route at all. The true count is kept on networks
@@ -269,18 +259,20 @@ function walkOnly(walk, pt) {
  *
  *  By default walking and low-stress cycling count as free, so this is the
  *  cheapest way to get there. With `walkable` false it asks about public
- *  transport alone: the fewest zones of a trip that boards something and gets
- *  there in time, whether or not the traveller could walk instead. A "public
- *  transport" trip that is really a walk needs no fare, and is 0. */
+ *  transport alone: the fewest zones of a trip that gets there in time,
+ *  whether or not the traveller could walk instead. From 0.12.0 a public
+ *  transport time is the quicker of the trip and walking all the way, and a
+ *  walk has no fare: the build sends those trips as `z0`, and they are 0. */
 export function cheapestZones(data, service, standard, { walkable = true } = {}) {
   const cap = zoneCap(data.meta.fares);
   const times = data.t[service] || {};
   const free = walkable ? data.meta.standard_modes.filter((m) => m !== 'pt') : [];
   const every = Object.values(times);
   const priced = data.cost[service] || {};
+  const onFoot = priced.z0 || null;
   const out = new Int8Array(data.n).fill(-1);
   for (let i = 0; i < data.n; i += 1) {
-    if (free.some((m) => times[m]?.[i] <= standard)) {
+    if (free.some((m) => times[m]?.[i] <= standard) || (onFoot && onFoot[i] <= standard)) {
       out[i] = 0;
       continue;
     }
@@ -288,7 +280,7 @@ export function cheapestZones(data, service, standard, { walkable = true } = {})
     for (let z = 1; z <= cap; z += 1) {
       const t = priced[`z${z}`]?.[i];
       if (!(t <= standard)) continue;
-      found = walkOnly(times.walk?.[i], t) ? 0 : z;
+      found = z;
       break;
     }
     if (found === -1) {

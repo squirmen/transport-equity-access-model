@@ -9,7 +9,7 @@
 
 import { bars, lines } from './charts.js';
 import { fold } from './fold.js';
-import { count, el, MODE_NOTES, MODES, percent, place } from './format.js';
+import { count, el, MODE_NOTES, MODES, percent, place, ptPhrase } from './format.js';
 
 // Everyday errands first, then education in the order a child meets it, then
 // jobs. A service the build does not have is dropped by setServices.
@@ -93,7 +93,36 @@ const GROUP_PHRASE = {
   disabled: 'disabled people',
 };
 
-const phrase = (group) => GROUP_PHRASE[group] || 'people';
+// Who the figures count: everyone, or, for early childhood and the school
+// services in a build with ages, the children of the service's ages (ages.js
+// ageWords). Set by app.js before each panel is drawn.
+let counted = { many: 'people', one: 'person', children: false };
+
+/** Count `words.many` ("children aged 13–17") rather than people, or people
+ *  again with null. */
+export function setCounted(words) {
+  counted = words && words.key ? { many: words.many, one: words.one, children: true } : { many: 'people', one: 'person', children: false };
+}
+
+// A group among children of one age: "Māori children aged 13–17".
+const CHILD_PHRASE = {
+  no_car: (w) => `${w} in households without a car`,
+  low_income: (w) => `${w} in households under $70,000`,
+  maori: (w) => `Māori ${w}`,
+  pacific: (w) => `Pacific ${w}`,
+  asian: (w) => `Asian ${w}`,
+  disabled: (w) => `disabled ${w}`,
+};
+
+const phrase = (group) => {
+  if (group === 'everyone' || !group) return counted.many;
+  if (counted.children && CHILD_PHRASE[group]) return CHILD_PHRASE[group](counted.many);
+  return GROUP_PHRASE[group] || 'people';
+};
+
+/** A group's phrase in a sentence, as the figures on screen count it:
+ *  "people", "children aged 13–17", "Māori children aged 13–17". */
+export const groupPhrase = (group) => phrase(group);
 
 // Short names for the People list; the charts carry the full label.
 const GROUP_SHORT = {
@@ -108,7 +137,8 @@ const GROUP_SHORT = {
   disabled: 'Disabled',
 };
 
-const shortLabels = (groups) => groups.map(([key, label]) => [key, GROUP_SHORT[key] || label]);
+// Under a service that counts children, "Everyone" is them.
+const shortLabels = (groups) => groups.map(([key, label]) => [key, key === 'everyone' && counted.children ? capitalise(counted.many) : GROUP_SHORT[key] || label]);
 
 const REASON_SENTENCE = {
   0: 'the nearest one is close in a straight line, but the walk there is indirect',
@@ -192,7 +222,7 @@ function viewRow(label, options, current, onPick) {
 function residentsOf(model) {
   // One school's zone names its own people: "the 61,700 people in its zone".
   if (model && model.who) return model.who;
-  return model && model.where ? `people in ${model.where}` : `people in ${place.name}`;
+  return model && model.where ? `${counted.many} in ${model.where}` : `${counted.many} in ${place.name}`;
 }
 
 function placeOf(model) {
@@ -202,7 +232,8 @@ function placeOf(model) {
 // How many can't, or that everyone can: likely enough for one suburb.
 function cant(below) {
   const n = Math.round(below);
-  return n === 0 ? 'Everyone can.' : n === 1 ? "1 person can't." : `${count(below)} people can't.`;
+  if (n === 0) return counted.children ? 'All of them can.' : 'Everyone can.';
+  return n === 1 ? `1 ${counted.one} can't.` : `${count(below)} ${counted.many} can't.`;
 }
 
 const GROUP_ONE = {
@@ -219,7 +250,10 @@ const GROUP_ONE = {
 
 // The group's phrase, for one of them or for any other number.
 function peopleWord(n, group = 'everyone') {
-  return Math.round(n) === 1 ? GROUP_ONE[group] || 'person' : phrase(group);
+  if (Math.round(n) !== 1) return phrase(group);
+  if (group === 'everyone' || !group) return counted.one;
+  if (counted.children && CHILD_PHRASE[group]) return CHILD_PHRASE[group](counted.one);
+  return GROUP_ONE[group] || 'person';
 }
 
 function hero(figure, text, sub) {
@@ -447,7 +481,8 @@ export function renderTraveller(root, model, set) {
 
 // ---------------------------------------------------------------- Access
 
-function accessSentence(model) {
+/** The Access headline's sentence, after the share. */
+export function accessSentence(model) {
   const { noun, standard, mode, fare = '' } = model;
   switch (mode) {
     case 'walk':
@@ -459,7 +494,7 @@ function accessSentence(model) {
     case 'bike':
       return `of ${residentsOf(model)} could cycle to ${noun} within ${standard} minutes on any street.`;
     case 'pt':
-      return `of ${residentsOf(model)} can reach ${noun} within ${standard} minutes by public transport${fare}.`;
+      return `of ${residentsOf(model)} can reach ${noun} within ${standard} minutes ${ptPhrase()}${fare}.`;
     case 'car':
       return `of ${residentsOf(model)} can drive to ${noun} within ${standard} minutes.`;
     default:
@@ -467,18 +502,32 @@ function accessSentence(model) {
   }
 }
 
+/** How a mode is said after a time: "on foot", "by public transport". */
+function howOf(mode, fare = '') {
+  return {
+    walk: 'on foot', walk_slow: 'on foot at a slower pace', bike_low_stress: 'by low-stress cycling', bike: 'cycling on any street',
+    pt: `${ptPhrase()}${fare}`, car: 'by car',
+  }[mode] || `without a car${fare}`;
+}
+
 /** One school with everyone counted: how many live within the standard. A
  *  share of everyone in the place would mostly count people who would never
- *  go there, so it is given only for an area picked, and named as such. */
+ *  go there, so it is given only for an area picked, and named as such. A
+ *  school with no home zone says so (`model.noZone`). */
 export function withinSentence(model) {
   const { noun, standard, mode, fare = '' } = model;
-  const how = {
-    walk: 'on foot', walk_slow: 'on foot at a slower pace', bike_low_stress: 'by low-stress cycling', bike: 'cycling on any street',
-    pt: `by public transport${fare}`, car: 'by car',
-  }[mode] || `without a car${fare}`;
   const one = Math.round(model.within) === 1;
-  const who = model.where ? `${one ? 'person' : 'people'} in ${model.where}` : (one ? 'person' : 'people');
-  return `${who} ${one ? 'lives' : 'live'} within ${standard} minutes of ${noun} ${how}.`;
+  const who = model.where ? `${one ? counted.one : counted.many} in ${model.where}` : (one ? counted.one : counted.many);
+  const why = model.noZone ? ` ${model.noZone}` : '';
+  return `${who} ${one ? 'lives' : 'live'} within ${standard} minutes of ${noun} ${howOf(mode, fare)}.${why}`;
+}
+
+/** One school with a home zone: the share of the children (or people)
+ *  living in its zone who are within the standard of it. */
+export function zoneSentence(model) {
+  const { standard, mode, fare = '' } = model;
+  return `of the ${count(model.people)} ${Math.round(model.people) === 1 ? counted.one : counted.many} living in ${model.zoneName} `
+    + `${Math.round(model.people) === 1 ? 'is' : 'are'} within ${standard} minutes of it ${howOf(mode, fare)}.`;
 }
 
 /** What the fare budget is doing, when one is set. */
@@ -545,10 +594,17 @@ function accessKey(root, model) {
 
 export function renderAccess(root, model, set) {
   accessKey(root, model);
-  const head = model.oneEveryone
-    ? hero(count(model.within), withinSentence(model),
-      model.where && Number.isFinite(model.share) ? `${percent(model.share)} of the ${count(model.people)} people living there.` : null)
-    : hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null);
+  let head;
+  if (model.oneEveryone) {
+    head = hero(count(model.within), withinSentence(model),
+      model.where && Number.isFinite(model.share) ? `${percent(model.share)} of the ${count(model.people)} ${counted.many} living there.` : null);
+  } else if (model.zoneName) {
+    const not = Math.round(model.below);
+    head = hero(percent(model.share), zoneSentence(model),
+      [`${count(model.below)} ${not === 1 ? 'is' : 'are'} not.`, model.sexNote].filter(Boolean).join(' '));
+  } else {
+    head = hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null);
+  }
   root.replaceChildren(...[
     accessViews('minutes', model, set),
     head,
@@ -560,13 +616,25 @@ export function renderAccess(root, model, set) {
 
 /** Who misses out and What would help under One school with everyone
  *  counted: both need to know who would go to the school, which its zone
- *  says, so they are off until zones are in. The map keeps the minutes. */
+ *  says, so they are off for a school with no zone, and until zones are in.
+ *  `model.zoneWhy` is 'build' (no zones in this build), 'school' (it has no
+ *  home zone: `model.noZone` says why) or 'everyone' (its zone is there, but
+ *  everyone is counted). The map keeps the minutes. */
 export function renderNeedsZone(root, model) {
   accessKey(root, model);
   const tab = model.needsZone === 'fixes' ? 'What would help' : 'Who misses out';
-  root.replaceChildren(
-    el('p', 'note', `${tab} needs ${model.noun}'s home zone, to know who would go there. Zones are not in this build yet, so it is off for one school. Access gives the minutes to the school from every hexagon.`),
+  const why = {
+    build: 'Zones are not in this build yet, so it is off for one school.',
+    school: `${(model.noZone || 'It has no home zone.').replace(/\.$/, '')}, so it is off for this school.`,
+    everyone: 'Tick Only those living in its zone, under the school, to turn it on.',
+  }[model.zoneWhy || 'build'];
+  // Set out as the tab's headline, so the key never covers it.
+  const box = el('div', 'hero');
+  box.append(
+    el('p', 'hero-text', `${tab} needs ${model.noun}'s home zone, to know who would go there.`),
+    el('p', 'hero-sub', `${why} Access gives the minutes to the school from every hexagon.`),
   );
+  root.replaceChildren(box);
 }
 
 /** One school's zone, area by area, the furthest first: the people in each
@@ -597,7 +665,7 @@ function zoneAreas(model, set) {
 const KIND_TEXT = {
   all: ['All', 'Every school that teaches these years: state, state-integrated, private and charter'],
   state: ['State', 'State schools taught in English'],
-  zone: ['In zone', 'State schools whose zone covers the home, and those with no zone'],
+  zone: ['In zone', 'State schools taught in English that must take a child living there: those whose zone covers the home, and those with no zone'],
   one: ['One school', 'Minutes to one school, picked by name or on the map'],
 };
 const STUDENT_TEXT = [
@@ -692,9 +760,10 @@ function oneSchool(model, set) {
       input.id = 'school-zone-only';
       input.checked = choice.zoneOnly !== false;
       input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
-      box.append(input, el('span', null, 'Only people living in its zone'));
+      box.append(input, el('span', null, 'Only those living in its zone'));
       parts.push(box);
     }
+    if (school.stops) parts.push(stopsSection(school.stops));
     return parts;
   }
   const field = el('div', 'school-search');
@@ -741,6 +810,16 @@ function oneSchool(model, set) {
     parts.push(back);
   }
   return parts;
+}
+
+/** Stops near the school (One school): { intro, rows: [text], none, summary }. */
+function stopsSection(stops) {
+  const list = el('ul', 'stop-list');
+  for (const text of stops.rows) list.append(el('li', null, text));
+  return fold('school-stops', 'Stops near the school', stops.summary, [
+    el('p', 'note', stops.intro),
+    stops.rows.length ? list : el('p', 'note', stops.none),
+  ]);
 }
 
 /** How many of a service are within the standard, not only whether one is. */
@@ -912,6 +991,12 @@ function peopleSelect(model, set) {
   return selectRow('people', 'People', shortLabels(model.groups), model.group, (group) => set({ group }));
 }
 
+/** Among children of one age, a group is the children times its share of the
+ *  census block, which is for every age: said under the People list. */
+function ageNote(model) {
+  return model.ageNote && model.group !== 'everyone' ? el('p', 'note', model.ageNote) : null;
+}
+
 /** The list of areas, sortable, and downloadable as a table. `describe`
  *  writes each row. */
 function areaList(model, set, describe, { sorts = true } = {}) {
@@ -977,9 +1062,9 @@ export function renderPeople(root, model, set) {
     ? `They are ${Math.round(model.minutesShort)} ${Math.round(model.minutesShort) === 1 ? 'minute' : 'minutes'} over, on average.`
     : null;
   setKey(root, {
-    mode: 'People missing out × minutes short',
+    mode: `${capitalise(counted.many)} missing out × minutes short`,
     scale: scaleOf(model.legend),
-    notes: ['Each hexagon by how many people miss the standard and how far short they are.'],
+    notes: [`Each hexagon by how many ${counted.many} miss the standard and how far short they are.`],
   });
 
   const parts = [
@@ -1012,6 +1097,7 @@ export function renderPeople(root, model, set) {
   const a = model.areas;
   parts.push(
     peopleSelect(model, set),
+    ageNote(model),
     fold('people-groups', 'By group', worstGroup ? `${GROUP_SHORT_OF(worstGroup.label)} most, ${percent(worstGroup.value)}` : null, [
       chartBox((chart) => bars(chart, model.byGroup, {
         format: (v) => percent(v),
@@ -1096,14 +1182,14 @@ function renderLive(root, model, set) {
     });
   }
   setKey(root, {
-    mode: everyone ? 'People per hexagon' : `${capitalise(who)}, share of residents`,
+    mode: everyone ? `${capitalise(counted.many)} per hexagon` : `${capitalise(who)}, share of ${counted.children ? counted.many : 'residents'}`,
     scale: scaleOf(model.legend, model.divider),
     notes: [everyone ? null : `Purple is above the ${place.name} share of ${percent(model.whole ? model.whole.summary.share : s.share, model.digits)}${((model.whole || model).villages || {}).out ? ', outside rest homes and villages' : ''}.`],
     rows,
   });
   const parts = [peopleViews('live', set)];
   if (everyone) {
-    parts.push(hero(count(s.everyone), `people live in ${placeOf(model)}.`, `${percent(s.missingRate)} can't ${reach}.`));
+    parts.push(hero(count(s.everyone), `${Math.round(s.everyone) === 1 ? `${counted.one} lives` : `${counted.many} live`} in ${placeOf(model)}.`, `${percent(s.missingRate)} can't ${reach}.`));
   } else if (!(s.everyone > 0)) {
     // The census suppresses a small group's count, and in a small area that can be all of it.
     parts.push(hero('–', `The census gives no count of ${who} in ${placeOf(model)}.`));
@@ -1114,7 +1200,7 @@ function renderLive(root, model, set) {
       count(s.group),
       outside
         ? `${who} live in ${placeOf(model)}${outside}, ${percent(s.share, model.digits)} of the residents there.`
-        : `${who} live in ${placeOf(model)}, ${percent(s.share, model.digits)} of residents.`,
+        : `${who} live in ${placeOf(model)}, ${percent(s.share, model.digits)} of ${counted.children ? counted.many : 'residents'}.`,
       s.concentrated > 0
         ? `${count(s.concentrated)} of them (${percent(s.concentratedShare)}) live where they are at least one and a half times as common as across ${place.name}.`
         : null,
@@ -1129,6 +1215,7 @@ function renderLive(root, model, set) {
   const a = model.areas;
   parts.push(
     peopleSelect(model, set),
+    ageNote(model),
     a && a.total ? fold('live-areas', 'By area', topArea(a, (r) => count(model.missingOnly ? r.missing : r.people)), [
       a.norcs != null
         ? el('p', 'note', a.norcs > 0
@@ -1227,6 +1314,7 @@ export function renderFixes(root, model, set) {
   root.replaceChildren(...[
     hero(count(model.below), `${peopleWord(model.below, model.group)}${model.where ? ` in ${model.where}` : ''} ${Math.round(model.below) === 1 ? 'misses' : 'miss'} the ${model.standard}-minute standard for ${model.noun}${model.fare || ''}.`, sub),
     peopleSelect(model, set),
+    ageNote(model),
     model.ranked.length ? el('p', 'field-label list-title', 'Where most people miss out') : null,
     model.ranked.length ? ranked : null,
     more,

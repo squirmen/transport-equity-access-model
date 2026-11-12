@@ -9,8 +9,20 @@
 //     cells: { h3: { "<choice>": { service: { mode: minutes | null } } } },
 //     named: { h3: { "<choice>": { service: { mode: [moe, ...] } } } } }
 //
-// where <choice> is all, state:both, state:girls, state:boys or one:<moe>,
-// and mode is a way of travelling or best. Each figure here is worked out by
+// where <choice> is all, state:both, state:girls, state:boys, zone:both,
+// zone:girls, zone:boys, one:<moe> or one:<moe>:everyone, and mode is a way
+// of travelling or best. From 0.12.0 round 2 a golden file also says
+//
+//   formats: the build's meta.formats, so a golden made from an older build
+//            is skipped rather than compared with newer files;
+//   weights: "children" where school figures count the children of each
+//            service's ages (cells.json ages, meta.ages.services), as the page
+//            does, or "residents" (the default) where they count everyone.
+//
+// one:<moe> counts, as the page does, only those living in the school's zone,
+// each hexagon by its share of residents in it (zones.json share), where the
+// school has a zone for the service; everyone where it has none. In zone
+// reads the In zone sets from zones.json. Each figure here is worked out by
 // schools.js from the same files and must match. The files are not in the
 // repository: set TEAM_SITE to a built site's data folder (holding
 // <place>/cells.json), as for the Python site checks. Places whose files are
@@ -26,7 +38,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { chooseSchools, decodeReach, groupCounts, readChoice } from '../../web/js/schools.js';
+import { ageGroupFor } from '../../web/js/ages.js';
+import { chooseSchools, decodeReach, decodeZones, formatOk, groupCounts, isZoned, readChoice, schoolByMoe, zoneShares } from '../../web/js/schools.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const FOLDER = join(ROOT, 'tests/fixtures/schools');
@@ -46,7 +59,18 @@ function load(folder) {
   const more = existsSync(join(folder, 'cells_more.json')) ? read(join(folder, 'cells_more.json')) : {};
   const summary = read(join(folder, 'summary.json'));
   // As the page does (data.js): cells_more's keys replace cells.json's.
-  return { cells: { ...cells, ...more }, ties: cells.ties || {}, meta: summary.meta, destinations: read(join(folder, 'destinations.json')), folder, lists: new Map() };
+  const zonesPath = join(folder, 'schools', 'zones.json');
+  const zonesJson = existsSync(zonesPath) ? read(zonesPath) : null;
+  return {
+    cells: { ...cells, ...more }, ties: cells.ties || {}, meta: summary.meta, destinations: read(join(folder, 'destinations.json')), folder, lists: new Map(),
+    zonesJson: zonesJson && formatOk(summary.meta, 'zones', zonesJson) ? zonesJson : null, zones: new Map(),
+  };
+}
+
+function zonesOf(place, service) {
+  if (!place.zonesJson) return null;
+  if (!place.zones.has(service)) place.zones.set(service, decodeZones(place.zonesJson, service, place.cells.h3.length));
+  return place.zones.get(service);
 }
 
 function reachOf(place, service, mode) {
@@ -60,9 +84,32 @@ function reachOf(place, service, mode) {
 
 /** "state:girls" as the page's choice. */
 function choiceOf(key) {
-  const [kind, rest] = key.split(':');
-  if (kind === 'one') return readChoice(`one:${rest}`);
-  return readChoice(kind === 'all' ? null : kind, rest || null);
+  const [kind, rest, extra] = key.split(':');
+  if (kind === 'one') return readChoice(`one:${rest}`, null, extra === 'everyone' ? '0' : null);
+  return readChoice(kind, rest || null);
+}
+
+/** The weights a figure counts, as the page does: children of the service's
+ *  ages where the golden says so, and for one school with a zone, each
+ *  hexagon's share of residents in it. */
+function weightsOf(place, golden, service, key) {
+  const pop = numeric(place.cells.pop);
+  let w = pop;
+  if (golden.weights === 'children') {
+    const group = ageGroupFor(place.meta, place.cells.ages, service);
+    assert.ok(group, `${golden.place} ${service}: the golden counts children, and the build has no ages for it`);
+    w = numeric(place.cells.ages[group]);
+  }
+  const choice = choiceOf(key);
+  const zones = zonesOf(place, service);
+  if (choice.kind === 'one' && choice.zoneOnly !== false && zones) {
+    const d = schoolByMoe(place.destinations, service, choice.moe);
+    if (d >= 0 && isZoned(zones, place.destinations[d], d, service)) {
+      const { share } = zoneShares(zones, d, w.length);
+      w = Float32Array.from(w, (v, i) => v * share[i]);
+    }
+  }
+  return w;
 }
 
 /** Times by mode (and best) for one choice and service, as the page works them out. */
@@ -88,7 +135,9 @@ function figures(place, service, key, modes) {
     if (list && (list.complete || choice.kind !== 'one')) reach[m] = list;
   }
   for (const m of counting) if (!reach[m]) reach[m] = reachOf(place, service, m);
-  const result = chooseSchools({ destinations: place.destinations, service, choice, reach, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
+  const zones = choice.kind === 'zone' || choice.kind === 'one' ? zonesOf(place, service) : null;
+  if (choice.kind === 'zone') assert.ok(zones, `${place.folder}: In zone figures need schools/zones.json`);
+  const result = chooseSchools({ destinations: place.destinations, service, choice, reach, zones, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
   const t = { ...result.t };
   t.best = result.best || Float32Array.from({ length: n }, (_, i) => {
     const v = Math.min(...counting.map((m) => (Number.isFinite(t[m]?.[i]) ? t[m][i] : Infinity)));
@@ -121,16 +170,25 @@ if (!goldens.length) {
 for (const name of goldens) {
   const golden = read(name);
   const folder = SITE && golden.place ? join(SITE, golden.place) : null;
-  const skip = !SITE ? 'set TEAM_SITE to a built site\'s data folder' : existsSync(join(folder, 'cells.json')) ? false : `no build at ${folder}`;
+  const noBuild = !SITE ? 'set TEAM_SITE to a built site\'s data folder' : existsSync(join(folder, 'cells.json')) ? false : `no build at ${folder}`;
+  let skip = noBuild;
+  if (!skip) {
+    // A golden made from an older build than the one here (round 1 against
+    // round 2's lists) is compared with nothing: regenerate it.
+    const built = read(join(folder, 'summary.json')).meta.formats || null;
+    if (JSON.stringify(built?.school_reach ?? null) !== JSON.stringify(golden.formats?.school_reach ?? null)) {
+      skip = `golden_${golden.place}.json was made from a build with school_reach format ${golden.formats?.school_reach ?? 1}, the build here is ${built?.school_reach ?? 1}: regenerate it with scripts/school_golden.py`;
+    }
+  }
 
   test(`school figures match the build: ${golden.place}`, { skip }, () => {
     const place = load(folder);
-    const pop = numeric(place.cells.pop);
-    const urban = place.cells.urban ? Float32Array.from(pop, (v, i) => v * (place.cells.urban[i] ? 1 : 0)) : null;
     let checked = 0;
     for (const [key, byService] of Object.entries(golden.figures)) {
       for (const [service, byMode] of Object.entries(byService)) {
         const standard = golden.standards[service];
+        const pop = weightsOf(place, golden, service, key);
+        const urban = place.cells.urban ? Float32Array.from(pop, (v, i) => v * (place.cells.urban[i] ? 1 : 0)) : null;
         const out = figures(place, service, key, Object.keys(byMode));
         for (const [mode, want] of Object.entries(byMode)) {
           const label = `${golden.place} ${key} ${service} ${mode}`;
@@ -164,7 +222,7 @@ for (const name of goldens) {
     assert.ok(checked > 0);
   });
 
-  test(`All rebuilt from the reach lists equals the build, and the counting line's counts: ${golden.place}`, { skip }, () => {
+  test(`All rebuilt from the reach lists equals the build, and the counting line's counts: ${golden.place}`, { skip: noBuild }, () => {
     const place = load(folder);
     const n = place.cells.h3.length;
     const counting = place.meta.standard_modes;
@@ -174,7 +232,7 @@ for (const name of goldens) {
         const list = reachOf(place, service, m);
         if (list) reach[m] = list;
       }
-      const all = chooseSchools({ destinations: place.destinations, service, choice: readChoice(), reach, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
+      const all = chooseSchools({ destinations: place.destinations, service, choice: readChoice('all'), reach, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
       for (const [m, list] of Object.entries(reach)) {
         const shown = place.cells.t[service][m];
         const near = place.cells.nearest_mode[service][m];
