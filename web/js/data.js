@@ -181,10 +181,37 @@ export const AGE_HIDDEN = Object.freeze(['children', 'older']);
 /** The weights for one age group: its children, and each other group as the
  *  children times the group's share of the census block (shares are for all
  *  ages). Made once a group. */
+/** Children per hexagon for a group as the figures may count it (ages.js
+ *  splitKey): one the build sends, 15_17 as 13_17 less 13_14, and either
+ *  with a sex as the place's share of girls (or boys) of those ages
+ *  (meta.ages.sex). Null where it cannot be made. Made once. */
+export function ageArray(data, key) {
+  if (!data.ages || !key) return null;
+  if (data.ages[key]) return data.ages[key];
+  data.agesMade = data.agesMade || {};
+  if (data.agesMade[key]) return data.agesMade[key];
+  const [group, sex] = String(key).split(':');
+  let base = null;
+  if (data.ages[group]) base = data.ages[group];
+  else if (group === '15_17' && data.ages['13_17'] && data.ages['13_14']) {
+    base = Float32Array.from(data.ages['13_17'], (v, i) => Math.max(0, (Number.isFinite(v) ? v : 0) - (Number.isFinite(data.ages['13_14'][i]) ? data.ages['13_14'][i] : 0)));
+  }
+  if (!base) return null;
+  let out = base;
+  if (sex) {
+    const girls = data.meta?.ages?.sex?.girls?.[group];
+    if (!Number.isFinite(girls) || !['girls', 'boys'].includes(sex)) return null;
+    const share = sex === 'girls' ? girls : 1 - girls;
+    out = Float32Array.from(base, (v) => (Number.isFinite(v) ? v * share : v));
+  }
+  data.agesMade[key] = out;
+  return out;
+}
+
 function ageBase(data, group) {
   data.byAge = data.byAge || {};
   if (!data.byAge[group]) {
-    const kids = Float32Array.from(data.ages[group], (v) => (Number.isFinite(v) && v > 0 ? v : 0));
+    const kids = Float32Array.from(ageArray(data, group), (v) => (Number.isFinite(v) && v > 0 ? v : 0));
     const weights = { everyone: kids };
     for (const [g, share] of Object.entries(data.shares)) {
       if (AGE_HIDDEN.includes(g)) continue;
@@ -199,7 +226,7 @@ function ageBase(data, group) {
  *  again with null. Works with setUrban and setCellShare. True when it
  *  changed anything. */
 export function setAgeGroup(data, group) {
-  const next = group && data.ages && data.ages[group] ? group : null;
+  const next = group && data.ages && ageArray(data, group) ? group : null;
   if ((data.ageGroup || null) === next) return false;
   data.ageGroup = next;
   applyCounted(data);

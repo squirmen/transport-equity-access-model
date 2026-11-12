@@ -192,8 +192,46 @@ export function mediumOf(dest) {
  *  does (schools.py eligible). */
 export const englishMedium = (dest) => mediumOf(dest) === 'english';
 
-/** A state school taught in English: what State and In zone count. */
+/** A state school taught in English: what State counts. */
 export const isState = (dest) => Boolean(dest && dest.kind === 'state' && englishMedium(dest));
+
+/** A designated character school (Education and Training Act 2020, s 204),
+ *  from a checked row in configs/schools/attributes.csv: its board may
+ *  decline a student whose family does not accept the school's character. */
+export const isDesignated = (dest) => Boolean(dest && dest.character === 'designated');
+
+/** What In zone counts: a state school taught in English that is not a
+ *  designated character school (schools.py in_zone_school). */
+export const isInZoneSchool = (dest) => isState(dest) && !isDesignated(dest);
+
+/** Secondary school in two stages (schools.py STAGES): where a place has a
+ *  Years 7–10 (or 1–10) school or a Years 11–15 school, State and In zone
+ *  count a hexagon only when a student in Years 9–10 and one in Years 11–13
+ *  can each reach a school that teaches them. */
+export const STAGES = Object.freeze({ secondary_school: Object.freeze({ junior: [9, 10], senior: [11, 13] }) });
+export const STAGE_WORDS = Object.freeze({ junior: 'Years 9–10', senior: 'Years 11–13' });
+
+/** Whether a school teaches any year of a stage; true where its years are not given. */
+export function teachesStage(dest, service, stage) {
+  const span = stage ? STAGES[service]?.[stage] : null;
+  if (!span) return true;
+  const years = Array.isArray(dest?.years) ? dest.years.map(Number) : null;
+  if (!years || !Number.isFinite(years[0]) || !Number.isFinite(years[1])) return true;
+  return years[0] <= span[1] && years[1] >= span[0];
+}
+
+/** The stages a service is split into here, or null: only where some school
+ *  teaching it teaches one stage and not the other. */
+export function stagesFor(destinations, service) {
+  const stages = STAGES[service];
+  if (!stages) return null;
+  const names = Object.keys(stages);
+  for (const dest of destinations || []) {
+    if (!serves(dest, service) || dest.moe == null) continue;
+    if (names.filter((st) => teachesStage(dest, service, st)).length === 1) return names;
+  }
+  return null;
+}
 
 /** Co-ed, girls or boys, for the years of this service, or null where the
  *  directory does not say. King's College, for one, is a boys' school at
@@ -243,11 +281,12 @@ export function tagOf(dest, service) {
 /** Whether a school is counted under a choice, setting zones aside. In zone
  *  starts from the same schools as State; which of them count then depends
  *  on the hexagon. */
-export function counts(dest, service, choice, students = choice.students) {
+export function counts(dest, service, choice, students = choice.students, stage = null) {
   if (!serves(dest, service)) return false;
   if (choice.kind === 'all') return true;
   if (choice.kind === 'one') return choice.moe != null && Number(dest.moe) === Number(choice.moe);
-  return isState(dest) && admits(dest, service, students);
+  if (!(choice.kind === 'zone' ? isInZoneSchool(dest) : isState(dest))) return false;
+  return admits(dest, service, students) && teachesStage(dest, service, stage);
 }
 
 // ---------------------------------------------------------------- reach lists
@@ -616,28 +655,35 @@ const fastestOf = (t, modes, i) => {
   return best;
 };
 
-/** Girls and boys together: a hexagon counts only when both a girl and a boy
- *  living there have a school they can go to within the time, so each time is
- *  the slower of the two. Best without a car is the slower of each one's
- *  fastest way, since a girl and a boy may each travel differently. Counts
- *  are the smaller of the two, and the straight line the longer. */
-function combine(girls, boys, { n, standardModes, reach }) {
+/** Students counted together (girls and boys, or the two stages of
+ *  secondary school): a hexagon counts only when each of them has a school
+ *  they can go to within the time, so each time is the slowest of theirs.
+ *  Best without a car is the slowest of each one's own fastest way, since
+ *  each may travel differently. Counts are the smallest, and the straight
+ *  line the longest. `parts` are solve() results, each with `best`, and
+ *  `base` lists the single runs behind them (for onFoot). */
+function combine(parts, { n, reach }, base = parts) {
   const t = {};
   const near = {};
   const ties = {};
-  for (const mode of Object.keys(girls.t)) {
-    const g = girls.t[mode];
-    const b = boys.t[mode];
+  for (const mode of Object.keys(parts[0].t)) {
     const time = new Float32Array(n).fill(NaN);
     const first = new Int32Array(n).fill(-1);
     const tied = {};
     for (let i = 0; i < n; i += 1) {
-      if (!Number.isFinite(g[i]) || !Number.isFinite(b[i])) continue;
-      time[i] = Math.max(g[i], b[i]);
-      // The school that sets the time: the slower one's, or both when equal.
-      const from = g[i] > b[i] ? [girls] : b[i] > g[i] ? [boys] : [girls, boys];
+      let slowest = -Infinity;
+      let missing = false;
+      for (const s of parts) {
+        const v = s.t[mode][i];
+        if (!Number.isFinite(v)) { missing = true; break; }
+        if (v > slowest) slowest = v;
+      }
+      if (missing) continue;
+      time[i] = slowest;
+      // The schools that set the time: the slowest one's, or all of those tied.
       const ids = [];
-      for (const s of from) {
+      for (const s of parts) {
+        if (s.t[mode][i] !== slowest) continue;
         const k = s.near[mode][i];
         if (k >= 0 && !ids.includes(k)) ids.push(k);
         for (const extra of s.ties[mode][i] || []) if (!ids.includes(extra)) ids.push(extra);
@@ -652,30 +698,44 @@ function combine(girls, boys, { n, standardModes, reach }) {
   }
   const best = new Float32Array(n).fill(NaN);
   for (let i = 0; i < n; i += 1) {
-    const g = fastestOf(girls.t, standardModes, i);
-    const b = fastestOf(boys.t, standardModes, i);
-    if (Number.isFinite(g) && Number.isFinite(b)) best[i] = Math.max(g, b);
+    let slowest = -Infinity;
+    let missing = false;
+    for (const s of parts) {
+      const v = s.best[i];
+      if (!Number.isFinite(v)) { missing = true; break; }
+      if (v > slowest) slowest = v;
+    }
+    if (!missing) best[i] = slowest;
   }
   const choice = {};
-  for (const limit of Object.keys(girls.choice)) {
-    choice[limit] = Float32Array.from(girls.choice[limit], (v, i) => Math.min(v, boys.choice[limit][i]));
+  for (const limit of Object.keys(parts[0].choice)) {
+    choice[limit] = Float32Array.from(parts[0].choice[limit], (v, i) => Math.min(v, ...parts.slice(1).map((s) => s.choice[limit][i])));
   }
-  const km = Float32Array.from(girls.km, (v, i) => (Number.isFinite(v) && Number.isFinite(boys.km[i]) ? Math.max(v, boys.km[i]) : NaN));
-  // By bus or train alone, for both: the slower of the two, none if either has none.
-  const r5 = girls.r5 && boys.r5
-    ? Float32Array.from(girls.r5, (v, i) => (Number.isFinite(v) && Number.isFinite(boys.r5[i]) ? Math.max(v, boys.r5[i]) : NaN))
+  const km = Float32Array.from(parts[0].km, (v, i) => {
+    let far = v;
+    for (const s of parts.slice(1)) far = Number.isFinite(far) && Number.isFinite(s.km[i]) ? Math.max(far, s.km[i]) : NaN;
+    return Number.isFinite(far) ? far : NaN;
+  });
+  // By bus or train alone: the slowest, none if any has none.
+  const r5 = parts.every((s) => s.r5)
+    ? Float32Array.from(parts[0].r5, (v, i) => {
+      let slow = v;
+      for (const s of parts.slice(1)) slow = Number.isFinite(slow) && Number.isFinite(s.r5[i]) ? Math.max(slow, s.r5[i]) : NaN;
+      return slow;
+    })
     : null;
-  return { t, near, ties, choice, km, best, r5, ptFoot: onFoot(girls, boys, t, n, reach) };
+  const eligible = Uint8Array.from(parts[0].eligible, (v, d) => Math.max(v, ...parts.slice(1).map((s) => s.eligible[d])));
+  return { t, near, ties, choice, km, best, r5, eligible, ptFoot: onFoot(base, t, n, reach) };
 }
 
-/** Where the public transport time shown for girls and boys together is a
- *  walk. The time shown is the slower student's; it is said as a walk only
- *  when, for each student whose time it is, walking takes as long as public
- *  transport. Comparing the joint walking and public transport times alone
- *  would also say it where the girl's walk sets one and the boy's bus trip
+/** Where the public transport time shown for students counted together is
+ *  a walk. The time shown is the slowest student's; it is said as a walk
+ *  only when, for each student whose time it is, walking takes as long as
+ *  public transport. Comparing the joint walking and public transport times
+ *  alone would also say it where a girl's walk sets one and a boy's bus trip
  *  the other. { mask, near, ties }, near and ties naming the schools those
  *  students walk to, or null without both lists. */
-function onFoot(girls, boys, t, n, reach) {
+function onFoot(runs, t, n, reach) {
   if (!t.pt || !t.walk || !reach.walk) return null;
   const mask = new Uint8Array(n);
   const near = new Int32Array(n).fill(-1);
@@ -683,7 +743,7 @@ function onFoot(girls, boys, t, n, reach) {
   for (let i = 0; i < n; i += 1) {
     const shown = t.pt[i];
     if (!Number.isFinite(shown) || t.walk[i] !== shown) continue;
-    const binding = [girls, boys].filter((s) => s.t.pt[i] === shown);
+    const binding = runs.filter((s) => s.t.pt[i] === shown);
     if (!binding.length || !binding.every((s) => s.t.walk[i] === shown)) continue;
     mask[i] = 1;
     const ids = [];
@@ -702,11 +762,13 @@ function onFoot(girls, boys, t, n, reach) {
  *  `reach` maps each way of travelling to its decoded reach list; `zones` is
  *  decodeZones' result (needed for In zone only); `centres[i]` is the middle
  *  of hexagon i as [lat, lng]. Returns { t, near, ties, choice, km, best,
- *  r5, counted, bySex }: `best` only for girls and boys together, where the
- *  fastest way can differ between them; `r5` R5's own time by bus or train
- *  to the nearest counted school; `counted` marks the schools that count
- *  anywhere (1) or only in their zone (2), for the pins; `bySex` holds the
- *  girls' and boys' own figures for the card.
+ *  r5, counted, bySex, groups }: `best` only where students are counted
+ *  together (girls and boys, or the two stages of secondary school), whose
+ *  fastest ways can differ; `r5` R5's own time by bus or train to the
+ *  nearest counted school; `counted` marks the schools that count anywhere
+ *  (1) or only in their zone (2), for the pins; `bySex` holds the girls' and
+ *  boys' own figures, and `groups` every student group's (with `students`
+ *  and `stage`), for the card.
  *
  *  In zone counts the state schools taught in English that take the
  *  student: those with no zone for these years everywhere, and the others
@@ -716,28 +778,39 @@ export function chooseSchools({
   standardModes = ['walk', 'bike_low_stress', 'pt'], maxMinutes = 60, limits = COUNT_LIMITS,
 }) {
   const base = { reach, n, destinations, centres, standardModes, maxMinutes, limits };
-  const run = (students) => {
+  const run = (students, stage = null) => {
     // 1: counts everywhere; 2: counts only where its zone is in the
     // hexagon's In zone set (zones.json `in`).
     const eligible = new Uint8Array(destinations.length);
     for (let d = 0; d < destinations.length; d += 1) {
       const dest = destinations[d];
-      if (!counts(dest, service, choice, students)) continue;
+      if (!counts(dest, service, choice, students, stage)) continue;
       eligible[d] = choice.kind === 'zone' && isZoned(zones, dest, d, service) ? 2 : 1;
     }
     const ok = (i, d) => eligible[d] === 1 || (eligible[d] === 2 && inZone(zones, i, d));
-    return { ...solve({ ...base, ok, eligible }), eligible };
+    const out = solve({ ...base, ok, eligible });
+    const best = new Float32Array(n).fill(NaN);
+    for (let i = 0; i < n; i += 1) best[i] = fastestOf(out.t, standardModes, i);
+    return { ...out, eligible, best, students, stage };
   };
-  const split = (choice.kind === 'state' || choice.kind === 'zone') && choice.students === 'both';
-  if (!split) {
+  const pooled = choice.kind === 'state' || choice.kind === 'zone';
+  const stages = pooled ? stagesFor(destinations, service) : null;
+  const sexes = pooled && choice.students === 'both' ? ['girls', 'boys'] : [choice.students];
+  if (!stages && sexes.length === 1) {
     const one = run(choice.students);
-    return { ...one, best: null, counted: one.eligible, bySex: null };
+    return { ...one, best: null, counted: one.eligible, bySex: null, groups: null };
   }
-  const girls = run('girls');
-  const boys = run('boys');
-  const both = combine(girls, boys, base);
-  const counted = Uint8Array.from(girls.eligible, (v, d) => Math.max(v, boys.eligible[d]));
-  return { ...both, counted, bySex: { girls, boys } };
+  // Each student group on its own, then together: every stage for each sex,
+  // then the sexes.
+  const groups = [];
+  const bySexParts = sexes.map((students) => {
+    const runs = (stages || [null]).map((stage) => run(students, stage));
+    groups.push(...runs);
+    return runs.length > 1 ? { ...combine(runs, base), students } : runs[0];
+  });
+  const all = bySexParts.length > 1 ? combine(bySexParts, base, groups) : { ...bySexParts[0], ptFoot: onFoot(groups, bySexParts[0].t, n, reach) };
+  const bySex = sexes.length === 2 ? { girls: bySexParts[0], boys: bySexParts[1] } : null;
+  return { ...all, counted: all.eligible, bySex, groups };
 }
 
 /** The nearest school hexagon i reaches by one way, among those `ok(d)`
@@ -1002,11 +1075,12 @@ function leftOutList(destinations, service, c) {
 }
 
 /** The state schools taught in English that teach a service and take the
- *  student, by how In zone counts them. */
+ *  student, by how In zone counts them (designated character schools left
+ *  out). */
 export function zoneTally(destinations, service, zones, students = 'both') {
   const out = { zoned: [], open: [], no_map: [], not_applied: [], unclear_years: [], upcoming: [] };
   (destinations || []).forEach((dest, d) => {
-    if (!serves(dest, service) || !isState(dest) || !admits(dest, service, students)) return;
+    if (!serves(dest, service) || !isInZoneSchool(dest) || !admits(dest, service, students)) return;
     const status = zoneStatus(zones, dest, d, service);
     if (ZONED.includes(status)) {
       out.zoned.push(d);
@@ -1026,7 +1100,9 @@ const itThey = (n) => (n === 1 ? 'it counts' : 'they count');
  *  ages.js ageWords for the service, or null where the figures count all
  *  residents; `splitPeople` is how many of those counted live in hexagons a
  *  zone line splits, for In zone. */
-export function countingLine(destinations, service, choice, { plural = 'schools', zones = null, meta = {}, ages = null, splitPeople = null } = {}) {
+export function countingLine(destinations, service, choice, {
+  plural = 'schools', zones = null, meta = {}, ages = null, splitPeople = null, outsideSet = null, zoneOutside = null,
+} = {}) {
   const c = groupCounts(destinations, service);
   // Who the figures weight: children of the service's ages, or everyone.
   const whoLine = ages && ages.line ? ages.line : RESIDENTS;
@@ -1053,10 +1129,15 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
     let zoneText = '';
     if (dest && zones) {
       const status = zoneStatus(zones, dest, d, service);
-      if (ZONED.includes(status)) {
+      if (ZONED.includes(status) && zoneOutside) {
+        // A school over a regional boundary whose zone holds none of the place's homes.
+        zoneText = ` Its zone lies outside ${zoneOutside}, where TEAM has no homes, so everyone is counted.`;
+      } else if (ZONED.includes(status)) {
         zoneText = choice.zoneOnly !== false
           ? ' Only those living in its zone are counted, each hexagon by the share of its residents inside the zone.'
           : ' Everyone is counted, not only its zone.';
+        const note = integratedZoneNote(dest);
+        if (note) zoneText += ` ${note}`;
       } else {
         zoneText = ` ${capital(NO_ZONE[status] || NO_ZONE.none)}, so everyone is counted.`;
       }
@@ -1071,6 +1152,12 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
   if (choice.students === 'girls') who = ` Counting co-ed and girls' schools: ${thousands(sexed.state)} of the ${thousands(c.state)}.`;
   else if (choice.students === 'boys') who = ` Counting co-ed and boys' schools: ${thousands(sexed.state)} of the ${thousands(c.state)}.`;
   else who = ' Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two.';
+  // Secondary school in two stages, where a school here takes only one.
+  if (stagesFor(destinations, service)) {
+    const junior = (destinations || []).filter((d) => serves(d, service) && teachesStage(d, service, 'junior') && !teachesStage(d, service, 'senior')).length;
+    const senior = (destinations || []).filter((d) => serves(d, service) && teachesStage(d, service, 'senior') && !teachesStage(d, service, 'junior')).length;
+    who += ` ${thousands(junior)} ${junior === 1 ? 'school here stops' : 'schools here stop'} at Year 10 and ${thousands(senior)} ${senior === 1 ? 'starts' : 'start'} at Year 11, so a student in Years 9–10 and one in Years 11–13 must each reach a school that teaches them, and the time is the slower.`;
+  }
   if (choice.kind === 'state') {
     const left = notCounted.length ? ` Not counted: ${andList(notCounted)}.` : '';
     return `Counting ${thousands(c.state)} state ${plural} taught in English.${left}${who} ${NO_ZONES}${listed}`;
@@ -1108,13 +1195,19 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
       : `${names(ds)}: the Ministry's file holds only their zones from ${longDay(from) || 'a later date'}, which are used.`);
   }
   parts.push(`Integrated, private and charter schools and kura are not counted: they enrol by their own rules${notCounted.length ? ` (${andList(notCounted)})` : ''}.`);
+  const designated = (destinations || []).filter((dest) => serves(dest, service) && isState(dest) && isDesignated(dest));
+  if (designated.length) {
+    parts.push(`Nor ${designated.length === 1 ? 'is' : 'are'} ${andList(designated.map((dest) => dest.name))}: designated character ${designated.length === 1 ? 'school' : 'schools'}, whose board may decline a student whose family does not accept its character.`);
+  }
   const source = (zones && zones.source) || meta.zone_source || {};
   const reference = (zones && zones.reference) || meta.zone_reference;
   if (source.version || reference) {
     parts.push(`Zones from the Ministry's file${source.version ? ` of ${longDay(source.version)}` : ''}${reference ? `, as in force on ${longDay(reference)}` : ''}.`);
   }
   if (splitPeople != null && splitPeople >= 0.5) {
-    parts.push(`${count(splitPeople)} ${ages ? ages.many : 'people'} live in hexagons a zone line splits; each hexagon is counted with the zone most of its residents live in.`);
+    const away = outsideSet != null && outsideSet >= 0.5
+      ? ` ${count(outsideSet)} of them live outside those zones, and are counted with the hexagon all the same.` : '';
+    parts.push(`${count(splitPeople)} ${ages ? ages.many : 'people'} live in hexagons a zone line splits; each hexagon is counted with the zones most of its residents live in.${away}`);
   }
   return `${parts.join(' ')}${who}${listed}`;
 }
@@ -1127,6 +1220,13 @@ const NO_ZONE = {
   unclear_years: 'the year levels of its zones could not be read',
   no_zone_for_years: 'its zone is for other years',
 };
+
+/** For a zoned state-integrated school: living in its zone is not by
+ *  itself a right to enrol. Null for any other school. */
+export function integratedZoneNote(dest) {
+  if (!dest || dest.kind !== 'integrated') return null;
+  return 'State-integrated: it takes children whose families accept its special character first; living in its zone does not by itself give a right to enrol.';
+}
 
 /** Why school d has no zone that counts for this service, as a sentence, or
  *  null where it has one (or the build has no zones). */
@@ -1329,9 +1429,11 @@ export function cardLines(ctx, mode, i, named = []) {
     if (zones) {
       if (isZoned(zones, destinations[d], d, service)) {
         const w = zoneShareAt(zones, i, d);
-        if (w >= 0.995) lines.push('In its zone.');
-        else if (w > 0) lines.push(`About ${Math.min(99, Math.max(1, Math.round(w * 100)))}% of the people here live in its zone; a zone line crosses this hexagon.`);
-        else lines.push('Not in its zone.');
+        if (w >= 0.995) lines.push('Inside its enrolment zone.');
+        else if (w > 0) lines.push(`About ${Math.min(99, Math.max(1, Math.round(w * 100)))}% of the people here live inside its enrolment zone; a zone line crosses this hexagon.`);
+        else lines.push('Outside its enrolment zone.');
+        const note = integratedZoneNote(destinations[d]);
+        if (note) lines.push(note);
       } else {
         lines.push(noZoneSentence(zones, destinations[d], d, service));
       }
@@ -1339,10 +1441,19 @@ export function cardLines(ctx, mode, i, named = []) {
       lines.push('It has no enrolment scheme.');
     }
     if (real && reach[real] && reach[real].complete) {
-      // A single-sex school is said as one, since not every student can go.
-      const named = (k) => `${label(k)}${SEX_WORD[sexOf(destinations[k], service)] ? ` (${SEX_WORD[sexOf(destinations[k], service)]})` : ''}`;
-      const other = nearestPhrase(reach, real, i, (k) => k !== d && isState(destinations[k]), { destinations, maxMinutes, label: named });
-      lines.push(other ? `Nearest other state school taught in English: ${other.text}.` : `No other state school taught in English within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
+      // The nearest other state school that takes the same students: a girl
+      // at a girls' school, a boy at a boys' school, and for a co-ed school
+      // one that takes girls and boys. Designated character schools, which
+      // may decline a student, are left out, as under In zone.
+      const own = sexOf(destinations[d], service);
+      const sameStudents = (k) => {
+        const sex = sexOf(destinations[k], service);
+        return own === 'girls' || own === 'boys' ? sex === 'co-ed' || sex === own : sex === 'co-ed';
+      };
+      const ok = (k) => k !== d && isInZoneSchool(destinations[k]) && sameStudents(k);
+      const other = nearestPhrase(reach, real, i, ok, { destinations, maxMinutes });
+      const whom = own === 'girls' ? ' that takes girls' : own === 'boys' ? ' that takes boys' : ', co-ed';
+      lines.push(other ? `Nearest other state school taught in English${whom}: ${other.text}.` : `No other state school taught in English${whom} within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
     }
     // Where the times end. A large site may have a gate much nearer.
     const to = destinations[d].routed_to;
@@ -1357,11 +1468,10 @@ export function cardLines(ctx, mode, i, named = []) {
     return done();
   }
 
-  // State and In zone: girls and boys apart when they differ. Best without a
-  // car takes each one's own fastest way.
-  if (mode && result && result.bySex) {
-    const g = result.bySex.girls;
-    const b = result.bySex.boys;
+  // State and In zone: each group of students apart (girls and boys, and
+  // Years 9–10 and 11–13 where secondary school is split) when they differ.
+  // Best without a car takes each one's own fastest way.
+  if (mode && result && Array.isArray(result.groups) && result.groups.length > 1) {
     const counting = ctx.standardModes || ['walk', 'bike_low_stress', 'pt'];
     const say = (s) => {
       let way = real;
@@ -1385,10 +1495,18 @@ export function cardLines(ctx, mode, i, named = []) {
       }
       return `${orList(ds.map(label))}, ${Math.round(t)} min ${how}`;
     };
-    const gs = say(g);
-    const bs = say(b);
-    if (gs !== bs) lines.push(`For a girl: ${gs}. For a boy: ${bs}.`);
-    else if (!real) lines.push(`Nearest: ${gs}.`);
+    const who = (s) => {
+      const sex = s.students === 'girls' ? 'a girl' : s.students === 'boys' ? 'a boy' : null;
+      const stage = s.stage ? STAGE_WORDS[s.stage] : null;
+      const text = sex && stage ? `${sex} in ${stage}` : sex || stage || 'a student';
+      return capital(text);
+    };
+    const said = result.groups.map((s) => [who(s), say(s)]);
+    if (said.every(([, text]) => text === said[0][1])) {
+      if (!real) lines.push(`Nearest: ${said[0][1]}.`);
+    } else {
+      lines.push(said.map(([w, text]) => `For ${w[0].toLowerCase()}${w.slice(1)}: ${text}.`).join(' ').replace(/For years/g, 'For Years'));
+    }
   }
 
   // In zone, where a zone line splits the hexagon: whose times these are.
@@ -1491,6 +1609,8 @@ export function decodeStops(json) {
   const window = Array.isArray(json.window) && json.window.length === 2 ? json.window : null;
   return {
     date: typeof json.date === 'string' ? json.date : null,
+    // 'arrivals' from 0.12.0 round 2: trips setting down there in the window.
+    counts: typeof json.counts === 'string' ? json.counts : null,
     window,
     maxWalk: Number.isFinite(json.max_walk_minutes) ? json.max_walk_minutes : 15,
     gtfs: typeof json.gtfs === 'string' ? json.gtfs : null,
@@ -1542,8 +1662,9 @@ export function stopHours(stops, { ascii = false } = {}) {
 export function stopsIntro(stops) {
   const { start, end } = stopWindow(stops);
   const when = windowWords({ start: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, '0')}`, minutes: end - start, date: stops && stops.date }, null);
+  const arriving = stops && stops.counts === 'arrivals';
   return `Stops and stations within a ${stops ? stops.maxWalk : 15}-minute walk of the school's map point, on the street network. `
-    + `Buses and trains stopping ${when || 'in the morning window'}.`;
+    + `${arriving ? 'Buses and trains arriving' : 'Buses and trains stopping'} ${when || 'in the morning window'}${arriving ? ', where students can get off' : ''}.`;
 }
 
 /** A stop's name as the section lists it: the station for a platform, with
@@ -1555,23 +1676,26 @@ function stopTitle(stop) {
   return (typeof stop.station === 'string' && stop.station) || stop.name || 'Unnamed stop';
 }
 
+/** With its stop number wherever the feed gives one, a station's too:
+ *  Auckland's bus interchange bays are stations, and three near Mt Albert
+ *  Grammar School are all called St Lukes. */
 function stopName(stop) {
-  const grouped = stop.station === true || (typeof stop.station === 'string' && stop.station !== '');
-  return stop.code && !grouped ? `${stopTitle(stop)} (stop ${stop.code})` : stopTitle(stop);
+  return stop.code ? `${stopTitle(stop)} (stop ${stop.code})` : stopTitle(stop);
 }
 
-/** "Mount Albert Grammar School (stop 1427) · 1 min walk · 14 trips 7–9am · 22N, 22R". */
+/** "Mount Albert Grammar School (stop 1427) · 1 min walk · 14 trips arriving 7–9am · 22N, 22R". */
 export function stopLine(row, stops) {
   const stop = stops.stops[row.s];
   const hours = stopHours(stops);
   const trips = Number(row.trips) || 0;
   const routes = (row.routes || []).map((r) => r.route).filter(Boolean);
   const shown = routes.length > 6 ? `${routes.slice(0, 6).join(', ')} and ${routes.length - 6} more` : routes.join(', ');
+  const arriving = stops.counts === 'arrivals' ? ' arriving' : '';
   return [
     stopName(stop),
     `${row.walk} min walk`,
-    trips ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'} ${hours}`
-      : stop.served === false ? 'no trips on any day in the timetable used' : `no trips ${hours} in the timetable used`,
+    trips ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'}${arriving} ${hours}`
+      : stop.served === false ? 'no trips on any day in the timetable used' : `no trips${arriving} ${hours} in the timetable used`,
     shown || null,
   ].filter(Boolean).join(' · ');
 }
@@ -1583,14 +1707,16 @@ export function stopsCsvLines(stops, d) {
   const { start, end } = stopWindow(stops);
   const when = windowWords({ start: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, '0')}`, minutes: end - start, date: stops.date }, null) || '';
   const day = when.replace(/^between .* on /, '');
-  const out = [`Stops within a ${stops.maxWalk}-minute walk of the school's map point (walking minutes on the street network, rounded down; trips stopping ${stopHours(stops, { ascii: true })}${day ? ` on ${day}` : ''}${stops.gtfs ? `, ${stops.gtfs}` : ''}):`];
+  const verb = stops.counts === 'arrivals' ? 'arriving' : 'stopping';
+  const out = [`Stops within a ${stops.maxWalk}-minute walk of the school's map point (walking minutes on the street network, rounded down; trips ${verb} ${stopHours(stops, { ascii: true })}${day ? ` on ${day}` : ''}${stops.gtfs ? `, ${stops.gtfs}` : ''}):`];
   if (!rows.length) out.push(`No stop within a ${stops.maxWalk}-minute walk.`);
   for (const row of rows) {
     const stop = stops.stops[row.s];
     const modes = [...new Set((row.routes || []).map((r) => r.mode).filter(Boolean))];
     const byRoute = (row.routes || []).map((r) => `${r.route} ${r.trips}`).join(', ');
     const none = stop.served === false ? ' (none on any day in the timetable)' : '';
-    out.push(`stop ${stop.code || stop.id} ${stopTitle(stop)}: ${modes.join('/') || 'no service'}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'}${byRoute ? ` (${byRoute})` : ''}${none}`);
+    const what = modes.join('/') || (stop.served === false ? 'no service' : 'no trips in window');
+    out.push(`stop ${stop.code || stop.id} ${stopTitle(stop)}: ${what}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'} ${verb}${byRoute ? ` (${byRoute})` : ''}${none}`);
   }
   return out;
 }

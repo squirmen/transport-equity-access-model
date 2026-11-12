@@ -9,7 +9,7 @@
 
 import { bars, lines } from './charts.js';
 import { fold } from './fold.js';
-import { count, el, MODE_NOTES, MODES, percent, place, ptPhrase } from './format.js';
+import { count, el, MODE_NOTES, MODES, percent, place, ptPhrase, transit } from './format.js';
 
 // Everyday errands first, then education in the order a child meets it, then
 // jobs. A service the build does not have is dropped by setServices.
@@ -586,7 +586,7 @@ function robustSection(model) {
 function accessKey(root, model) {
   const short = SERVICE_SHORT[model.service] || '';
   setKey(root, {
-    mode: `${model.keyName || `Minutes to the nearest ${lowerName(short)}`}, ${MODE_KEY[model.mode] || model.mode}`,
+    mode: `${model.keyName || `Minutes to the nearest ${lowerName(short)}`}, ${(model.mode === 'pt' && transit.orWalk ? 'public transport or walking' : MODE_KEY[model.mode]) || model.mode}`,
     scale: scaleOf(model.legend, 3),
     notes: [`Blue is within the ${model.standard}-minute standard, orange beyond it.`, MODE_NOTES[model.mode], model.keyNote].filter(Boolean),
   });
@@ -597,7 +597,8 @@ export function renderAccess(root, model, set) {
   let head;
   if (model.oneEveryone) {
     head = hero(count(model.within), withinSentence(model),
-      model.where && Number.isFinite(model.share) ? `${percent(model.share)} of the ${count(model.people)} ${counted.many} living there.` : null);
+      [model.where && Number.isFinite(model.share) ? `${percent(model.share)} of the ${count(model.people)} ${counted.many} living there.` : null,
+        model.sexNote].filter(Boolean).join(' ') || null);
   } else if (model.zoneName) {
     const not = Math.round(model.below);
     head = hero(percent(model.share), zoneSentence(model),
@@ -912,7 +913,7 @@ export function renderBurden(root, model, set) {
       : `of ${period} goes on ${what} to ${model.noun}, on average${model.where ? `, in ${model.where}` : ''}.`;
   }
   const counted = model.commute
-    ? `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who can reach jobs by public transport within 45 minutes.`
+    ? `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who can reach jobs by public transport within 45 minutes${transit.orWalk ? ' and need a bus or train for it: a home where half the jobs in reach are a walk away pays no fare and is left out' : ''}.`
     : `Counted for the ${count(model.paying)} ${peopleWord(model.paying)} who would ride public transport there within ${model.standard} minutes.`;
   const sub = model.paying > 0
     ? (Number.isFinite(ratio)

@@ -38,7 +38,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { ageGroupFor } from '../../web/js/ages.js';
+import { ageGroupFor, schoolAgeKey } from '../../web/js/ages.js';
+import { ageArray } from '../../web/js/data.js';
 import { chooseSchools, decodeReach, decodeZones, formatOk, groupCounts, isZoned, listAnswers, readChoice, schoolByMoe, zoneShares } from '../../web/js/schools.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
@@ -95,12 +96,22 @@ function choiceOf(key) {
 function weightsOf(place, golden, service, key) {
   const pop = numeric(place.cells.pop);
   let w = pop;
+  const choice = choiceOf(key);
   if (golden.weights === 'children') {
     const group = ageGroupFor(place.meta, place.cells.ages, service);
     assert.ok(group, `${golden.place} ${service}: the golden counts children, and the build has no ages for it`);
     w = numeric(place.cells.ages[group]);
+    // One school counts the ages its years cover, and girls (or boys) only at
+    // a single-sex school, as the page does (ages.js schoolAgeKey).
+    if (choice.kind === 'one') {
+      const d = schoolByMoe(place.destinations, service, choice.moe);
+      const own = d >= 0 ? schoolAgeKey(place.meta, place.cells.ages, service, place.destinations[d]) : null;
+      if (own && own !== group) {
+        const ages = Object.fromEntries(Object.entries(place.cells.ages).map(([k, v]) => [k, numeric(v)]));
+        w = Float32Array.from(ageArray({ ages, meta: place.meta }, own), (v) => (Number.isFinite(v) ? v : 0));
+      }
+    }
   }
-  const choice = choiceOf(key);
   const zones = zonesOf(place, service);
   if (choice.kind === 'one' && choice.zoneOnly !== false && zones) {
     const d = schoolByMoe(place.destinations, service, choice.moe);

@@ -17,7 +17,7 @@ function para(text) {
 
 function list(items) {
   const ul = el('ul');
-  for (const item of items) ul.append(el('li', null, item));
+  for (const item of items) if (item) ul.append(el('li', null, item));
   return ul;
 }
 
@@ -43,6 +43,7 @@ function schoolsHelp(meta) {
   const choices = [
     'All: every school that teaches those years, whether state, state-integrated, private or charter, single-sex included. This is what TEAM showed before the row was added. A link says sch=all for it.',
     'State: state schools taught in English. A state school whose teaching language the directory does not give is left out, and the line under the headline says so. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own. Home zones are not applied: a school with a zone counts for everyone, in or out of it.',
+    'Secondary school where a school stops at Year 10 or starts at Year 11 (in Auckland and Hamilton): State and In zone count a place only when a student in Years 9 and 10 and one in Years 11 to 13 can each reach a school that teaches them, and use the slower time, as for girls and boys. All counts any school that teaches any of Years 9 to 13.',
   ];
   if (zoneFile) {
     const upcoming = s.zone_upcoming.filter((z) => z.applied).length;
@@ -51,18 +52,18 @@ function schoolsHelp(meta) {
       + `Where the file holds only a zone that starts later${upcoming ? ` (${upcoming} ${upcoming === 1 ? 'school' : 'schools'} here)` : ''}, that zone is used, and the line under the headline names the school. `
       + 'A zone for some year levels only, such as Years 7 and 8, counts only for the service with those years. '
       + 'A school with a scheme but no zone in the file, or a zone in the file but no scheme in the directory, counts for everyone. '
-      + 'Integrated, private and charter schools and kura are not counted: they enrol by their own rules. Places offered out of zone by ballot are not counted. Girls, Boys, and Girls and boys work as under State.');
-    choices.push('Each hexagon has one travel time, from its centre. Where a zone line crosses a hexagon, its residents are placed at their addresses (LINZ address points, each taking an equal share of its census block\'s residents), and the hexagon is counted with the zones most of its residents live in. The line under the headline says how many live in hexagons split this way.');
+      + 'Integrated, private and charter schools and kura are not counted: they enrol by their own rules. Nor are designated character schools (Vanguard Military School, Hagley College and others, from Gazette notices): their boards may decline a student whose family does not accept the school\'s character. Places offered out of zone by ballot are not counted. Girls, Boys, and Girls and boys work as under State.');
+    choices.push('Each hexagon has one travel time, from its centre. Where a zone line crosses a hexagon, its residents are placed at their addresses (LINZ address points, each taking an equal share of its census block\'s residents), and the hexagon is counted with the zones most of its residents live in. The line under the headline says how many live in hexagons split this way, and how many of them live outside the zones their hexagon is counted with.');
   } else if (s.zones) {
     choices.push(`In zone: the state schools whose home zone covers at least half of a hexagon, and the state schools with no enrolment scheme. Zones are the Ministry of Education's, as at ${dated(s.zones) || 'the date in the build'}.`);
   }
   choices.push(`One school: minutes to one school, found by name or by clicking its pin. ${zoneFile
-    ? 'For a school with a home zone, the headline is the share of those living in its zone who are within the standard of it, each hexagon counted by the share of its residents inside the zone, and its zone is outlined on the map. Who misses out and What would help count them too. A school with no home zone has no catchment to give a share of, so the headline is how many live within the standard of it, and those two tabs are off.'
+    ? 'For a school with a home zone, the headline is the share of those living in its zone who are within the standard of it, each hexagon counted by the share of its residents inside the zone, and its zone is outlined on the map. Who misses out and What would help count them too. Where part of the zone lies outside this place, only the part inside it is counted, and the headline says so. Living in a state-integrated school\'s zone does not by itself give a right to enrol: it takes children whose families accept its special character first. A school with no home zone has no catchment to give a share of, so the headline is how many live within the standard of it, and those two tabs are off. One school counts the children of the ages its own years cover (15 to 17 for a school that starts at Year 11), and for a girls\' or a boys\' school only girls or boys: the place\'s share of them in the 2018 Census, taken to live where the others do.'
     : s.zones
       ? 'With Only those living in its zone ticked, the figures count the people in its zone and nobody else. Without it, they count everyone, as below.'
       : 'School zones are not in this build yet, so the headline is the number of people who live within the standard of the school, and a share is given only for a local board, ward or suburb, named under the number. Who misses out and What would help are off for one school until zones are in.'} The area you pick stays when you change school, so two schools are compared for the same people. There are no car times to one school.`);
   if (s.stops) {
-    choices.push(`Stops near the school, under One school: every stop and station within a ${s.stops.max_walk_minutes || 15}-minute walk of the school's map point, walking on the street network, with the routes and the trips stopping ${stopHours({ window: s.stops.window })} on ${dated(s.stops.date) || 'the routing day'}, from the timetable used. A stop is listed whether or not the quickest trip uses it.`);
+    choices.push(`Stops near the school, under One school: every stop and station within a ${s.stops.max_walk_minutes || 15}-minute walk of the school's map point, walking on the street network, with the routes and the trips arriving ${stopHours({ window: s.stops.window })}, where students can get off, on ${dated(s.stops.date) || 'the routing day'}, from the timetable used. A stop is listed whether or not the quickest trip uses it.`);
   }
   const listed = dated(s.directory);
   const points = s.points;
@@ -86,9 +87,10 @@ function schoolsHelp(meta) {
       + (s.roll_date ? ` Rolls are at ${dated(s.roll_date)}.` : '')),
   ];
   if (points && moved != null) {
-    paras.push(para(`School points: a point is moved only when it is more than 100 m outside the school's own grounds in LINZ's NZ Facilities and the school's grounds in OpenStreetMap match LINZ's, and the point is inside no school's grounds; it then goes inside the grounds, 10 m in from the edge (rule D5-1). ${moved === 0 ? 'No school here was moved.' : `${moved} ${moved === 1 ? 'school here was' : 'schools here were'} moved, and the card says so.`} Other points that looked wrong were listed for checking and not changed.`));
+    paras.push(para(`School points: a point is moved only when it is more than 100 m outside the school's own grounds in LINZ's NZ Facilities and the school's grounds in OpenStreetMap match LINZ's, and the point is inside no school's grounds; it then goes inside the grounds, 10 m in from the edge. ${moved === 0 ? 'No school here was moved.' : `${moved} ${moved === 1 ? 'school here was' : 'schools here were'} moved, and the card says so.`} Other points that looked wrong were listed for checking and not changed.`));
   }
   if (zoneFile) paras.push(para("The zones were checked against Eagle Technology's copy of them; nothing from it is published."));
+  paras.push(para('Fare budgets and the fare maps are worked out for all schools only, so under State, In zone and One school they are off. A school link made for a fare before this release opens on All. Rows on the card for a school service not on screen count all schools, and say so.'));
   const line = para('Before version 0.12.0 the card could name a school reached a different way from the time it showed. ');
   line.append(link('What changed', LINKS.changes), document.createTextNode('.'));
   paras.push(line);
@@ -108,7 +110,7 @@ function whoHelp(meta) {
     para('For early childhood and the three school services, the figures count children of the ages that go there: 0 to 4 for early childhood, 5 to 10 for primary (Years 1 to 6), 11 and 12 for intermediate (Years 7 and 8) and 13 to 17 for secondary (Years 9 to 13). Everything else counts all residents.'),
     para(`The 2023 Census gives ages in five-year groups for each small area (SA1). TEAM ${shape}, then spreads the children onto hexagons as it spreads residents. `
       + 'An even split goes badly wrong where students live: in Campus North, Dunedin, an even fifth of each year gives 873 people aged 13 to 17, against the 132 the 2018 Census counted. '
-      + "A child's school year is taken from their age, so some 13-year-olds in Year 8 and some 17-year-olds who have left school are counted with Years 9 to 13. Within a hexagon, children are taken to live where its residents do. Ages are as at the census, March 2023."),
+      + "A child's school year is taken from their age. Ages are on census day, in March 2023, early in the school year, so about a third of Year 7 and of Year 9 students are counted with the age group below, and some 17-year-olds have left school. Within a hexagon, children are taken to live where its residents do."),
     para('Under these services the groups in Who misses out are the children times the group\'s share of the census block, which is for all ages. Under 15 and 65 and over are left out.'),
   ];
 }
@@ -181,6 +183,9 @@ export function renderAbout(root, meta) {
         ? 'Low-stress routes are paths, protected lanes and quiet streets: traffic stress level 2 or below, rated by SPAN from Auckland’s speeds, traffic volumes and facilities.'
         : 'Low-stress routes are paths, protected lanes and quiet streets: level 2 or below on R5’s traffic-stress scale.',
       'Hills slow walking and cycling, from LINZ elevation models.',
+      meta.schools
+        ? "Schools are from the Ministry of Education's directory (CC BY 4.0) and its enrolment zone file (CC BY 3.0 NZ). Residents in hexagons a zone line crosses are placed by LINZ NZ Addresses, and school grounds are checked against LINZ NZ Facilities and OpenStreetMap (CC BY 4.0; ODbL)."
+        : null,
       `Each hexagon covers about 0.1 km². There are ${count(meta.totals.cells)} with residents, holding ${count(meta.totals.population)} people from the 2023 Census.`,
       `Jobs are Stats NZ business demography employee counts (2024), ${count(meta.jobs.total)} in total, placed by where people work.`,
       'The reasons are screening rules. They show which kind of fix to look at first; they do not replace a local study.',

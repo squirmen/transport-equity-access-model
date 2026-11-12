@@ -263,7 +263,7 @@ test('the card and tooltip: a bus or train trip, a walk with a slower bus, a wal
   applyToData(data, S, result);
   const one = verdictLine(data, SOUTH_EAST, S, 30, 'pt', null, cardFor(choice, result));
   assert.equal(one.strong, 'Mt Albert Grammar School: 15 min on foot. No bus or train is quicker.');
-  assert.match(one.rest, /^By bus or train: 26 min\. In its zone\./);
+  assert.match(one.rest, /^By bus or train: 26 min\. Inside its enrolment zone\./);
   assert.doesNotMatch(one.rest, /usually/, 'the spread is for a bus or train trip only');
   assert.deepEqual(tooltipLines(data, SOUTH_EAST, S, 30, 'pt', null, 'Mt Albert Grammar School'), [one.strong, 'By bus or train: 26 min.']);
   // A bus trip to the school keeps its spread.
@@ -497,7 +497,7 @@ test('the counting line under In zone', () => {
     + "Open State College: the Ministry's file holds only its zone from 1 January 2027, which is used. "
     + 'Integrated, private and charter schools and kura are not counted: they enrol by their own rules (2 state-integrated, 1 private and 1 Māori-medium). '
     + "Zones from the Ministry's file of 2 October 2026, as in force on 12 November 2026. "
-    + '22 children aged 13–17 live in hexagons a zone line splits; each hexagon is counted with the zone most of its residents live in. '
+    + '22 children aged 13–17 live in hexagons a zone line splits; each hexagon is counted with the zones most of its residents live in. '
     + 'Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two. '
     + 'Counting children aged 13–17 (about Years 9 to 13), from 2023 Census age groups. School list as at 12 Nov 2026.');
   assert.ok(!line.includes(NO_ZONES), 'In zone applies them');
@@ -569,9 +569,9 @@ test("One school's card: in its zone, partly, or not; no zone; a corrected point
   applyToData(data, S, result);
   const card = cardFor(choice, result);
   const at = (i, mode = 'pt') => verdictLine(data, i, S, 30, mode, null, card).rest;
-  assert.match(at(0), /In its zone\./);
-  assert.match(at(1), /About 40% of the people here live in its zone; a zone line crosses this hexagon\./);
-  assert.match(at(4), /Not in its zone\./);
+  assert.match(at(0), /Inside its enrolment zone\./);
+  assert.match(at(1), /About 40% of the people here live inside its enrolment zone; a zone line crosses this hexagon\./);
+  assert.match(at(4), /Outside its enrolment zone\./);
   assert.match(at(0), /Times go to the Ministry's map point for the school \(the pin, about 400 m away in a straight line\), not to its nearest gate\./);
   assert.doesNotMatch(at(0), /Nearest: Mt Albert/, 'One school does not name itself again');
   // A school with no home zone says so.
@@ -621,14 +621,14 @@ test('stops near the school: the section, the rows and the CSV lines', () => {
   const rows = stopsAt(stops, MAGS).map((row) => stopLine(row, stops));
   assert.deepEqual(rows, [
     'Mount Albert Grammar School (stop 1427) · 1 min walk · no trips on any day in the timetable used',
-    'St Lukes · 7 min walk · 14 trips 7–9am · OUT, 22N',
-    'Baldwin Ave Train Station · 12 min walk · 12 trips 7–9am · WEST',
+    'St Lukes (stop 8861) · 7 min walk · 14 trips 7–9am · OUT, 22N',
+    'Baldwin Ave Train Station (stop 9300) · 12 min walk · 12 trips 7–9am · WEST',
   ]);
   assert.deepEqual(stopsCsvLines(stops, MAGS), [
     "Stops within a 15-minute walk of the school's map point (walking minutes on the street network, rounded down; trips stopping 7am-9am on Tuesday 15 September 2026, at_gtfs_2026-09-01.zip):",
-    'stop 1427 Mount Albert Grammar School: no service, 1 min walk, 0 trips (none on any day in the timetable)',
-    'stop 8861 St Lukes: bus, 7 min walk, 14 trips (OUT 10, 22N 4)',
-    'stop 9300 Baldwin Ave Train Station: train, 12 min walk, 12 trips (WEST 12)',
+    'stop 1427 Mount Albert Grammar School: no service, 1 min walk, 0 trips stopping (none on any day in the timetable)',
+    'stop 8861 St Lukes: bus, 7 min walk, 14 trips stopping (OUT 10, 22N 4)',
+    'stop 9300 Baldwin Ave Train Station: train, 12 min walk, 12 trips stopping (WEST 12)',
   ]);
   assert.equal(stopsCsvLines(stops, AGGS)[1], 'No stop within a 15-minute walk.');
   assert.deepEqual(stopsCsvLines(stops, WSC), []);

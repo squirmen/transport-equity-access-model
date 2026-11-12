@@ -62,9 +62,16 @@ export function ptPhrase() {
   return transit.orWalk ? 'by public transport, or on foot where that is quicker' : 'by public transport';
 }
 
+// "public transport" after "by", as a mode is named in headlines, tables and
+// keys; from 0.12.0 it is "public transport or on foot", since every public
+// transport figure, jobs among them, takes the walk where that is quicker.
+const PT_SHORT_BEFORE = MODES.pt.short;
+export const PT_SHORT_OR_WALK = 'public transport or on foot';
+
 export function setTransit(meta) {
   transit.orWalk = Boolean(meta && meta.pt_or_walk);
   MODE_NOTES.pt = transit.orWalk ? PT_NOTE_OR_WALK : PT_NOTE_BEFORE;
+  MODES.pt.short = transit.orWalk ? PT_SHORT_OR_WALK : PT_SHORT_BEFORE;
 }
 
 // How this build names its place. Set once when the data loads, so the copy
