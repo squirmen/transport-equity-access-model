@@ -722,3 +722,330 @@ def run_plan(
             log.info("%s: already done", tag)
             continue
         run(settings, dataset, mode_id, window, force=force, shard=shard)
+
+
+# ---------------------------------------------------------------------------
+# Re-routing only the schools that changed
+
+
+def school_runs(settings: Settings) -> list[tuple[str, str, str | None]]:
+    """The planned school runs (dataset "schools"), cheapest first."""
+    return [run for run in plan(settings) if run[0] == "schools"]
+
+
+def _point_keys(table: pd.DataFrame) -> dict[str, set]:
+    """Each school's routing points, as {school: {(point id, service, lon, lat)}}."""
+    out: dict[str, set] = {}
+    for school, point_id, service, lon, lat in zip(table["school"], table["id"], table["service"], table["lon"], table["lat"]):
+        out.setdefault(str(school), set()).add((str(point_id), str(service), round(float(lon), 6), round(float(lat), 6)))
+    return out
+
+
+def changed_schools(previous: pd.DataFrame, current: pd.DataFrame) -> dict[str, list[str]]:
+    """Schools added, removed, or moved (a point, an entrance or a service
+    changed) between two routing point tables (destinations/schools.parquet)."""
+    before, after = _point_keys(previous), _point_keys(current)
+    return {
+        "added": sorted(set(after) - set(before), key=_moe_key),
+        "removed": sorted(set(before) - set(after), key=_moe_key),
+        "moved": sorted((s for s in set(after) & set(before) if after[s] != before[s]), key=_moe_key),
+    }
+
+
+def _moe_key(school: str) -> tuple[int, str]:
+    tail = str(school).split(":", 1)[-1]
+    return (int(tail), "") if tail.isdigit() else (0, str(school))
+
+
+def _window_points(settings: Settings, table: pd.DataFrame, window: str | None) -> pd.DataFrame:
+    """A routing point table cut to the services routed in a window, as _targets does."""
+    if window is None:
+        return table
+    wanted = [sid for sid, spec in settings.services.items() if window in service_windows(spec)]
+    return table[table["service"].isin(wanted)]
+
+
+def _reroute_backup(batch_dir: Path, pairs_dir: Path, backup: Path) -> None:
+    """Copy a run's batches and pairs once, before anything in them changes."""
+    import shutil
+
+    done = backup / "COPIED"
+    if done.exists():
+        return
+    for source, name in ((batch_dir, "batches"), (pairs_dir, "pairs")):
+        target = backup / name
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
+    done.write_text(dt.datetime.now().isoformat(timespec="seconds") + "\n")
+
+
+def reroute_schools(
+    settings: Settings,
+    schools: list[str] | None = None,
+    modes: list[str] | None = None,
+    reason: str = "",
+    backup: Path | None = None,
+    shard: tuple[int, int] | None = None,
+    prepare: bool = False,
+) -> dict:
+    """Route only the schools that changed, and keep every other school's
+    minutes exactly as they were.
+
+    Compares destinations/schools.parquet with schools_previous.parquet (kept
+    by `team destinations --only schools`). For each school run, every origin
+    is routed in the run's own batches, with the run's own settings, to the
+    added and moved schools only; in each batch their old rows and those of
+    removed schools are dropped from the cached pairs, the new rows added in
+    the run's order, and the batch summary worked out again from its pairs.
+    The combined run and its manifest are rewritten with the new membership
+    and a `rerouted` record, so `team plan` shows nothing to do.
+
+    `schools` limits the routing to these (school keys, moe:<id>); any other
+    changed school is refused. The run's batches and pairs are copied to
+    `backup`/<run> first (default: <cache>/reroute_backup). With `shard`, only
+    that share of the batches is routed and nothing is combined; `prepare`
+    makes the copies and stops, so shards can start together.
+    """
+    from . import schools as school_data
+
+    folder = settings.output_dir / "destinations"
+    current = pd.read_parquet(folder / "schools.parquet")
+    previous_path = folder / "schools_previous.parquet"
+    if not previous_path.exists():
+        raise SystemExit(f"{previous_path} is missing: rebuild the schools with `team destinations --only schools` first.")
+    previous = pd.read_parquet(previous_path)
+    change = changed_schools(previous, current)
+    route = set(change["added"]) | set(change["moved"])
+    drop = route | set(change["removed"])
+    if schools:
+        unasked = sorted(route - set(schools), key=_moe_key)
+        if unasked:
+            raise SystemExit(f"These schools changed too and are not listed: {', '.join(unasked)}")
+        route &= set(schools)
+    backup = Path(backup) if backup else settings.cache_dir / "reroute_backup"
+    report = {"place": settings.raw.get("name"), "change": change, "runs": {}}
+    if not drop:
+        log.info("no school changed; nothing to re-route")
+        return report
+
+    prepare_java(settings)
+    import r5py
+
+    origins = load_origins(settings)
+    size = int(settings.routing.get("batch_size", 2000))
+    max_minutes = int(settings.routing.get("max_minutes", 60))
+    gtfs, gtfs_left_out = prepare_gtfs(settings)
+    started = time.monotonic()
+    for dataset, mode_id, window in school_runs(settings):
+        if modes and mode_id not in modes:
+            continue
+        mode = settings.modes[mode_id]
+        transit = mode["kind"] == "transit"
+        tag = run_tag(dataset, mode_id, window, transit)
+        output = settings.out("routing", f"{tag}.parquet")
+        manifest_path = output.with_suffix(".json")
+        record = json.loads(manifest_path.read_text())
+        table = _window_points(settings, current, window if transit else None)
+        before = _window_points(settings, previous, window if transit else None)
+        members = members_digest(table)
+        if record.get("members") == members:
+            report["runs"][tag] = "already current"
+            continue
+        if record.get("members") != members_digest(before):
+            raise SystemExit(f"{tag} was not routed to the schools in schools_previous.parquet; route it in full.")
+        batch_dir = settings.output_dir / "routing" / "batches" / tag
+        pairs_dir = settings.cache_dir / "pairs" / tag
+        _reroute_backup(batch_dir, pairs_dir, backup / tag)
+        if prepare:
+            report["runs"][tag] = "copied"
+            continue
+        progress = batch_dir / "reroute" / members
+        progress.mkdir(parents=True, exist_ok=True)
+        subset = table[table["school"].isin(route)]
+        targets = _points(subset) if len(subset) else None
+        percentiles = [10, 50, 90] if transit else [50]
+        departure, window_length = _departure(settings, window if transit else None)
+        kwargs = _mode_kwargs(r5py, mode, settings.routing)
+        starts = batch_starts(len(origins), size, shard)
+        todo = [s for s in starts if not (progress / f"origins_{s:06d}.done").exists()]
+        network = _network(r5py, settings, mode, gtfs) if todo and targets is not None else None
+        log.info("%s: re-routing %d schools (%d points), dropping %d, %d of %d batches to do", tag,
+                 subset["school"].nunique() if len(subset) else 0, 0 if targets is None else len(targets),
+                 len(drop - route), len(todo), len(starts))
+        for start in todo:
+            t0 = time.monotonic()
+            name = f"origins_{start:06d}.parquet"
+            chunk = origins.iloc[start : start + size]
+            old_pairs = pd.read_parquet(pairs_dir / name)
+            unknown = set(old_pairs["origin"]) - set(chunk["id"])
+            if unknown:
+                raise SystemExit(f"{tag} batch {start}: pairs for origins outside the batch; the origins have changed.")
+            keep = old_pairs[~old_pairs["destination"].isin(drop)]
+            parts = [keep]
+            if targets is not None:
+                matrix = pd.DataFrame(
+                    r5py.TravelTimeMatrix(
+                        network,
+                        origins=chunk[["id", "geometry"]],
+                        destinations=targets,
+                        departure=departure,
+                        departure_time_window=window_length,
+                        percentiles=percentiles,
+                        max_time=dt.timedelta(minutes=max_minutes),
+                        snap_to_network=True,
+                        **kwargs,
+                    )
+                )
+                parts.append(school_data.school_pairs(school_data.collapse(matrix, subset, max_minutes), subset))
+            pairs = pd.concat([p for p in parts if len(p)], ignore_index=True) if any(len(p) for p in parts) else keep
+            pairs = pairs.astype({c: keep[c].dtype for c in keep.columns if c in pairs})
+            pairs = pairs.sort_values(["origin", "service", "minutes", "destination"], kind="stable").reset_index(drop=True)
+            summary = school_data.summarise(pairs)
+            tmp = pairs_dir / f"origins_{start:06d}.{os.getpid()}.tmp.parquet"
+            pairs.to_parquet(tmp, index=False)
+            tmp.replace(pairs_dir / name)
+            tmp = batch_dir / f"origins_{start:06d}.{os.getpid()}.tmp.parquet"
+            summary.to_parquet(tmp, index=False)
+            tmp.replace(batch_dir / name)
+            (progress / f"origins_{start:06d}.done").write_text(json.dumps({"rows_before": int(len(old_pairs)), "rows_after": int(len(pairs))}))
+            log.info("%s: batch %d re-routed, %d -> %d pairs, %.0fs", tag, start, len(old_pairs), len(pairs), time.monotonic() - t0)
+        if shard is not None:
+            report["runs"][tag] = f"shard {shard[0] + 1}/{shard[1]} done"
+            continue
+        missing = [s for s in batch_starts(len(origins), size) if not (progress / f"origins_{s:06d}.done").exists()]
+        if missing:
+            raise SystemExit(f"{tag}: batches {missing} not re-routed yet")
+        batches = sorted(batch_dir.glob("origins_*[0-9].parquet"))
+        result = pd.concat([pd.read_parquet(p) for p in batches], ignore_index=True)
+        result.to_parquet(output, index=False)
+        all_targets = _points(table)
+        rerouted = list(record.get("rerouted", []))
+        rerouted.append({
+            "schools": sorted(route, key=_moe_key),
+            "removed": sorted(set(change["removed"]), key=_moe_key),
+            "reason": reason,
+            "members_before": record.get("members"),
+            "written": dt.datetime.now().isoformat(timespec="seconds"),
+        })
+        record.update({
+            "destinations": int(len(all_targets)),
+            "scope": scope_digest(all_targets),
+            "members": members,
+            "rows": int(len(result)),
+            "rerouted": rerouted,
+            "gtfs_left_out": gtfs_left_out,
+        })
+        manifest_path.write_text(json.dumps(record, indent=2, default=str))
+        network_used = network_inputs(settings, mode)
+        (batch_dir / "scope.json").write_text(json.dumps({"destinations": scope_digest(all_targets), "count": int(len(all_targets)),
+                                                          "network": network_used, "members": members}))
+        report["runs"][tag] = {"rows": int(len(result)), "schools_routed": len(route), "removed": len(change["removed"])}
+        log.info("%s: wrote %s", tag, output)
+    report["elapsed_seconds"] = round(time.monotonic() - started, 1)
+    return report
+
+
+def verify_school_runs(settings: Settings, sample: int = 300, seed: int = 20261112, modes: list[str] | None = None,
+                       record: bool = False) -> dict:
+    """Route a sample of origins to every school point in this process and
+    compare with the school runs' cached pairs: the minutes, and the spread
+    by public transport, must be identical. Run it in a fresh process after a
+    reroute, so the check does not share anything with the routing it checks."""
+    prepare_java(settings)
+    import r5py
+
+    from . import schools as school_data
+
+    current = pd.read_parquet(settings.output_dir / "destinations" / "schools.parquet")
+    origins = load_origins(settings)
+    rng = np.random.default_rng(seed)
+    picked = origins.iloc[np.sort(rng.choice(len(origins), size=min(sample, len(origins)), replace=False))]
+    max_minutes = int(settings.routing.get("max_minutes", 60))
+    gtfs, _ = prepare_gtfs(settings)
+    report: dict = {"place": settings.raw.get("name"), "origins": int(len(picked)), "seed": seed, "runs": {}}
+    for dataset, mode_id, window in school_runs(settings):
+        if modes and mode_id not in modes:
+            continue
+        mode = settings.modes[mode_id]
+        transit = mode["kind"] == "transit"
+        tag = run_tag(dataset, mode_id, window, transit)
+        table = _window_points(settings, current, window if transit else None)
+        network = _network(r5py, settings, mode, gtfs)
+        departure, window_length = _departure(settings, window if transit else None)
+        matrix = pd.DataFrame(
+            r5py.TravelTimeMatrix(
+                network,
+                origins=picked[["id", "geometry"]],
+                destinations=_points(table),
+                departure=departure,
+                departure_time_window=window_length,
+                percentiles=[10, 50, 90] if transit else [50],
+                max_time=dt.timedelta(minutes=max_minutes),
+                snap_to_network=True,
+                **_mode_kwargs(r5py, mode, settings.routing),
+            )
+        )
+        fresh = school_data.school_pairs(school_data.collapse(matrix, table, max_minutes), table)
+        cached = school_data.load_reach(settings, tag)
+        cached = cached[cached["origin"].isin(set(picked["id"]))]
+        keys = ["origin", "destination", "service"]
+        columns = [c for c in ("minutes", "lo", "hi") if c in fresh and c in cached]
+        joined = fresh.merge(cached, on=keys, how="outer", suffixes=("_fresh", "_cached"), indicator=True)
+        both = joined[joined["_merge"] == "both"]
+        differ = {c: int((both[f"{c}_fresh"].astype(int) != both[f"{c}_cached"].astype(int)).sum()) for c in columns}
+        rows = {
+            "pairs": int(len(joined)),
+            "only_fresh": int((joined["_merge"] == "left_only").sum()),
+            "only_cached": int((joined["_merge"] == "right_only").sum()),
+            "differ": differ,
+        }
+        if rows["only_fresh"] or rows["only_cached"] or any(differ.values()):
+            bad = joined[(joined["_merge"] != "both") | (joined[[f"{c}_fresh" for c in columns]].to_numpy() !=
+                                                        joined[[f"{c}_cached" for c in columns]].to_numpy()).any(axis=1)]
+            rows["examples"] = bad.head(20).astype(str).to_dict("records")
+        rows["identical"] = not (rows["only_fresh"] or rows["only_cached"] or any(differ.values()))
+        report["runs"][tag] = rows
+        log.info("%s: %s", tag, {k: v for k, v in rows.items() if k != "examples"})
+        if record:
+            # Kept with the run, so a later reader can see the check was made.
+            manifest = settings.output_dir / "routing" / f"{tag}.json"
+            saved = json.loads(manifest.read_text())
+            saved["verified"] = {"origins": int(len(picked)), "seed": seed, "pairs": rows["pairs"], "identical": rows["identical"],
+                                 "members": saved.get("members"), "written": dt.datetime.now().isoformat(timespec="seconds")}
+            manifest.write_text(json.dumps(saved, indent=2, default=str))
+    report["identical"] = all(r["identical"] for r in report["runs"].values())
+    return report
+
+
+def compare_reroute(settings: Settings, backup: Path) -> dict:
+    """Every school run's pairs now against the copy made before a reroute,
+    for the schools the reroute did not add, move or remove: they must be
+    identical, minute for minute (and in the spread by public transport)."""
+    from . import schools as school_data
+
+    folder = settings.output_dir / "destinations"
+    change = changed_schools(pd.read_parquet(folder / "schools_previous.parquet"), pd.read_parquet(folder / "schools.parquet"))
+    touched = set(change["added"]) | set(change["moved"]) | set(change["removed"])
+    report: dict = {"place": settings.raw.get("name"), "left_out": sorted(touched, key=_moe_key), "runs": {}}
+    for dataset, mode_id, window in school_runs(settings):
+        tag = run_tag(dataset, mode_id, window, settings.modes[mode_id]["kind"] == "transit")
+        files = sorted((Path(backup) / tag / "pairs").glob("origins_*[0-9].parquet"))
+        if not files:
+            report["runs"][tag] = "no copy"
+            continue
+        before = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+        after = school_data.load_reach(settings, tag)
+        before = before[~before["destination"].isin(touched)]
+        after = after[~after["destination"].isin(touched)]
+        keys = ["origin", "destination", "service"]
+        columns = [c for c in ("minutes", "lo", "hi") if c in before]
+        joined = before.merge(after, on=keys, how="outer", suffixes=("_before", "_after"), indicator=True)
+        both = joined[joined["_merge"] == "both"]
+        differ = {c: int((both[f"{c}_before"].astype(int) != both[f"{c}_after"].astype(int)).sum()) for c in columns}
+        rows = {"pairs": int(len(joined)), "only_before": int((joined["_merge"] == "left_only").sum()),
+                "only_after": int((joined["_merge"] == "right_only").sum()), "differ": differ}
+        rows["identical"] = not (rows["only_before"] or rows["only_after"] or any(differ.values()))
+        report["runs"][tag] = rows
+    report["identical"] = all(r["identical"] for r in report["runs"].values() if isinstance(r, dict))
+    return report

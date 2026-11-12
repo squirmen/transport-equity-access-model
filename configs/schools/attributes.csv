@@ -1,0 +1,4 @@
+# Corrections to directory fields for one school. A row is used only when checked_by and checked_on are filled.
+# moe: School_Id. field: the directory column (Language_of_Instruction, CoEd_Status, Org_Type, ...). value: as the directory would write it.
+# source: where the value comes from. A school with no teaching language and a Maori-medium peak body is taken as Maori-medium by rule (schools.MAORI_PEAK_BODIES); no row is needed for that.
+moe,name,field,value,source,checked_by,checked_on

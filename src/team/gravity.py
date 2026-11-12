@@ -212,21 +212,27 @@ def _pair_tags(settings, purpose: str, mode_id: str, window: str | None = None) 
 
 
 def _pairs(settings, purpose: str, mode_id: str, cap: float, window: str | None = None) -> pd.DataFrame | None:
-    from .measures import load_pairs
+    """Origin, destination and minutes within `cap` for one purpose and mode.
 
+    Public transport is the quicker of R5's trip and walking, pair by pair
+    (pt_or_walk.py), and its pairs also carry `walk_quicker` (walking is at
+    least as quick, so no fare) and `walk` (the walk's minutes, NaN where
+    none within the limit), which the fares read.
+    """
+    from .pt_or_walk import load_merged
+
+    transit = settings.modes[mode_id]["kind"] == "transit"
+    if transit and window is None:
+        window = purpose_windows(settings, purpose)[0]
     frames = []
     for tag in _pair_tags(settings, purpose, mode_id, window):
-        if tag.startswith("schools_"):
-            from .schools import load_reach
-
-            pairs = load_reach(settings, tag)
-        else:
-            pairs = load_pairs(settings, tag)
+        dataset = tag.split("_", 1)[0]
+        pairs = load_merged(settings, dataset, mode_id, window if transit else None,
+                            services=None if purpose == "jobs" else [purpose])
         if pairs is None:
             continue
-        if "service" in pairs.columns:
-            pairs = pairs[pairs["service"] == purpose]
-        frames.append(pairs[["origin", "destination", "minutes"]])
+        keep = ["origin", "destination", "minutes", *[c for c in ("walk_quicker", "walk") if c in pairs]]
+        frames.append(pairs[keep])
     if not frames:
         return None
     pairs = pd.concat(frames, ignore_index=True)

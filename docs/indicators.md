@@ -20,7 +20,7 @@ these definitions.
 | --- | --- | --- |
 | `walk` | Walking | yes |
 | `bike_low_stress` | Cycling on low-stress routes | yes |
-| `pt` | Public transport, with walking at each end | yes |
+| `pt` | Public transport, or walking where that is quicker (a bus or train trip walks up to 15 minutes at each end) | yes |
 | `bike` | Cycling on any bikeable street | no |
 | `car` | Car, uncongested | no |
 
@@ -32,14 +32,16 @@ these definitions.
 | `population` | people | usual residents, 2023 Census, spread from SA1 blocks by area |
 | `t_<service>_<mode>` | minutes | time to the nearest destination of that service by that mode, in whole minutes rounded down; blank when none is within 60 minutes. Public transport is in the service's usual window |
 | `t_<service>_pt_<window>` | minutes | the same by public transport in another window (`am_peak`, `interpeak` or `saturday`) |
+| `t_<service>_pt[_<window>]_r5`, `t_<service>_pt_slow_r5` | minutes | the same by public transport as R5 routes it, before taking walking where that is quicker |
 | `n_<service>_<mode>` | count | destinations of that service within its standard time by that mode |
 | `best_<service>` | minutes | fastest of walking, low-stress cycling and public transport |
 | `via_<service>` | mode id | the mode that gave `best_<service>` |
 | `meets_<service>` | true/false | `best_<service>` is within the standard |
-| `options_<service>` | 0–3 | how many of the three counting modes are within the standard |
+| `options_<service>` | 0–3 | how many of the three counting modes are within the standard; public transport counts only where a bus or train is quicker than walking |
 | `km_<service>` | km | straight-line distance to the nearest destination of that service |
 | `why_<service>` | code | main reason the standard is missed; see below |
-| `jobs<T>_<mode>` | jobs | jobs reachable within T minutes (30 or 45) |
+| `jobs<T>_<mode>` | jobs | jobs reachable within T minutes (30 or 45); by public transport, the quicker of public transport and walking to each job cell |
+| `jobs<T>_pt[_<window>]_r5` | jobs | the same by public transport as R5 routes it |
 | `jobshare<T>_<mode>` | share | the same, as a share of all jobs in the region |
 | `jobsfair<T>_<mode>` | ratio | job access allowing for competing workers; 1 is the regional average (public transport and low-stress cycling only) |
 | `pt_per_hour_am_peak` | departures | departures per hour at the busiest stop within 800 m, 07:00–09:00 |

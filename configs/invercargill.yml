@@ -31,6 +31,7 @@ data:
   census_ages: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa1.json
   census_ages_sa2: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa2.json
   census_age_shape: processed/nz/census/age_shape_sa2_2018.parquet
+  school_grounds: raw/nz/education/linz_nz_facilities_2026-11-12.gpkg   # LINZ school grounds, for checking school map points
   ece: raw/invercargill/education/educationcounts_ece_invercargill.json
   census_sa1: raw/invercargill/census/statsnz_census_sa1_2023_invercargill.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
@@ -79,9 +80,9 @@ routing:
 standard_modes: [walk, bike_low_stress, pt]
 
 # Schools come from the Ministry's national directory snapshot (data.schools),
-# cut to these regional councils. docs/schools.md has the rules.
+# kept wherever they are inside the place's routing area, from any region.
+# docs/schools.md has the rules.
 schools:
-  regions: [Southland Region]
   buses: none_found        # school buses in the timetable: in_timetable or none_found
   bus_note: "No school bus routes found in the timetable (by route type or by a school's name)."
 

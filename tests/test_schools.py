@@ -63,13 +63,36 @@ def test_school_attributes_come_from_the_directory(tmp_path):
     assert christ_the_king["services"] == "primary_school,intermediate_school"
 
 
-def test_teaching_language_and_sex_not_given_are_left_unknown(tmp_path):
+def test_sex_not_given_is_left_unknown(tmp_path):
     table = sample_table(tmp_path)
-    # Opened in October 2026 with no teaching language listed yet.
-    assert pd.isna(table.loc[4575, "medium"])
     # Newly registered, no co-ed status listed.
     assert table.loc[4592, "sex_secondary_school"] is None
+
+
+def test_no_teaching_language_and_a_maori_medium_peak_body_is_maori_medium(tmp_path):
+    table = sample_table(tmp_path)
+    # Te Wharekura o Tāmaki ki te Tonga opened in October 2026 with no teaching
+    # language listed yet; its peak body is Ngā Kura ā Iwi o Aotearoa.
+    school = table.loc[4575]
+    assert (school["language"], school["medium"], school["language_source"]) == ("maori", "other", "peak_body")
     assert not schools.eligible(table.reset_index(), "primary_school", "state").to_numpy()[list(table.index).index(4575)]
+    line = schools.counting_line(table.reset_index(), "primary_school")
+    assert line["state_maori_peak_body"] == ["Te Wharekura o Tāmaki ki te Tonga"]
+    assert line["state_language_unknown"] == 0
+
+
+def test_a_checked_attribute_replaces_the_directory_field(tmp_path):
+    folder = tmp_path / "configs"
+    folder.mkdir()
+    write_csv(folder, "attributes.csv", "moe,name,field,value,source,checked_by,checked_on\n"
+              "4575,Te Wharekura o Tāmaki ki te Tonga,Language_of_Instruction,Some students taught in te reo Māori,test,,\n")
+    settings = school_settings(tmp_path, FIXTURES / "directory_sample.csv")
+    # Not checked: the rule from the peak body stands.
+    assert schools.school_table(settings, folder=folder).set_index("moe").loc[4575, "language_source"] == "peak_body"
+    write_csv(folder, "attributes.csv", "moe,name,field,value,source,checked_by,checked_on\n"
+              "4575,Te Wharekura o Tāmaki ki te Tonga,Language_of_Instruction,Some students taught in te reo Māori,test,a person,2026-11-12\n")
+    school = schools.school_table(settings, folder=folder).set_index("moe").loc[4575]
+    assert (school["language"], school["language_source"]) == ("english", "attributes")
 
 
 def test_proposed_schools_are_not_counted(tmp_path):
@@ -93,8 +116,10 @@ def test_every_school_type_is_counted_or_excluded_on_purpose(tmp_path):
 
 @pytest.mark.skipif(not SNAPSHOT.exists(), reason="needs the directory snapshot in the data root")
 @pytest.mark.parametrize("place", sorted(p.stem for p in (REPO / "configs").glob("*.yml")))
-def test_every_place_counts_or_excludes_every_type_in_its_directory(place):
-    settings = config.load(REPO / "configs" / f"{place}.yml", DATA_ROOT, Path(os.environ.get("TMPDIR", "/tmp")) / "team-test-out")
+def test_every_place_counts_or_excludes_every_type_in_its_directory(place, tmp_path_factory):
+    # A cache of its own: the street check filters the street file into the cache.
+    scratch = tmp_path_factory.mktemp(place)
+    settings = config.load(REPO / "configs" / f"{place}.yml", DATA_ROOT, scratch / "out", scratch / "cache")
     assert "Yr 7-10" not in json.dumps(settings.services)
     assert schools.unknown_types(settings, schools.place_directory(settings)) == []
 

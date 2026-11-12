@@ -43,7 +43,9 @@ def test_standards_best_mode_and_options(settings):
             "walk": [12, 35, nan, 20],
             "bike_low_stress": [8, nan, nan, 25],
             "bike": [6, 18, nan, 10],
-            "pt": [15, 25, nan, nan],
+            # Public transport is the quicker of a bus and walking, so it is
+            # never slower than the walk (pt_or_walk.py); 11 is a bus.
+            "pt": [11, 25, nan, nan],
             "car": [4, 6, nan, 5],
         }
     )

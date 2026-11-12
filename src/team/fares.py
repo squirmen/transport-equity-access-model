@@ -22,7 +22,14 @@ Columns added to the cell table, for each purpose and zone limit z:
 
     costzone                        the fare zone this cell sits in
     costaccess_<purpose>_z<z>       opportunities within the time cap and z zones
+    costmin_<purpose>_z<z>          minutes to the nearest one within z zones
     costshare_<purpose>_z<z>        the same as a share of all of them in the region
+
+Public transport is the quicker of R5's trip and walking (pt_or_walk.py). A
+pair where walking is at least as quick is a walk and needs no fare: it
+counts at every limit, from z0. Where a bus is quicker but its fare is over
+the limit, the traveller can still walk, so the pair counts at the walking
+time. z0 is therefore walking alone, within the time cap.
 """
 
 from __future__ import annotations
@@ -270,7 +277,9 @@ def pair_zone_counts(
     destination_zone: pd.Series,
     distance: dict[tuple[str, str], int],
 ) -> np.ndarray:
-    """How many zones each origin-destination pair passes through."""
+    """How many zones each origin-destination pair passes through: 0 for a
+    pair where walking is at least as quick (`walk_quicker`), NaN where
+    either end has no zone."""
     start = pairs["origin"].map(origin_zone)
     end = pairs["destination"].map(destination_zone)
     counts = np.full(len(pairs), np.nan)
@@ -279,7 +288,23 @@ def pair_zone_counts(
             value = distance.get((a, b))
             if value is not None:
                 counts[i] = value
+    if "walk_quicker" in pairs:
+        counts[pairs["walk_quicker"].to_numpy(dtype=bool)] = 0
     return counts
+
+
+def _times_at(pairs: pd.DataFrame, zone_counts: np.ndarray, limit: int) -> np.ndarray:
+    """Each pair's minutes for a traveller who can pay for `limit` zones: the
+    trip where its fare is within the limit, else the walk (NaN where none)."""
+    minutes = pairs["minutes"].to_numpy(dtype="float64")
+    walk = pairs["walk"].to_numpy(dtype="float64") if "walk" in pairs else np.full(len(pairs), np.nan)
+    paid = np.isfinite(zone_counts) & (zone_counts <= limit)
+    return np.where(paid, minutes, walk)
+
+
+def _first_limit(pairs: pd.DataFrame) -> int:
+    """Zone limits start at 0 when the pairs say which are walks."""
+    return 0 if "walk_quicker" in pairs else 1
 
 
 def reachable_within(
@@ -293,17 +318,16 @@ def reachable_within(
     """Opportunities reachable per origin, at each zone limit.
 
     Returns one column per zone limit, each counting what is inside both the
-    time cap and that many zones. The columns rise with the limit, because a
-    bigger budget can only add destinations.
+    time cap and that many zones, or within the cap on foot. The columns rise
+    with the limit, because a bigger budget can only add destinations. z0 is
+    there when the pairs say which are walks.
     """
-    keep = (pairs["minutes"].to_numpy() <= minutes_cap) & np.isfinite(zone_counts)
-    rows = pairs.loc[keep]
-    counts = zone_counts[keep]
-    size = rows["destination"].map(weights).fillna(0.0).to_numpy(dtype="float64")
+    size = pairs["destination"].map(weights).fillna(0.0).to_numpy(dtype="float64")
+    origins = pairs["origin"].to_numpy()
     out = {}
-    for limit in range(1, int(cap) + 1):
-        inside = counts <= limit
-        totals = pd.Series(size[inside], index=rows["origin"].to_numpy()[inside]).groupby(level=0).sum()
+    for limit in range(_first_limit(pairs), int(cap) + 1):
+        inside = _times_at(pairs, zone_counts, limit) <= minutes_cap
+        totals = pd.Series(size[inside], index=origins[inside]).groupby(level=0).sum()
         out[f"z{limit}"] = totals.reindex(index).fillna(0.0).astype("float32")
     return pd.DataFrame(out, index=index)
 
@@ -333,16 +357,14 @@ def nearest_within(
     The standards measure asks whether the nearest one is close enough. Under a
     budget it asks whether the nearest one a traveller can afford is close
     enough, which is this. Times fall as the limit rises, because a bigger
-    budget can only bring nearer destinations into reach.
+    budget can only bring nearer destinations into reach. z0 (when the pairs
+    say which are walks) is the nearest on foot.
     """
-    keep = (pairs["minutes"].to_numpy() <= minutes_cap) & np.isfinite(zone_counts)
-    rows = pairs.loc[keep]
-    counts = zone_counts[keep]
-    minutes = rows["minutes"].to_numpy(dtype="float64")
-    origins = rows["origin"].to_numpy()
+    origins = pairs["origin"].to_numpy()
     out = {}
-    for limit in range(1, int(cap) + 1):
-        inside = counts <= limit
+    for limit in range(_first_limit(pairs), int(cap) + 1):
+        minutes = _times_at(pairs, zone_counts, limit)
+        inside = minutes <= minutes_cap
         best = pd.Series(minutes[inside], index=origins[inside]).groupby(level=0).min()
         out[f"z{limit}"] = best.reindex(index).astype("float32")
     return pd.DataFrame(out, index=index)
@@ -429,6 +451,7 @@ def build(settings, index: pd.Index, origins) -> tuple[pd.DataFrame, dict]:
                 used[purpose] = {
                     "pairs": int(len(pairs)),
                     "priced": int(np.isfinite(counts).sum()),
+                    "walks": int(pairs["walk_quicker"].sum()) if "walk_quicker" in pairs else 0,
                     "destinations": int(len(destinations)),
                     "total_weight": round(total, 1),
                     "windows": windows,

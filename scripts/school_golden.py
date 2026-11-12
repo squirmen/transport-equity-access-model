@@ -8,7 +8,14 @@ tested against. It also checks the published files agree with each other:
 * for every cell, service and mode, the first school in the reach list is the
   one cells.json names (nearest_mode) and its minutes are the time shown (t);
 * the schools cells.json lists as tied have the same minutes;
-* no published time is over the routing limit.
+* no published time is over the routing limit;
+* public transport lists (format 2) are never slower than walking to the
+  same school, and R5's own minutes (`r5`) are given only where they are
+  slower than the time shown, or missing.
+
+For the hexagons given with --cell it also writes, under `r5`, R5's own
+public transport minutes to each school named by public transport (null:
+none within 60 minutes), so a test can tell a walk from a bus.
 
 For the hexagons given with --cell it also writes every time and the schools
 named (MoE numbers, ties after the first, in the reach list's order).
@@ -60,7 +67,7 @@ def main() -> int:
     out = {"place": meta["naming"].get("slug"), "version": meta["version"], "built": meta["built"],
            "directory": meta["schools"]["directory"]["file"], "people": round(float(pop.sum()), 1),
            "urban_people": round(float((pop * urban).sum()), 1), "standards": {}, "figures": {}, "cells": {}, "named": {},
-           "checks": {}}
+           "r5": {}, "formats": meta.get("formats", {}), "checks": {}}
 
     def as_array(values):
         return np.array([np.nan if v is None else v for v in values], dtype="float64")
@@ -90,6 +97,20 @@ def main() -> int:
                 listed = {reach["d"][k]: reach["m"][k] for k in range(offsets[i], offsets[i + 1])}
                 bad_ties += sum(1 for d in tied if listed.get(d) != shown[i])
             checked += n
+            bad_walk = bad_r5 = 0
+            if reach.get("pt_or_walk") and mode == "pt" and "walk" in reaches:
+                walk = reaches["walk"]
+                on_foot = {}
+                for i in range(n):
+                    for k in range(walk["o"][i], walk["o"][i + 1]):
+                        on_foot[(i, walk["d"][k])] = walk["m"][k]
+                for i in range(n):
+                    for k in range(offsets[i], offsets[i + 1]):
+                        w = on_foot.get((i, reach["d"][k]))
+                        bad_walk += int(w is not None and reach["m"][k] > w)
+                bad_r5 = sum(1 for k, m in zip(reach["r5"]["k"], reach["r5"]["m"]) if m is not None and m <= reach["m"][k])
+                if bad_walk or bad_r5:
+                    problems.append(f"{service} {mode}: {bad_walk} entries slower than walking, {bad_r5} r5 entries not slower")
             if bad_t or bad_d or over or bad_ties:
                 problems.append(f"{service} {mode}: {bad_t} times and {bad_d} names differ from the reach list, "
                                 f"{over} over {limit} min, {bad_ties} ties with other minutes")
@@ -114,8 +135,13 @@ def main() -> int:
                     i = cells["h3"].index(h3)
                     out["cells"].setdefault(h3, {}).setdefault(key, {})[service] = {
                         m: (None if np.isnan(v[i]) else int(v[i])) for m, v in times.items()}
-                    out["named"].setdefault(h3, {}).setdefault(key, {})[service] = schools.choice_named(
-                        usable, dests, service, choice, student, i)
+                    named = schools.choice_named(usable, dests, service, choice, student, i)
+                    out["named"].setdefault(h3, {}).setdefault(key, {})[service] = named
+                    if "pt" in usable and "r5" in usable["pt"]:
+                        body = usable["pt"]
+                        r5 = dict(zip(body["r5"]["k"], body["r5"]["m"]))
+                        by_moe = {dests[body["d"][k]].get("moe"): r5.get(k, body["m"][k]) for k in range(body["o"][i], body["o"][i + 1])}
+                        out["r5"].setdefault(h3, {}).setdefault(key, {})[service] = {str(m): by_moe.get(m) for m in named.get("pt", [])}
         if not reaches:
             problems.append(f"{service}: no reach lists")
     out["checks"]["ok"] = not problems

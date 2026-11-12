@@ -62,8 +62,12 @@ def _clean(value):
 # a second.
 CORE_CELL_KEYS = (
     "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
-    "freq", "t", "tw", "nearest", "nearest_mode", "ties", "urban", "zone", "vil", "areas", "ages",
+    "freq", "t", "tw", "nearest", "nearest_mode", "ties", "urban", "zone", "vil", "areas", "ages", "ptr",
 )
+
+# Versions of the data files whose shape changed in 0.12.0, in summary.json
+# meta.formats. The page refuses a file whose `format` differs.
+FORMATS = {"cells": 2, "school_reach": 2, "zones": 2, "zone_outlines": 1, "school_stops": 1}
 
 
 def _chains_meta(settings: Settings) -> dict | None:
@@ -199,7 +203,18 @@ def school_entry(record: pd.Series, services: list[str]) -> dict:
         "zone_from": zone["from"] if zone else None,
         "routed_to": int(record["entrances"]) if int(record["entrances"]) > 0 else "point",
         "point": record["point"],
+        "point_note": point_note(record),
+        "language_source": clean(record.get("language_source")),
     }
+
+
+def point_note(record) -> str | None:
+    """What the card says about a corrected map point."""
+    if record.get("point") != "corrected":
+        return None
+    metres = float(record.get("point_moved_m") or 0.0)
+    distance = f"{metres / 1000:.1f} km" if metres >= 1000 else f"{metres:.0f} m"
+    return f"Moved {distance} to its grounds: the Ministry's point was outside them"
 
 
 def nearest_by_mode(settings: Settings, table: pd.DataFrame, dest_index: dict) -> dict:
@@ -322,7 +337,26 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         # Children by school age group (docs/schools.md, "Who is counted"), the
         # weights for school and early childhood figures.
         "ages": ages.payload(table),
+        # R5's public transport minutes where they are slower than walking or
+        # missing, usual window: the time shown by public transport is the walk.
+        "ptr": ptr_payload(settings, table),
     }
+
+
+def ptr_payload(settings: Settings, table: pd.DataFrame) -> dict:
+    """{service: {"<cell index>": R5 minutes or null}}, only for cells where
+    walking is quicker than R5's public transport or R5 has none within the
+    limit, and walking gets there within it."""
+    out: dict = {}
+    for service in settings.services:
+        r5, walk = f"t_{service}_pt_r5", f"t_{service}_walk"
+        if r5 not in table or walk not in table:
+            continue
+        a = table[r5].to_numpy(dtype="float64")
+        w = table[walk].to_numpy(dtype="float64")
+        cells = np.flatnonzero(np.isfinite(w) & ~(a <= w))
+        out[service] = {str(int(i)): (None if not np.isfinite(a[i]) else int(a[i])) for i in cells}
+    return out
 
 
 ACCESS_WEB_KEYS = ("jobs", "everyday", "education", "all")
@@ -365,7 +399,8 @@ def cost_payload(settings: Settings, table: pd.DataFrame, by_window: bool = Fals
 
     def block(name: str, jobs: bool) -> dict[str, list]:
         out: dict[str, list] = {}
-        for limit in range(1, steps + 1):
+        # z0 is walking alone (pt_or_walk.py): no fare.
+        for limit in range(0, steps + 1):
             column = f"{'costshare' if jobs else 'costmin'}_{name}_z{limit}"
             if column in table:
                 out[f"z{limit}"] = _floats(table[column], 2, scale=100) if jobs else _ints(table[column])
@@ -484,7 +519,11 @@ def _area_records(frame: pd.DataFrame) -> list[dict]:
 
 def reach_payload(reach: pd.DataFrame, n: int, dest_index: dict, spread: bool) -> dict:
     """One service and mode's reach lists: every school within the routing
-    limit from each cell, nearest first. Cell i's schools are d[o[i]:o[i+1]]."""
+    limit from each cell, nearest first. Cell i's schools are d[o[i]:o[i+1]].
+
+    A public transport list is merged with walking (pt_or_walk.py): `m` is the
+    quicker, and `r5` gives R5's own minutes at the positions `k` where they
+    are slower than walking or missing (null)."""
     counts = np.bincount(reach["cell"].to_numpy(dtype="int64"), minlength=n) if len(reach) else np.zeros(n, dtype="int64")
     offsets = np.concatenate([[0], np.cumsum(counts)]).astype("int64")
     body = {
@@ -495,6 +534,11 @@ def reach_payload(reach: pd.DataFrame, n: int, dest_index: dict, spread: bool) -
     if spread and "lo" in reach:
         body["lo"] = reach["lo"].astype("int64").tolist()
         body["hi"] = [None if v == 255 else int(v) for v in reach["hi"]]
+    if "r5" in reach:
+        r5 = reach["r5"].to_numpy(dtype="float64")
+        minutes = reach["minutes"].to_numpy(dtype="float64")
+        positions = np.flatnonzero(~(r5 <= minutes))
+        body["r5"] = {"k": positions.tolist(), "m": [None if not np.isfinite(r5[k]) else int(r5[k]) for k in positions]}
     return body
 
 
@@ -517,12 +561,13 @@ def write_schools(settings: Settings, folder: Path, school_state: dict, dest_ind
         if short:
             reach = short_list(reach, listed, service)
         body = {
-            "format": 1, "service": service, "mode": mode, "window": window,
+            "format": FORMATS["school_reach"], "service": service, "mode": mode, "window": window,
             "max_minutes": int(settings.routing.get("max_minutes", 60)),
             "order": "minutes, then straight-line metres from the hexagon centre, then MoE number",
             # A short list holds only the nearest school under All, State,
             # State girls and State boys, and those tied with it.
             "complete": not short,
+            **({"pt_or_walk": True} if transit else {}),
             **reach_payload(reach, n, dest_index, spread=(key == "pt")),
         }
         path = out / f"{service}_{key}.json"
@@ -636,10 +681,23 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "destinations": destinations.groupby("service").size().to_dict(),
     }
     meta["ages"] = ages.meta(settings, table)  # children by school age group
+    meta["formats"] = dict(FORMATS)
+    from . import pt_or_walk
+
+    meta["pt_or_walk"] = {
+        "rule": pt_or_walk.RULE,
+        "slow_factor": round(pt_or_walk.walk_factor(settings, "pt_slow"), 4) if "pt_slow" in settings.modes else None,
+        "covers": pt_or_walk.COVERS,
+        "not_covered": pt_or_walk.NOT_COVERED,
+        "r5_columns": "_r5",
+    }
     if listed is not None:
+        from . import school_stops
+
         meta["schools"] = school_data.meta_block(settings, listed)
         meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table), listed)
         meta["schools"]["zones"] = zones.write(settings, data, zone_state, dest_index, len(table), table)  # zones.json, outlines
+        meta["schools"]["stops"] = school_stops.write(settings, data, dest_index)
     _dump(
         data / "summary.json",
         {"meta": meta, **summary, "areas": {key: _area_records(frame) for key, frame in areas.items()}},
@@ -654,8 +712,9 @@ FIELD_NOTES = {
             "shape of the surrounding SA2, spread onto hexagons as population is.",
     "zone_": "Enrolment zone status from the Ministry's zone file, as in force on 12 November 2026 (docs/schools.md).",
     "t_": "Minutes to the nearest destination of this type by this mode, whole minutes rounded down (blank: none within 60 minutes). "
-          "Public transport is in the service's usual window; a column ending in a window name "
-          "(am_peak, interpeak, saturday) is the same trip in that window.",
+          "Public transport is public transport, or walking where that is quicker, in the service's usual window; "
+          "a column ending in a window name (am_peak, interpeak, saturday) is the same trip in that window.",
+    "_r5": "The same by public transport as R5 routes it, before taking walking where that is quicker.",
     "n_": "Number of destinations of this type within the service's standard time by this mode, or within 30 minutes "
           "where the standard is longer (counts are kept at 10, 15, 20 and 30 minutes).",
     "id_": "Internal id of the nearest destination.",
@@ -663,10 +722,12 @@ FIELD_NOTES = {
     "best_": "Fastest time using walking, low-stress cycling or public transport.",
     "via_": "The mode that gave the fastest time.",
     "meets_": "True when the fastest time is within the standard.",
-    "options_": "How many of walking, low-stress cycling and public transport are within the standard.",
+    "options_": "How many of walking, low-stress cycling and public transport are within the standard; public transport "
+                "counts only where a bus or train is quicker than walking.",
     "km_": "Straight-line distance to the nearest destination of this type.",
     "why_": "Main reason the standard is missed (codes in docs/indicators.md).",
-    "jobs": "Jobs reachable within the stated minutes by the stated mode.",
+    "jobs": "Jobs reachable within the stated minutes by the stated mode; public transport is public transport, or "
+            "walking where that is quicker, job cell by job cell.",
     "jobshare": "Share of the region's jobs reachable.",
     "jobsfair": "Job access allowing for other workers who can reach the same jobs; 1 is the regional average.",
     "access_": "Gravity score: opportunities of this type, each discounted by how long it takes to reach (see docs/methodology.md).",
@@ -681,8 +742,9 @@ FIELD_NOTES = {
     "household_size": "Mean usual residents per household in the SA1, 2023 Census.",
     "income_equivalised": "Median household income divided by the square root of household size, raised to 2026 by "
                           "the growth in average hourly earnings; used for the fare burden.",
-    "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport.",
-    "costmin_": "Minutes to the nearest one within this many fare zones by public transport.",
+    "costaccess_": "Opportunities of this type within the time cap and this many fare zones by public transport, or on foot "
+                   "(z0: on foot alone, no fare).",
+    "costmin_": "Minutes to the nearest one within this many fare zones by public transport, or on foot (z0: on foot alone).",
     "costshare_": "The same, as a share of all of them in the region.",
     "pt_per_hour_": "Departures per hour at the busiest stop within 800 m, in the named window.",
     "m_": "Straight-line metres to the nearest feature named.",
@@ -697,6 +759,8 @@ FIELD_NOTES = {
 
 
 def _note(column: str) -> str:
+    if column.endswith("_r5"):
+        return FIELD_NOTES["_r5"]
     for prefix, note in sorted(FIELD_NOTES.items(), key=lambda kv: -len(kv[0])):
         if column == prefix or column.startswith(prefix):
             return note
@@ -730,6 +794,11 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
         listed.drop(columns=["entrances"]).rename(columns={"school": "id"}).to_csv(path, index=False)
         extra.append(path)
         extra += zones.write_downloads(folder, settings)  # zone columns, and the hexagon zone shares
+        from . import school_stops
+
+        stops = school_stops.write_csv(settings, folder)
+        if stops is not None:
+            extra.append(stops)
     sums = []
     for path in sorted(folder.glob(f"team_{slug}_h3.*")) + extra + [folder / "fields.csv"]:
         sums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
@@ -743,6 +812,7 @@ DOWNLOAD_NOTES = {
     "{slug}_h3.csv": "The same fields without shapes.",
     "{slug}_schools.csv": "Every school counted, with its kind, teaching language, who it takes, years, roll and map point.",
     "{slug}_school_zones.csv": "Each hexagon's share of residents in each school's zone, and the zones In zone counts it in.",
+    "{slug}_school_stops.csv": "Stops and stations within a 15-minute walk of each school, with the routes and trips stopping there from 7am to 9am.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }

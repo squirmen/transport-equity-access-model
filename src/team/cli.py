@@ -6,6 +6,10 @@
     team schools check                 what the directory gives each school service
     team zones check                   enrolment zone statuses and the schools to look at (reports only)
     team ages check                    children by age group against Stats NZ's totals (reports only)
+    team schools reroute               route only the schools that changed, then check a sample
+    team schools verify                route a sample of origins to every school and compare
+    team schools stops                 stops within a 15-minute walk of each school, with morning trips
+    team schools audit-points          each school's map point against its grounds and the streets
     team route --all                   run every routing job (resumable)
     team route --all --shard 1/3       route every third batch, to split work across processes
     team route services walk           run one job
@@ -71,9 +75,39 @@ def cmd_schools(args: argparse.Namespace) -> int:
     if args.action == "split":
         print(json.dumps(schools.split(settings), indent=2))
         return 0
-    table = schools.school_table(settings)
-    directory = schools.place_directory(settings)
-    print(f"{len(directory)} open schools in {', '.join(schools.regions(settings)) or 'the file'}; {len(table)} in a school service")
+    if args.action == "reroute":
+        return _reroute(args, settings)
+    if args.action == "verify":
+        from . import routing
+
+        report = routing.verify_school_runs(settings, sample=args.sample, modes=args.modes, record=True)
+        _report(report, args.json)
+        return 0 if report["identical"] else 1
+    if args.action == "stops":
+        from . import school_stops
+
+        report = school_stops.build(settings)
+        _report(report, args.json)
+        return 0
+    if args.action == "audit-points":
+        from . import school_points
+
+        folder = Path(args.to) if args.to else settings.output_dir / "destinations"
+        audited = school_points.audit_place(settings, settings.cache_dir / "school_checks", school_points.read_snap(settings))
+        folder.mkdir(parents=True, exist_ok=True)
+        audited.to_csv(folder / "school_points_audit.csv", index=False)
+        print(f"{len(audited)} schools, {int(audited['move'].sum())} moved by rule {school_points.RULE}, "
+              f"{int((audited['flags'].notna() & ~audited['move']).sum())} to check: {folder / 'school_points_audit.csv'}")
+        return 0
+    record: dict = {}
+    directory = schools.place_directory(settings, record)
+    table = schools.school_table(settings, directory)
+    area = schools.routing_area(settings)
+    where = "the routing area " + ", ".join(f"{v:.4f}" for v in area) if area else "the file"
+    print(f"{len(directory)} open schools in {where}; {len(table)} in a school service")
+    print("by regional council:", json.dumps(schools.regional_councils(table.rename(columns={"region": "Regional_Council"}))))
+    for far in record.get("far_from_streets", []):
+        print(f"left out, {far['street_m']} m from the street file: {far['moe']} {far['name']} ({far['region']})")
     missing = schools.unknown_types(settings, directory)
     if missing:
         print("types in no service and not excluded:", ", ".join(missing))
@@ -104,6 +138,37 @@ def cmd_ages(args: argparse.Namespace) -> int:
         raise SystemExit("No census age files configured (data.census_ages, census_ages_sa2, census_age_shape).")
     print(json.dumps(ages.check(settings, routing.load_origins(settings)), indent=2, ensure_ascii=False))
     return 0
+def _report(report: dict, path: str | None) -> None:
+    import json
+
+    text = json.dumps(report, indent=2, default=str)
+    print(text)
+    if path:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(text + "\n")
+
+
+def _reroute(args: argparse.Namespace, settings) -> int:
+    """Route the changed schools, then check a sample against a fresh routing in a new process."""
+    import subprocess
+    import sys
+
+    from . import routing
+
+    report = routing.reroute_schools(settings, schools=args.schools, modes=args.modes, reason=args.reason or "",
+                                     backup=Path(args.backup) if args.backup else None, shard=_shard(args.shard),
+                                     prepare=args.prepare)
+    _report(report, args.json)
+    if args.prepare or args.shard or args.no_verify or not any(isinstance(v, dict) for v in report["runs"].values()):
+        return 0
+    command = [sys.executable, "-m", "team", "--config", args.config, "--data-root", str(settings.data_root),
+               "--out", str(settings.output_dir), "--cache", str(settings.cache_dir), "schools", "verify",
+               "--sample", str(args.sample)]
+    if args.modes:
+        command += ["--modes", *args.modes]
+    if args.json:
+        command += ["--json", str(Path(args.json).with_name(Path(args.json).stem + "_verify.json"))]
+    return subprocess.run(command, check=False).returncode
 
 
 def cmd_route(args: argparse.Namespace) -> int:
@@ -180,8 +245,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only", choices=["schools"], help="rebuild only this set")
     p.set_defaults(func=cmd_destinations)
 
-    p = sub.add_parser("schools", help="school directory checks and the move to separate school runs")
-    p.add_argument("action", choices=["check", "split"])
+    p = sub.add_parser("schools", help="school directory checks, re-routing changed schools, stops near schools")
+    p.add_argument("action", choices=["check", "split", "reroute", "verify", "stops", "audit-points"])
+    p.add_argument("--schools", nargs="+", help="reroute: only these changed schools (moe:<id>); others are refused")
+    p.add_argument("--modes", nargs="+", help="reroute, verify: only these modes")
+    p.add_argument("--reason", help="reroute: why, for the run's record (D4, D5, ...)")
+    p.add_argument("--backup", help="reroute: folder for the copies of the runs (default: <cache>/reroute_backup)")
+    p.add_argument("--shard", help="reroute: every Nth batch only, as I/N; run again without it to combine")
+    p.add_argument("--prepare", action="store_true", help="reroute: make the copies and stop, so shards can start together")
+    p.add_argument("--no-verify", action="store_true", help="reroute: skip the check against a fresh routing")
+    p.add_argument("--sample", type=int, default=300, help="reroute, verify: origins in the check (default 300)")
+    p.add_argument("--json", help="write the report here too")
+    p.add_argument("--to", help="audit-points: folder for the audit (default: <out>/destinations)")
     p.set_defaults(func=cmd_schools)
 
     p = sub.add_parser("zones", help="enrolment zone checks (reports only)")

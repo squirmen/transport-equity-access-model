@@ -53,17 +53,27 @@ def test_a_service_carries_one_public_transport_time_per_window(tmp_path: Path):
     folder.mkdir()
     row = lambda origin, service, minutes: {  # noqa: E731
         "origin": origin, "service": service, "minutes": minutes, "nearest_id": "d1",
-        "n10": 0, "n15": 1, "n20": 1, "n30": 1,
+        **{f"n{m}": int(minutes <= m) for m in (10, 15, 20, 30)},
     }
-    pd.DataFrame([row("a", "gp", 12.0), row("a", "primary_school", 9.0)]).to_parquet(folder / "services_am_peak_pt.parquet")
-    pd.DataFrame([row("a", "gp", 15.0)]).to_parquet(folder / "services_interpeak_pt.parquet")
-    pd.DataFrame([row("a", "gp", 31.0)]).to_parquet(folder / "services_saturday_pt.parquet")
-    pd.DataFrame([row("a", "gp", 25.0), row("a", "primary_school", 11.0)]).to_parquet(folder / "services_walk.parquet")
+
+    def run(tag, rows):
+        pd.DataFrame([row(*r) for r in rows]).to_parquet(folder / f"{tag}.parquet")
+        pairs = tmp_path / "cache" / "pairs" / tag
+        pairs.mkdir(parents=True)
+        pd.DataFrame({"origin": [r[0] for r in rows], "destination": "d1", "service": [r[1] for r in rows],
+                      "minutes": [int(r[2]) for r in rows]}).astype({"minutes": "uint8"}).to_parquet(pairs / "origins_000000.parquet")
+
+    run("services_am_peak_pt", [("a", "gp", 12.0), ("a", "primary_school", 9.0)])
+    run("services_interpeak_pt", [("a", "gp", 15.0)])
+    run("services_saturday_pt", [("a", "gp", 31.0)])
+    run("services_walk", [("a", "gp", 25.0), ("a", "primary_school", 11.0)])
     table = measures.service_table(settings, pd.Index(["a"]))
     # The plain name is the usual window, so everything reading one time goes on working.
     assert table.loc["a", "t_gp_pt"] == 15.0
     assert table.loc["a", "t_gp_pt_am_peak"] == 12.0
-    assert table.loc["a", "t_gp_pt_saturday"] == 31.0
+    # On Saturday the bus takes 31 minutes and the walk 25: public transport is the walk.
+    assert table.loc["a", "t_gp_pt_saturday"] == 25.0
+    assert table.loc["a", "t_gp_pt_saturday_r5"] == 31.0
     assert table.loc["a", "t_primary_school_pt"] == 9.0
     assert "t_primary_school_pt_saturday" not in table
     assert table.loc["a", "t_gp_walk"] == 25.0
