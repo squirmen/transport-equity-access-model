@@ -10,6 +10,13 @@ whose point moved (listed in the report).
 
 Needs OUT/destinations/services_with_schools.parquet (written by
 `team schools split`) and the schools_* runs. Exits 1 if any pair differs.
+
+After `team schools reroute`, give --before with the folder of copies it made
+(--backup): every school the reroute did not add, move or remove must have
+exactly the minutes, and spread, it had before.
+
+    PYTHONPATH=src python scripts/check_school_runs.py --config CONFIG --data-root DATA --out OUT \
+        --cache CACHE --before BACKUP [--json report.json]
 """
 
 from __future__ import annotations
@@ -33,8 +40,16 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--cache")
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--before", type=Path, help="copies made by `team schools reroute`, to compare against")
     args = parser.parse_args()
     settings = config.load(args.config, args.data_root, args.out, args.cache)
+    if args.before:
+        report = routing.compare_reroute(settings, args.before)
+        text = json.dumps(report, indent=2)
+        print(text)
+        if args.json:
+            args.json.write_text(text + "\n")
+        return 0 if report["identical"] else 1
     folder = settings.output_dir / "destinations"
     old = pd.read_parquet(folder / "services_with_schools.parquet")
     ids = schools.school_service_ids(settings)
