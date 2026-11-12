@@ -444,6 +444,34 @@ def test_golden_figures_for_the_slide_hexagon():
     assert golden["figures"]["all"]["secondary_school"]["best"]["share"] >= golden["figures"]["state:both"]["secondary_school"]["best"]["share"]
 
 
+@pytest.mark.skipif(not GOLDEN.exists(), reason="written by scripts/school_golden.py from a build")
+def test_golden_names_the_school_for_the_way_shown():
+    named = json.loads(GOLDEN.read_text())["named"]
+    slide = named[SLIDE]
+    # The slide's 9 minutes by public transport go to TKKM o Ngā Maungārongo; Marist is the cycling result.
+    assert slide["all"]["secondary_school"]["pt"] == [4207]
+    assert slide["all"]["secondary_school"]["bike_low_stress"] == [70]
+    assert slide["state:both"]["secondary_school"]["pt"] == [69]
+    # The hexagon holding both MAGS's and Marist's map points: Marist is nearer its middle.
+    mags = named["89bb50021a7ffff"]
+    assert mags["all"]["secondary_school"]["walk"] == [70]
+    assert mags["state:both"]["secondary_school"]["walk"] == [69]
+
+
+def test_names_under_girls_and_boys_come_from_the_slower_student():
+    dests = [
+        {"name": "Girls", "services": ["secondary_school"], "moe": 1, "kind": "state", "medium": "english", "sex": {"secondary_school": "girls"}},
+        {"name": "Boys", "services": ["secondary_school"], "moe": 2, "kind": "state", "medium": "english", "sex": {"secondary_school": "boys"}},
+        {"name": "Co-ed", "services": ["secondary_school"], "moe": 3, "kind": "state", "medium": "english", "sex": {"secondary_school": "co-ed"}},
+    ]
+    # Cell 0: girls 10 min, boys 15 (named: Boys). Cell 1: both 20, to different schools (named: both, list order).
+    pt = {"format": 1, "o": [0, 2, 4], "d": [0, 1, 1, 0], "m": [10, 15, 20, 20]}
+    assert schools.choice_named({"pt": pt}, dests, "secondary_school", "state", "both", 0) == {"pt": [2]}
+    assert schools.choice_named({"pt": pt}, dests, "secondary_school", "state", "both", 1) == {"pt": [2, 1]}
+    assert schools.choice_named({"pt": pt}, dests, "secondary_school", "all", None, 1) == {"pt": [2, 1]}
+    assert schools.choice_named({"pt": pt}, dests, "secondary_school", "state", "girls", 0) == {"pt": [1]}
+
+
 SITE = Path(os.environ["TEAM_SITE"]) if os.environ.get("TEAM_SITE") else None
 
 

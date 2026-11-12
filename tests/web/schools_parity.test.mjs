@@ -1,30 +1,36 @@
 // The page's school figures against the build's own (parity).
 //
-// The Python build writes tests/fixtures/schools/golden_<place>.json with the
-// headline figure for each choice, worked out from the same exported files the
-// page reads. Each figure here is rebuilt by schools.js from those files and
-// must match. Without a golden file, or without the build it points at, the
-// test is skipped.
+// scripts/school_golden.py reads a place's published files and writes
+// tests/fixtures/schools/golden_<place>.json (format in that script):
 //
-// golden_<place>.json:
-//   { "format": 1, "data": "<folder holding cells.json, destinations.json,
-//     summary.json and schools/, relative to the repository>",
-//     "figures": [{ "service", "choice": { "kind", "students", "moe", "zone_only" },
-//                   "mode", "standard", "people", "share" }],
-//     "cells": [{ "h3", "service", "choice", "mode", "minutes", "moe": [..] }] }
-// `share` is the population-weighted share of people counted whose time is
-// within `standard`; `people` is how many are counted; `minutes` is null for
-// none within the routing limit; `moe` lists the school named, ties after it.
+//   { place, version, people, urban_people, standards: { service: minutes },
+//     figures: { "<choice>": { service: { mode: { share, share_urban,
+//                                                 people_within, people } } } },
+//     cells: { h3: { "<choice>": { service: { mode: minutes | null } } } },
+//     named: { h3: { "<choice>": { service: { mode: [moe, ...] } } } } }
+//
+// where <choice> is all, state:both, state:girls, state:boys or one:<moe>,
+// and mode is a way of travelling or best. Each figure here is worked out by
+// schools.js from the same files and must match. The files are not in the
+// repository: set TEAM_SITE to a built site's data folder (holding
+// <place>/cells.json), as for the Python site checks. Places whose files are
+// not there are skipped.
+//
+// The engine is also checked against the build directly: All, rebuilt from
+// the reach lists, must give cells.json's times, nearest school, ties and the
+// choice counts in cells_more.json, and the counts in the counting line must
+// equal summary.json's.
 
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { chooseSchools, decodeReach, decodeZones, readChoice, schoolByMoe, zoneCells } from '../../web/js/schools.js';
+import { chooseSchools, decodeReach, groupCounts, readChoice } from '../../web/js/schools.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const FOLDER = join(ROOT, 'tests/fixtures/schools');
+const SITE = process.env.TEAM_SITE ? resolve(process.env.TEAM_SITE) : null;
 // TEAM_SCHOOLS_GOLDEN names one more golden file anywhere, for checking a build in scratch.
 const goldens = [
   ...(existsSync(FOLDER) ? readdirSync(FOLDER).filter((f) => /^golden_.+\.json$/.test(f)).map((f) => join(FOLDER, f)) : []),
@@ -33,95 +39,177 @@ const goldens = [
 
 const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const numeric = (values) => Float32Array.from(values, (v) => (v == null ? NaN : v));
+const finite = (v) => (Number.isFinite(v) ? v : null);
 
 function load(folder) {
   const cells = read(join(folder, 'cells.json'));
   const more = existsSync(join(folder, 'cells_more.json')) ? read(join(folder, 'cells_more.json')) : {};
   const summary = read(join(folder, 'summary.json'));
-  return { cells: { ...cells, ...more }, meta: summary.meta, destinations: read(join(folder, 'destinations.json')), folder, lists: new Map() };
+  // As the page does (data.js): cells_more's keys replace cells.json's.
+  return { cells: { ...cells, ...more }, ties: cells.ties || {}, meta: summary.meta, destinations: read(join(folder, 'destinations.json')), folder, lists: new Map() };
 }
 
 function reachOf(place, service, mode) {
   const key = `${service}_${mode}`;
-  if (!place.lists.has(key)) place.lists.set(key, decodeReach(read(join(place.folder, 'schools', `${key}.json`)), place.cells.h3.length));
+  if (!place.lists.has(key)) {
+    const path = join(place.folder, 'schools', `${key}.json`);
+    place.lists.set(key, existsSync(path) ? decodeReach(read(path), place.cells.h3.length) : null);
+  }
   return place.lists.get(key);
 }
 
-/** The times and the people counted for one figure, as the page works them out. */
-function figure(place, { service, choice: asked, mode }) {
-  const n = place.cells.h3.length;
-  const choice = { ...readChoice(), ...asked, zoneOnly: asked.zone_only !== false };
-  const counting = place.meta.standard_modes;
-  const modes = mode === 'best' ? counting : [mode];
-  let pop = numeric(place.cells.pop);
-  let zones = null;
-  if (choice.kind === 'zone' || choice.kind === 'one') {
-    const path = join(place.folder, 'schools', 'zones.json');
-    if (existsSync(path)) zones = decodeZones(read(path), service, n);
-  }
-  let t;
-  let best = null;
-  let near = {};
-  let ties = {};
-  if (choice.kind === 'all') {
-    t = Object.fromEntries(modes.map((m) => [m, numeric(place.cells.t[service][m])]));
-    near = place.cells.nearest_mode?.[service] || {};
-    ties = place.cells.ties?.[service] || {};
-  } else {
-    const reach = Object.fromEntries(modes.map((m) => [m, reachOf(place, service, m)]));
-    const result = chooseSchools({ destinations: place.destinations, service, choice, reach, zones, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
-    t = result.t;
-    best = result.best;
-    near = result.near;
-    ties = result.ties;
-    if (choice.kind === 'one' && choice.zoneOnly && zones) {
-      const cells = zoneCells(zones, schoolByMoe(place.destinations, service, choice.moe), n);
-      if (cells.any) pop = Float32Array.from(pop, (v, i) => (cells.mask[i] ? v : 0));
-    }
-  }
-  let times = t[mode];
-  if (mode === 'best') {
-    times = best && modes.length === counting.length ? best : Float32Array.from({ length: n }, (_, i) => Math.min(...modes.map((m) => (Number.isFinite(t[m][i]) ? t[m][i] : Infinity))));
-  }
-  const named = (i) => {
-    const first = near[mode] ? near[mode][i] : null;
-    if (first == null || first < 0) return [];
-    return [first, ...((ties[mode] || {})[i] || [])].map((d) => place.destinations[d].moe);
-  };
-  return { times, pop, named };
+/** "state:girls" as the page's choice. */
+function choiceOf(key) {
+  const [kind, rest] = key.split(':');
+  if (kind === 'one') return readChoice(`one:${rest}`);
+  return readChoice(kind === 'all' ? null : kind, rest || null);
 }
 
+/** Times by mode (and best) for one choice and service, as the page works them out. */
+function figures(place, service, key, modes) {
+  const n = place.cells.h3.length;
+  const counting = place.meta.standard_modes;
+  const choice = choiceOf(key);
+  if (choice.kind === 'all') {
+    // All reads cells.json, as the page does.
+    const t = Object.fromEntries(modes.filter((m) => m !== 'best').map((m) => [m, numeric(place.cells.t[service][m])]));
+    t.best = Float32Array.from({ length: n }, (_, i) => {
+      const v = Math.min(...counting.map((m) => (Number.isFinite(t[m][i]) ? t[m][i] : Infinity)));
+      return Number.isFinite(v) ? v : NaN;
+    });
+    const near = place.cells.nearest_mode?.[service] || {};
+    return { t, near: Object.fromEntries(Object.entries(near).map(([m, v]) => [m, Int32Array.from(v, (d) => (d == null ? -1 : d))])), ties: place.ties[service] || {} };
+  }
+  const reach = {};
+  for (const m of modes) {
+    if (m === 'best') continue;
+    const list = reachOf(place, service, m);
+    // A short list cannot answer One school (schools.js, app.js syncSchools).
+    if (list && (list.complete || choice.kind !== 'one')) reach[m] = list;
+  }
+  for (const m of counting) if (!reach[m]) reach[m] = reachOf(place, service, m);
+  const result = chooseSchools({ destinations: place.destinations, service, choice, reach, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
+  const t = { ...result.t };
+  t.best = result.best || Float32Array.from({ length: n }, (_, i) => {
+    const v = Math.min(...counting.map((m) => (Number.isFinite(t[m]?.[i]) ? t[m][i] : Infinity)));
+    return Number.isFinite(v) ? v : NaN;
+  });
+  return { t, near: result.near, ties: result.ties };
+}
+
+function shareOf(times, weights, standard) {
+  let people = 0;
+  let within = 0;
+  for (let i = 0; i < times.length; i += 1) {
+    if (!(weights[i] > 0)) continue;
+    people += weights[i];
+    if (Number.isFinite(times[i]) && times[i] <= standard) within += weights[i];
+  }
+  return { people, share: people > 0 ? within / people : NaN };
+}
+
+const named = (place, out, mode, i) => {
+  const first = out.near[mode] ? out.near[mode][i] : -1;
+  if (first == null || first < 0) return [];
+  return [first, ...((out.ties[mode] || {})[i] || [])].map((d) => place.destinations[d].moe);
+};
+
 if (!goldens.length) {
-  test('school figures match the build', { skip: 'no tests/fixtures/schools/golden_<place>.json yet' }, () => {});
+  test('school figures match the build', { skip: 'no tests/fixtures/schools/golden_<place>.json' }, () => {});
 }
 
 for (const name of goldens) {
   const golden = read(name);
-  const folder = resolve(ROOT, golden.data || '');
-  const skip = existsSync(join(folder, 'cells.json')) ? false : `the build at ${golden.data} is not here`;
-  test(`school figures match the build: ${name.split('/').pop()}`, { skip }, () => {
+  const folder = SITE && golden.place ? join(SITE, golden.place) : null;
+  const skip = !SITE ? 'set TEAM_SITE to a built site\'s data folder' : existsSync(join(folder, 'cells.json')) ? false : `no build at ${folder}`;
+
+  test(`school figures match the build: ${golden.place}`, { skip }, () => {
     const place = load(folder);
-    for (const want of golden.figures || []) {
-      const { times, pop } = figure(place, want);
-      let people = 0;
-      let within = 0;
-      for (let i = 0; i < times.length; i += 1) {
-        if (!(pop[i] > 0)) continue;
-        people += pop[i];
-        if (Number.isFinite(times[i]) && times[i] <= want.standard) within += pop[i];
+    const pop = numeric(place.cells.pop);
+    const urban = place.cells.urban ? Float32Array.from(pop, (v, i) => v * (place.cells.urban[i] ? 1 : 0)) : null;
+    let checked = 0;
+    for (const [key, byService] of Object.entries(golden.figures)) {
+      for (const [service, byMode] of Object.entries(byService)) {
+        const standard = golden.standards[service];
+        const out = figures(place, service, key, Object.keys(byMode));
+        for (const [mode, want] of Object.entries(byMode)) {
+          const label = `${golden.place} ${key} ${service} ${mode}`;
+          const got = shareOf(out.t[mode], pop, standard);
+          assert.ok(Math.abs(got.people - want.people) <= 0.1, `${label}: ${got.people} people, build ${want.people}`);
+          assert.ok(Math.abs(got.share - want.share) <= 1e-6, `${label}: share ${got.share}, build ${want.share}`);
+          if (urban && want.share_urban != null) {
+            const u = shareOf(out.t[mode], urban, standard);
+            assert.ok(Math.abs(u.share - want.share_urban) <= 1e-6, `${label} urban: share ${u.share}, build ${want.share_urban}`);
+          }
+          checked += 1;
+        }
       }
-      const label = `${want.service} ${JSON.stringify(want.choice)} ${want.mode} ${want.standard} min`;
-      assert.ok(Math.abs(people - want.people) <= Math.max(0.5, want.people * 1e-6), `${label}: ${people} people, build ${want.people}`);
-      assert.ok(Math.abs(within / people - want.share) <= 1e-6, `${label}: share ${within / people}, build ${want.share}`);
     }
-    for (const want of golden.cells || []) {
-      const i = place.cells.h3.indexOf(want.h3);
-      assert.ok(i >= 0, `${want.h3} is not in the build`);
-      const { times, named } = figure(place, want);
-      const got = Number.isFinite(times[i]) ? times[i] : null;
-      const label = `${want.h3} ${want.service} ${JSON.stringify(want.choice)} ${want.mode}`;
-      assert.equal(got, want.minutes, label);
-      if (want.moe && want.mode !== 'best') assert.deepEqual(named(i), want.moe, label);
+    for (const [h3, byChoice] of Object.entries(golden.cells || {})) {
+      const i = place.cells.h3.indexOf(h3);
+      assert.ok(i >= 0, `${h3} is not in the build`);
+      for (const [key, byService] of Object.entries(byChoice)) {
+        for (const [service, byMode] of Object.entries(byService)) {
+          const out = figures(place, service, key, Object.keys(byMode));
+          for (const [mode, minutes] of Object.entries(byMode)) {
+            assert.equal(finite(out.t[mode][i]), minutes, `${h3} ${key} ${service} ${mode}`);
+            const names = golden.named?.[h3]?.[key]?.[service]?.[mode];
+            if (names && mode !== 'best') assert.deepEqual(named(place, out, mode, i), names, `${h3} ${key} ${service} ${mode}: school named`);
+          }
+        }
+      }
+    }
+    assert.ok(checked > 0);
+  });
+
+  test(`All rebuilt from the reach lists equals the build, and the counting line's counts: ${golden.place}`, { skip }, () => {
+    const place = load(folder);
+    const n = place.cells.h3.length;
+    const counting = place.meta.standard_modes;
+    for (const service of Object.keys(golden.standards)) {
+      const reach = {};
+      for (const m of ['walk', 'bike_low_stress', 'bike', 'pt', 'car']) {
+        const list = reachOf(place, service, m);
+        if (list) reach[m] = list;
+      }
+      const all = chooseSchools({ destinations: place.destinations, service, choice: readChoice(), reach, n, standardModes: counting, maxMinutes: place.meta.routing_max_minutes || 60 });
+      for (const [m, list] of Object.entries(reach)) {
+        const shown = place.cells.t[service][m];
+        const near = place.cells.nearest_mode[service][m];
+        const ties = place.ties[service]?.[m] || {};
+        let bad = 0;
+        let badNear = 0;
+        let badTies = 0;
+        for (let i = 0; i < n; i += 1) {
+          if (finite(all.t[m][i]) !== shown[i]) bad += 1;
+          if ((all.near[m][i] < 0 ? null : all.near[m][i]) !== near[i]) badNear += 1;
+          if (JSON.stringify(all.ties[m][i] || []) !== JSON.stringify(ties[i] || [])) badTies += 1;
+        }
+        assert.equal(bad, 0, `${golden.place} ${service} ${m}: ${bad} times differ from cells.json (complete list: ${list.complete})`);
+        assert.equal(badNear, 0, `${golden.place} ${service} ${m}: ${badNear} schools named differ from cells.json`);
+        assert.equal(badTies, 0, `${golden.place} ${service} ${m}: ${badTies} lists of tied schools differ from cells.json`);
+      }
+      // How many schools within each step, by the counting way that reaches most.
+      for (const [limit, counts] of Object.entries(place.cells.choice?.[service] || {})) {
+        let bad = 0;
+        for (let i = 0; i < n; i += 1) if ((all.choice[limit]?.[i] ?? 0) !== (counts[i] ?? 0)) bad += 1;
+        assert.equal(bad, 0, `${golden.place} ${service}: ${bad} hexagons count a different number of schools within ${limit} min`);
+      }
+      const line = place.meta.schools?.services?.[service];
+      if (line) {
+        const c = groupCounts(place.destinations, service);
+        assert.equal(c.all, line.all, `${golden.place} ${service}: schools counted under All`);
+        assert.equal(c.state, line.state, `${golden.place} ${service}: state schools taught in English`);
+        assert.equal(c.integrated, line.kind.integrated);
+        assert.equal(c.private, line.kind.private);
+        assert.equal(c.charter, line.kind.charter);
+        assert.equal(c.other_medium, line.state_maori + line.state_pacific, `${golden.place} ${service}: state Māori- or Pacific-medium`);
+        assert.equal(c.language_unknown, line.state_language_unknown);
+        for (const students of ['girls', 'boys']) {
+          const sexed = groupCounts(place.destinations, service, students);
+          assert.equal(sexed.state, line.state_sex['co-ed'] + line.state_sex[students], `${golden.place} ${service}: state schools that take ${students}`);
+        }
+      }
     }
   });
 }

@@ -873,6 +873,47 @@ def choice_times(reaches: dict[str, dict], dests: list[dict], service: str, choi
     return out
 
 
+def choice_named(reaches: dict[str, dict], dests: list[dict], service: str, choice: str,
+                 student: str | None, cell: int) -> dict[str, list[int]]:
+    """The schools named for one cell under a choice, by mode: the first
+    counted school in the cell's reach list and every counted school tied
+    with it, in the list's order (minutes, metres, MoE number), as MoE
+    numbers. For girls and boys together, the slower one's schools; both
+    sets, in list order, when their times are equal."""
+    def one(student_: str | None) -> dict[str, tuple[float, list[int]]]:
+        keep = published_counts(dests, service, choice, student_)
+        out = {}
+        for mode, reach in reaches.items():
+            lo, hi = reach["o"][cell], reach["o"][cell + 1]
+            best, ids = None, []
+            for k in range(lo, hi):
+                d, m = reach["d"][k], reach["m"][k]
+                if m is None or d not in keep:
+                    continue
+                if best is None:
+                    best = m
+                if m != best:
+                    break
+                ids.append(k)
+            out[mode] = (np.nan if best is None else float(best), ids)
+        return out
+
+    def moe(reach: dict, positions: list[int]) -> list[int]:
+        return [dests[reach["d"][k]]["moe"] for k in sorted(set(positions))]
+
+    if choice in ("state", "zone") and student in (None, "both"):
+        girls, boys = one("girls"), one("boys")
+        out = {}
+        for mode, reach in reaches.items():
+            (g, gk), (b, bk) = girls[mode], boys[mode]
+            if np.isnan(g) or np.isnan(b):
+                out[mode] = []
+            else:
+                out[mode] = moe(reach, gk if g > b else bk if b > g else gk + bk)
+        return out
+    return {mode: moe(reaches[mode], ks) for mode, (_, ks) in one(student).items()}
+
+
 def share_within(minutes: np.ndarray, weights: np.ndarray, limit: float) -> tuple[float, float]:
     """Share of the weight within `limit` minutes, and the weight counted (as weightedShare in the site)."""
     weights = np.asarray(weights, dtype="float64")

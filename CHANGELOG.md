@@ -35,6 +35,17 @@ School (MAGS). [`docs/schools.md`](docs/schools.md) has the rules.
   services, so a change to the directory re-routes schools only. Before any
   point changed, the school runs gave the same minutes as the services runs
   for every pair. `team schools split` moves a build over.
+- **The Schools row.** Under Getting to, for the three school services: All
+  (as before, and what a link without a choice shows), State (state schools
+  taught in English, for girls and boys together, girls or boys) and One
+  school, picked by name or by its pin, with a link of its own
+  (`sch=one:69`). In zone follows once the Ministry's zone file is in. A line
+  under the headline says which schools are counted and how many are not,
+  from the build's own list. The card tags a school that is not a state,
+  English-medium co-ed school and gives the nearest state school beside it,
+  says when a public transport time is a walk, and lists tied schools. The
+  hexagons shown can be downloaded as a CSV with the choice and data dates
+  in its first lines.
 - **For checking points and entrances.** Corrected map points and checked
   entrances can be added by hand (`configs/schools/`); none yet.
   `scripts/school_points_review.py` writes the sheets to check them against

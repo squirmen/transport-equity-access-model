@@ -217,21 +217,81 @@ school by public transport, 0.85 MB.
 `meta.schools` gives the directory file and its dates, the counts behind the
 "Counting ..." line for each service (`services`), how many schools are routed
 to a point or to entrances, whether the place's timetable has school buses,
-and each file's size.
+and each file's size. The page reads it through `readSchoolsMeta` in
+`web/js/schools.js`: the directory date is `dates.directory`, the roll date is
+the date most schools' rolls are at, the reach lists on offer are the names in
+`files`, and `buses` is `in_timetable` or `none_found`.
+
+### `schools/zones.json` (not written yet)
+
+The page offers In zone only when `meta.schools.zones` is set (the zone
+file's date). It then reads `schools/zones.json`:
+
+```text
+{format: 1, date,
+ schools: {"<destination index>": {moe, from, outline: GeoJSON geometry}},
+ in:  {service: {o: [n + 1 offsets], d: [destination index]}},   zone covers at least half the hexagon
+ cut: {service: {o, d}}}                                          zone line crosses the hexagon
+```
 
 ### Downloads
 
 `team_<place>_schools.csv`: every school counted, with the fields above and
 its map point.
 
+## The page
+
+The Schools row sits under Getting to for the three school services: All,
+State, In zone (once zones are in) and One school, with Girls and boys, Girls
+or Boys under State. A link without `sch` means All. `web/js/schools.js`
+works every choice out from the reach lists and puts its times in place of
+All's, so the map, headlines, areas and card all follow it. It follows the
+build's rules exactly:
+
+- **Order.** The school named, and the order of tied schools, is the order of
+  the reach list. The page does not work distances out again: done that way,
+  on the sphere rather than in NZTM metres, it named a different tied school
+  from the build in 256 Auckland hexagons for primary school on foot.
+- **Teaching language or sex not recorded.** A state school whose teaching
+  language the directory does not give is not counted under State (in 0.12.0,
+  Te Wharekura o Tāmaki ki te Tonga, Auckland primary and intermediate), and
+  the counting line says so. A school that does not say whether it is co-ed
+  counts for neither girls nor boys (Nova Innovation College, a private
+  school, so State is not affected).
+- **Car.** A short car list answers All and State only. Under One school the
+  page has no car times and shows Best instead; the card's "Not counted" line
+  is left out by car.
+- **On foot, for girls and boys together.** The public transport time shown
+  is the slower student's. It is said as a walk ("No bus or train is
+  quicker") only where, for each student whose time it is, walking takes as
+  long as public transport. Equal joint times are not enough: in 0.12.0 that
+  would have said it wrongly in 17 hexagons (15 for secondary school, 2 for
+  intermediate) across Auckland, Christchurch, Dunedin, Hamilton,
+  Invercargill and Nelson.
+
 ## Figures for testing the site
 
 `scripts/school_golden.py` works every choice out from a place's published
 files and writes `tests/fixtures/schools/golden_<place>.json`: the share of
 people within the standard for each choice, service and mode, every figure
-for the hexagons named, and checks that the files agree (the school named is
-the first in the reach list, its minutes are the time shown, tied schools
-have the same minutes, no time is over 60).
+and the schools named for the hexagons given, and checks that the files agree
+(the school named is the first in the reach list, its minutes are the time
+shown, tied schools have the same minutes, no time is over 60). Auckland's
+covers the slide hexagon and the hexagons around MAGS, with MAGS, Marist,
+TKKM o Nga Maungarongo, Western Springs College, Auckland Grammar and Epsom
+Girls Grammar as one school each; Wellington's and Blenheim's cover two
+hexagons and three and two schools.
+
+`tests/web/schools_parity.test.mjs` works the same figures out with the
+page's code and must match every one, to 1e-6 of a share. It also rebuilds All
+from the reach lists and checks it gives cells.json's times, school named,
+ties and choice counts for every hexagon, and that the counting line's counts
+equal `meta.schools.services`. It needs the built files:
+
+```sh
+TEAM_SITE=<site>/data node --test tests/web/schools_parity.test.mjs
+TEAM_SITE=<site>/data PYTHONPATH=src pytest tests/test_schools.py
+```
 
 ## School buses
 

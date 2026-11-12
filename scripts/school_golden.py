@@ -10,6 +10,9 @@ tested against. It also checks the published files agree with each other:
 * the schools cells.json lists as tied have the same minutes;
 * no published time is over the routing limit.
 
+For the hexagons given with --cell it also writes every time and the schools
+named (MoE numbers, ties after the first, in the reach list's order).
+
     PYTHONPATH=src python scripts/school_golden.py --site SITE/data/auckland \\
         --out tests/fixtures/schools/golden_auckland.json --one 69 70 --cell 89bb50021a3ffff
 
@@ -56,7 +59,8 @@ def main() -> int:
     problems: list[str] = []
     out = {"place": meta["naming"].get("slug"), "version": meta["version"], "built": meta["built"],
            "directory": meta["schools"]["directory"]["file"], "people": round(float(pop.sum()), 1),
-           "urban_people": round(float((pop * urban).sum()), 1), "standards": {}, "figures": {}, "cells": {}, "checks": {}}
+           "urban_people": round(float((pop * urban).sum()), 1), "standards": {}, "figures": {}, "cells": {}, "named": {},
+           "checks": {}}
 
     def as_array(values):
         return np.array([np.nan if v is None else v for v in values], dtype="float64")
@@ -110,6 +114,8 @@ def main() -> int:
                     i = cells["h3"].index(h3)
                     out["cells"].setdefault(h3, {}).setdefault(key, {})[service] = {
                         m: (None if np.isnan(v[i]) else int(v[i])) for m, v in times.items()}
+                    out["named"].setdefault(h3, {}).setdefault(key, {})[service] = schools.choice_named(
+                        usable, dests, service, choice, student, i)
         if not reaches:
             problems.append(f"{service}: no reach lists")
     out["checks"]["ok"] = not problems
