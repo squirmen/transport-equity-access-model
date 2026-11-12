@@ -14,8 +14,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  ACCESS, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FAIR, FARE, JOBS, LEAN, PEOPLE, REACH, REASON_PALETTE,
-  SCORE, TRIP_ENDS,
+  ACCESS, CELL_OPACITY, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FAIR, FARE, JOBS, LEAN, MODE_COLOURS, PEOPLE, REACH,
+  REASON_PALETTE, SCORE, SYMBOL_EDGE, SYMBOL_GREY, TRIP_ENDS,
 } from '../../web/js/palette.js';
 import { CATCHMENT, STATUS } from '../../web/js/mate.js';
 
@@ -119,6 +119,8 @@ const CATEGORIES = {
   'footpath status': STATUS.filter((s) => s.key !== 'u').map((s) => s.colour),
   // A trip's From and To rings (each also labelled on the map).
   'trip ends': [TRIP_ENDS.from, TRIP_ENDS.to],
+  // Bus stops, train stations and ferry terminals (each with its own glyph too).
+  'public transport modes': Object.values(MODE_COLOURS),
 };
 
 for (const [name, colours] of Object.entries(CATEGORIES)) {
@@ -163,4 +165,56 @@ test('the old reason and pin colours would fail', () => {
 test('the stylesheet\'s lean dots are the palette\'s', () => {
   assert.match(CSS, new RegExp(`\\.lean-dot\\.is-toward \\{ background: ${LEAN.toward}; \\}`));
   assert.match(CSS, new RegExp(`\\.lean-dot\\.is-away \\{ background: ${LEAN.away}; \\}`));
+});
+
+// ------------------------------------------------------------ map symbols (0.12.1)
+//
+// WCAG 2 contrast: a white glyph on each symbol's fill, and each symbol's
+// outline against what it sits on: a 2 px white halo and outside it a 1 px
+// dark edge, so one or the other stands out on light and dark ground alike.
+
+const luminance = (hex) => {
+  const [r, g, b] = rgb(hex).map(linear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+const hex = (c) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+/** `top` (a hex colour, or rgba()) laid over `under` at its own alpha or `alpha`. */
+function over(top, under, alpha = null) {
+  const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(top);
+  const t = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : rgb(top).map((v) => v * 255);
+  const a = alpha ?? (m ? Number(m[4]) : 1);
+  const u = rgb(under).map((v) => v * 255);
+  return hex(t.map((v, i) => a * v + (1 - a) * u[i]));
+}
+
+// What the map has under its symbols: each basemap's common ground, and the
+// hexagons as drawn over the Light basemap.
+const GROUND = {
+  'Light basemap': '#e6e6e3',
+  'Streets paper': '#f2efe9',
+  'Streets park': '#c8facc',
+  'Streets main road': '#fcd6a4',
+  'Satellite bush': '#2f3a2b',
+  'Satellite roof': '#c9c6bf',
+  ...Object.fromEntries(ACCESS.map((c, k) => [`hexagon ${k + 1}`, over(c, '#e6e6e3', CELL_OPACITY.usual)])),
+};
+
+test('a white glyph is 4.5:1 or more on every symbol fill, and a grey one on white', () => {
+  const fills = [...new Set([...Object.values(DESTINATION_COLOURS), DESTINATION_OTHER, ...Object.values(MODE_COLOURS)])];
+  for (const fill of fills) assert.ok(contrast('#ffffff', fill) >= 4.5, `white on ${fill}: ${contrast('#ffffff', fill).toFixed(2)}`);
+  assert.ok(contrast(SYMBOL_GREY, '#ffffff') >= 4.5);
+  // The learning colour was #e8890c, which a white glyph did not read on.
+  assert.ok(contrast('#ffffff', '#e8890c') < 3);
+});
+
+test('every symbol\'s halo or edge is 3:1 or more on every ground', () => {
+  for (const [name, ground] of Object.entries(GROUND)) {
+    const halo = contrast('#ffffff', ground);
+    const edge = contrast(over(SYMBOL_EDGE, ground), ground);
+    assert.ok(Math.max(halo, edge) >= 3, `${name} ${ground}: halo ${halo.toFixed(2)}, edge ${edge.toFixed(2)}`);
+  }
 });

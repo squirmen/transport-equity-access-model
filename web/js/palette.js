@@ -21,21 +21,32 @@ export const VILLAGE = '#5f9e94';
 export const DENSITY = ['#ddd3ee', '#a58ed1', '#6f4fb0', '#43287a'];
 
 // Destination pins by kind of place, so a pin says what it is before it is
-// clicked: food teal, health dark red, learning orange, anything else navy.
-// Not green against red, which colour-blind readers cannot tell apart
-// (tests/web/palette.test.mjs).
+// clicked: food teal, health dark red, learning dark orange, anything else
+// navy, each with a white glyph (symbols.js). Not green against red, which
+// colour-blind readers cannot tell apart (tests/web/palette.test.mjs).
+// Learning was #e8890c until 0.12.1; a white glyph on it was 2.6:1.
+export const LEARNING = '#b35c00';
 export const DESTINATION_COLOURS = {
   supermarket: '#0e7a7e',
   gp: '#a8172b',
   pharmacy: '#a8172b',
-  early_childhood: '#e8890c',
-  primary_school: '#e8890c',
-  intermediate_school: '#e8890c',
-  secondary_school: '#e8890c',
-  tertiary: '#e8890c',
-  trades_training: '#e8890c',
+  early_childhood: LEARNING,
+  primary_school: LEARNING,
+  intermediate_school: LEARNING,
+  secondary_school: LEARNING,
+  tertiary: LEARNING,
+  trades_training: LEARNING,
 };
 export const DESTINATION_OTHER = '#0c0c48';
+
+// Public transport by mode, on stops, stations and lines: not any operator's
+// colours. A white glyph on each is 4.8:1 or more.
+export const MODE_COLOURS = { bus: '#455a64', train: '#0c0c48', ferry: '#0277bd' };
+// Every map symbol has a 1 px dark edge outside a 2 px white halo: the halo
+// carries it on dark ground, the edge on light (docs/design.md, Map symbols).
+export const SYMBOL_EDGE = 'rgba(21, 37, 46, 0.72)';
+// Not counted, and stops with no trips: a grey glyph and ring on white.
+export const SYMBOL_GREY = '#6b767c';
 
 // Share of the region's jobs within reach: one hue, light to dark.
 export const JOBS = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0c3163'];

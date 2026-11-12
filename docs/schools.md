@@ -1018,8 +1018,15 @@ school columns moved after tertiary in 0.12.0, and `t_*_pt`, `jobs*_pt` and
 
 The Schools row sits under Getting to for the three school services: All,
 State, In zone and One school, with Girls and boys, Girls or Boys under State
-and In zone. A link without `sch` opens the default choice (above), and
-`sch=all` opens All. `web/js/schools.js` works every choice out from the
+and In zone, and under them "Find a school", a search by name, initials
+(MAGS) or Ministry number that is there for every choice. Picking a school
+from it, from a school's pin on the map ("Show only this school") or from a
+school named on a hexagon's card shows only that school, with Zoom to its
+zone and Clear, which goes back to the choice used before. One school with
+none picked yet shows no figure ("Pick a school to see who can reach it.")
+and its link says `sch=one`, which opens with the cursor in the search. A
+link without `sch` opens the default choice (above), and `sch=all` opens
+All. `web/js/schools.js` works every choice out from the
 reach lists (and, for In zone, zones.json) and puts its times in place of
 All's, so the map, headlines, areas and card all follow it. It follows the
 build's rules exactly:
@@ -1050,14 +1057,18 @@ build's rules exactly:
   on foot; R5 alone gave over 60. The list's `r5` says so, for the card.
 - **Stops near the school.** Under One school, the section lists the stops
   within a 15-minute walk, then the far stations under "Nearest train
-  stations, beyond a 15-minute walk" (ferry stops named as such), each with
-  its walk and trips arriving 7–9am. Its folded summary reads "32 within
-  15 min · 3 train stations within 30 min". On the map each stop is a tag
-  with its minutes, stations filled navy. Tags get their minutes in turn,
-  stations first and then the other stops quickest first, and a tag that
-  would overlap one already drawn, or the school's name, shows as a dot
-  until the map is zoomed in far enough (`stopLabelPlan` in `web/js/map.js`,
-  worked out again as the map zooms).
+  stations, beyond a 15-minute walk" ("ferry terminals" from 0.12.1, as the
+  map's key names them), each with its symbol, its walk and trips arriving
+  7–9am, and a Show button that moves the map to it and opens what it says.
+  Its folded summary reads "32 within 15 min · 3 train stations within 30
+  min". On the map each stop is a symbol for its mode (a bus, train or ferry
+  in a rounded square, hollow and dashed where no trip arrives 7–9am) with a
+  walking badge giving its minutes, on the side away from the school. Every
+  stop is drawn; badges are placed stations first, then the quickest walks,
+  and one that would overlap another symbol waits until the map is zoomed in.
+  Two stops of the same name within 80 m are one symbol below zoom 16.5
+  (`nearStopFeatures` in `web/js/symbols.js`; docs/design.md, Map symbols).
+  Hovering or tapping one gives its name, stop number, walk and trips.
 
 ## Figures for testing the site
 

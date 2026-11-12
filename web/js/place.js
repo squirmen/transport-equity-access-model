@@ -258,9 +258,11 @@ export function verdictLine(data, i, service, standard, viewMode, zones = null, 
   }
   if (!v.mode) {
     const extra = more ? more.lines(null, i, [], NaN) : [];
-    return { state: 'misses', badge: 'Misses', strong, rest: [...extra, `The standard is ${standard} min.`].join(' ') };
+    return { state: 'misses', badge: 'Misses', strong, rest: [...extra, `The standard is ${standard} min.`].join(' '), links: extra.linked || [] };
   }
   const bits = [];
+  // The schools the band names, so each can be a link (renderPlace).
+  const links = [];
   if (Number.isFinite(trip.quicker)) bits.push(`Walking is quicker: ${minutes(trip.quicker)}.`);
   const bus = busLine(trip, data.meta?.routing_max_minutes || 60);
   if (bus) bits.push(bus);
@@ -271,13 +273,18 @@ export function verdictLine(data, i, service, standard, viewMode, zones = null, 
     bits.push(trip.names.length > 1
       ? `${nearest}: ${orNames(trip.names.map(label))}, ${all} ${minutes(v.shown)}.`
       : `${nearest}: ${label(trip.names[0])}.`);
+    links.push(...trip.names);
   }
-  if (more) bits.push(...more.lines(v.mode, i, trip.names, v.shown));
+  if (more) {
+    const extra = more.lines(v.mode, i, trip.names, v.shown);
+    bits.push(...extra);
+    links.push(...(extra.linked || []));
+  }
   if (v.meets) {
-    return { state: 'meets', badge: 'Meets', strong, rest: [...bits, `The standard is ${standard} min.`].join(' ') };
+    return { state: 'meets', badge: 'Meets', strong, rest: [...bits, `The standard is ${standard} min.`].join(' '), links };
   }
   const reason = reasonFor(data, i, service, standard, zones, v.best);
-  return { state: 'misses', badge: 'Misses', strong, rest: [...bits, `The standard is ${standard} min.${reason ? ` ${reason.label}.` : ''}`].join(' ') };
+  return { state: 'misses', badge: 'Misses', strong, rest: [...bits, `The standard is ${standard} min.${reason ? ` ${reason.label}.` : ''}`].join(' '), links };
 }
 
 /** "Meets all 11 standards without a car." or which it misses. */
@@ -361,10 +368,10 @@ export function rowWords(data, i, service, standard, viewMode, zones = null, mor
     const way = trip ? (trip.onFoot ? 'on foot' : `by ${mode === 'pt' ? 'public transport' : MODES[mode].short}`) : `by ${MODES[fastest].short}`;
     nearest = `Nearest ${way}: ${orNames(named.map(label))}`;
   }
-  return { v, name, time, fastest: fastestLine, nearest };
+  return { v, name, time, fastest: fastestLine, nearest, named: nearest ? named : [] };
 }
 
-function serviceRow(data, i, service, standard, viewMode, zones, chosen, more = null) {  // eslint-disable-line max-statements
+function serviceRow(data, i, service, standard, viewMode, zones, chosen, more = null, onSchool = null) {  // eslint-disable-line max-statements
   const words = rowWords(data, i, service, standard, viewMode, zones, more);
   const { best, mode, counts, meets, pricedOut } = words.v;
   const state = !counts ? 'is-reference' : meets ? 'is-met' : 'is-missed';
@@ -402,7 +409,11 @@ function serviceRow(data, i, service, standard, viewMode, zones, chosen, more = 
   // Named for the way on screen, from that way's own nearest (on foot where
   // the public transport time is a walk). Under a fare budget the priced
   // trip may go elsewhere, so nothing is named.
-  if (words.nearest) details.append(el('p', 'service-nearest', words.nearest));
+  if (words.nearest) {
+    const line = el('p', 'service-nearest');
+    line.append(schoolLinks(words.nearest, words.named, data, service, onSchool));
+    details.append(line);
+  }
   details.append(el('p', 'service-standard', `Standard: within ${standard} min. Straight-line distance ${metres((data.km[service]?.[i] ?? NaN) * 1000)}.`));
   return { node: details, meets: meets && counts, counts };
 }
@@ -451,7 +462,7 @@ export function renderPlace(root, data, i, state, opts = {}) {
   else if (!band && data.t[state.service]) band = verdictLine(data, i, state.service, standards(state.service), viewMode, zones, opts.school || null);
 
   const services = SERVICE_ORDER.filter((s) => s !== 'jobs' && data.t[s]).map((s) =>
-    serviceRow(data, i, s, standards(s), viewMode, zones, s === state.service, s === state.service ? opts.school || null : null));
+    serviceRow(data, i, s, standards(s), viewMode, zones, s === state.service, s === state.service ? opts.school || null : null, opts.onSchool || null));
   const counted = services.filter((s) => s.counts);
   const servicesSum = counted.length ? `${services.filter((s) => s.meets).length} of ${services.length}` : null;
 
@@ -596,7 +607,7 @@ export function renderPlace(root, data, i, state, opts = {}) {
   root.sub.textContent = head.sub;
   root.body.replaceChildren(...[
     ...[].concat(top || []),
-    band ? verdictBand(band) : null,
+    band ? verdictBand(band, (text) => schoolLinks(text, band.links, data, state.service, opts.onSchool)) : null,
     el('p', 'rollup', rollup(data, i, standards, zones)),
     tiles([jobTile, stopTile, scoreTile]),
     slot,
@@ -619,14 +630,55 @@ function tiles(list) {
   return box;
 }
 
-function verdictBand(band) {
+function verdictBand(band, linked = null) {
   const box = el('div', `verdict is-${band.state}`);
   box.setAttribute('role', 'status');
   if (band.badge) box.append(el('span', 'badge', band.badge));
   const text = el('p', 'verdict-text');
-  text.append(el('strong', null, band.strong), document.createTextNode(band.rest ? ` ${band.rest}` : ''));
+  text.append(el('strong', null, band.strong));
+  if (band.rest) text.append(' ', linked ? linked(band.rest) : band.rest);
   box.append(text);
   return box;
+}
+
+/** `text` with each school of `ids` it names as a button styled as a link,
+ *  which shows only that school (`onSchool(d, service)`). Plain text where
+ *  there is nothing to link. */
+export function schoolLinks(text, ids, data, service, onSchool) {
+  const out = document.createDocumentFragment();
+  const named = onSchool && isSchoolService(service) ? [...new Set(ids || [])]
+    .map((d) => [data.destinations?.[d]?.name, d])
+    .filter(([name, d]) => name && data.destinations[d].moe != null && (data.destinations[d].services || []).includes(service))
+    .sort((a, b) => b[0].length - a[0].length) : [];
+  let rest = String(text || '');
+  while (rest) {
+    let best = null;
+    for (const [name, d] of named) {
+      const at = rest.indexOf(name);
+      if (at >= 0 && (!best || at < best.at)) best = { at, name, d };
+    }
+    if (!best) {
+      out.append(rest);
+      break;
+    }
+    if (best.at) out.append(rest.slice(0, best.at));
+    // A span, not a <button>, so a long name wraps with the sentence around it.
+    const { d } = best;
+    const button = el('span', 'link-button', best.name);
+    button.setAttribute('role', 'button');
+    button.tabIndex = 0;
+    button.title = `Show only ${best.name}`;
+    button.setAttribute('aria-label', `Show only ${best.name}`);
+    button.addEventListener('click', () => onSchool(d, service));
+    button.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      onSchool(d, service);
+    });
+    out.append(button);
+    rest = rest.slice(best.at + best.name.length);
+  }
+  return out;
 }
 
 /** The score on screen, for this hexagon. */

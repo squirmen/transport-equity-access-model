@@ -10,7 +10,8 @@ import { busTime, namedFor, serviceVerdict, tooltipLines, tripWords, verdictLine
 import {
   admits, ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops,
   decodeZones, DEFAULT_CHOICE, DEFAULT_SCHOOL_CHOICE, distance, findSchools, formatOk, groupCounts, groupOf, hasAttributes, isState, isZoned,
-  mediumOf, minutesTo, nearestAt, NO_ZONES, orderTies, ptCsvLine, readChoice, readSchoolsMeta, RESIDENTS, restoreData, schoolFacts, schoolsCsv,
+  mediumOf, minutesTo, nearestAt, NO_ZONES, notCountedReason, orderTies, pointLine, ptCsvLine, readChoice, readSchoolsMeta, RESIDENTS, restoreData,
+  schoolFacts, schoolKindLine, schoolsCsv,
   sexOf, stopHours, stopLine, stopsAt, stopsCsvLines, stopsIntro, tagOf, windowWords, zoneShareAt, zoneShares, zoneStatus, zoneTally,
 } from '../../web/js/schools.js';
 
@@ -69,6 +70,13 @@ test('a link without sch opens the default, In zone; sch=all is All; every link 
   assert.equal(readChoice('private').kind, 'zone', 'an unknown choice opens the default');
   assert.equal(choiceKey(S, { kind: 'all' }), null);
   assert.notEqual(choiceKey(S, { kind: 'state', students: 'girls' }), choiceKey(S, { kind: 'state', students: 'boys' }));
+});
+
+test('One school with none picked yet is sch=one, so a copied link opens the search again', () => {
+  const none = { kind: 'one', moe: null, students: 'both', zoneOnly: true };
+  assert.deepEqual(choiceParams(none), [['sch', 'one']]);
+  assert.deepEqual(readChoice('one'), none);
+  assert.deepEqual(readChoice('one', null, null, 'all'), none);
 });
 
 // ---------------------------------------------------------------- formats
@@ -293,6 +301,45 @@ test('a round-1 build reads as before: walking quicker is said, and no bus line'
   const words = tripWords({ t: { [S]: { walk: Float32Array.of(22), pt: Float32Array.of(NaN) } } }, S, 'pt', 0);
   assert.equal(words.quicker, 22, 'none by public transport within the hour, but a 22-minute walk');
   round2();
+});
+
+test('the card names its schools as links: the nearest, and the nearest other state school under One school', () => {
+  round2();
+  setServices({ services: { [S]: {} } });
+  const data = dataSet();
+  const all = verdictLine(data, 4, S, 30, 'pt', null, cardFor({ kind: 'all' }, null));
+  assert.match(all.rest, /Nearest: Auckland Girls' Grammar School/);
+  assert.ok(all.links.some((d) => D[d].name === "Auckland Girls' Grammar School"), String(all.links));
+  // cardLines keeps every school it names in ctx.linked, without changing its words.
+  const choice = { kind: 'one', moe: 69, students: 'both', zoneOnly: true };
+  const result = run(choice);
+  applyToData(data, S, result);
+  const ctx = { destinations: D, service: S, choice, reach, result, zones, centres: F.centres, maxMinutes: 60 };
+  const plain = cardLines(ctx, 'pt', 1, []);
+  const linked = [];
+  const lines = cardLines({ ...ctx, linked }, 'pt', 1, []);
+  assert.deepEqual(lines, plain);
+  const other = lines.find((line) => line.startsWith('Nearest other state school'));
+  assert.ok(other, lines.join(' | '));
+  assert.ok(linked.length && linked.every((d) => other.includes(D[d].name)), `${linked} / ${other}`);
+  assert.ok(!linked.includes(MAGS), 'the school picked is not a link to itself');
+  restoreData(data);
+});
+
+test('what a school pin says: its kind, why a choice leaves it out, a moved point', () => {
+  assert.equal(schoolKindLine(D[MAGS], S, 'Secondary school'), `Secondary school · state · co-ed · Years ${D[MAGS].years[0]}–${D[MAGS].years[1]}`);
+  assert.match(schoolKindLine(D[MARIST], S, 'Secondary school'), /^Secondary school · state-integrated · girls' school/);
+  assert.match(schoolKindLine(D[TKKM], S, 'Secondary school'), /state · co-ed · Māori-medium|state · .*Māori-medium/);
+  const zone = { kind: 'zone', students: 'both' };
+  assert.equal(notCountedReason(D[MARIST], S, zone), 'state-integrated');
+  assert.equal(notCountedReason(D[TKKM], S, zone), 'taught in te reo Māori');
+  assert.equal(notCountedReason({ ...D[MAGS], character: 'designated' }, S, zone), 'a designated character school');
+  assert.equal(notCountedReason({ ...D[MAGS], character: 'designated' }, S, { kind: 'state', students: 'both' }), '');
+  assert.equal(notCountedReason(D[6], S, { kind: 'state', students: 'girls' }), 'private');
+  assert.equal(notCountedReason({ ...D[6], kind: 'state', medium: 'english', language: 'english' }, S, { kind: 'state', students: 'girls' }), "a boys' school");
+  assert.equal(notCountedReason(D[MAGS], S, zone), '');
+  assert.equal(pointLine({ point: 'corrected' }, 263), 'Map point moved 250 m into its grounds.');
+  assert.equal(pointLine({ point: 'directory' }), null);
 });
 
 // ---------------------------------------------------------------- the slide's hexagon

@@ -10,6 +10,7 @@
 import { bars, lines } from './charts.js';
 import { fold } from './fold.js';
 import { count, el, MODE_NOTES, MODES, percent, place, ptPhrase, transit } from './format.js';
+import { keyIcon } from './symbols.js';
 
 // Everyday errands first, then education in the order a child meets it, then
 // jobs. A service the build does not have is dropped by setServices.
@@ -676,7 +677,9 @@ const STUDENT_TEXT = [
 ];
 
 /** The Schools row under Getting to, for school services: which schools are
- *  counted. `model` = { kinds, choice, school, status, find, csv, budget }. */
+ *  counted, a search for one school that is always there, and the school
+ *  picked under One school. `model` = { kinds, choice, school, query, hint,
+ *  status, find, moeOf, remember, onSearch, csv, budget }. */
 export function renderSchools(root, model, set) {
   if (!model) {
     root.hidden = true;
@@ -685,7 +688,7 @@ export function renderSchools(root, model, set) {
   }
   root.hidden = false;
   const { choice } = model;
-  const pick = (kind) => set({ schools: { ...choice, kind } });
+  const pick = (kind) => set({ schools: { ...choice, kind, ...(kind === 'one' ? {} : { moe: choice.moe }) }, ...(kind === 'one' ? { schoolFind: true } : {}) });
 
   const head = el('div', 'pick');
   const label = el('span', 'pick-label', 'Schools');
@@ -702,7 +705,11 @@ export function renderSchools(root, model, set) {
     button.setAttribute('aria-checked', String(kind === choice.kind));
     button.dataset.value = kind;
     button.title = title;
-    button.addEventListener('click', () => { if (kind !== choice.kind) pick(kind); });
+    // One school pressed again puts the cursor in the search.
+    button.addEventListener('click', () => {
+      if (kind !== choice.kind) pick(kind);
+      else if (kind === 'one') set({ schoolFind: true });
+    });
     segs.append(button);
   }
   // On a phone the four choices are one select in the same place.
@@ -726,7 +733,10 @@ export function renderSchools(root, model, set) {
     parts.push(row);
   }
 
-  if (choice.kind === 'one') parts.push(...oneSchool(model, set));
+  const picked = choice.kind === 'one' && model.school ? model.school : null;
+  if (picked) parts.push(pickedSchool(model, set));
+  parts.push(...schoolSearch(model, set, picked));
+  if (picked) parts.push(...pickedDetails(model, set));
   if (model.status) parts.push(el('p', `note school-status${model.statusKind === 'error' ? ' is-error' : ''}`, model.status));
   if (model.budget) parts.push(el('p', 'note', model.budget));
   if (model.csv) {
@@ -738,87 +748,160 @@ export function renderSchools(root, model, set) {
   root.replaceChildren(...parts);
 }
 
-/** One school: its name and facts, or a search box to find one. */
-function oneSchool(model, set) {
+/** The school picked: its name, then Zoom to its zone and Clear. */
+function pickedSchool(model, set) {
+  const { school } = model;
+  const box = el('div', 'school-picked');
+  const name = el('strong', 'school-name', school.name);
+  name.id = 'school-picked-name';
+  name.tabIndex = -1;
+  const line = el('div', 'school-name-row');
+  line.append(keyIcon('school-picked', 0.5), name);
+  const actions = el('div', 'school-actions');
+  const zoom = el('button', 'small-button', school.hasZone ? 'Zoom to its zone' : 'Zoom to it');
+  zoom.type = 'button';
+  zoom.id = 'school-zoom';
+  zoom.addEventListener('click', () => set({ schoolZoom: true }));
+  const clear = el('button', 'small-button', 'Clear');
+  clear.type = 'button';
+  clear.id = 'school-clear';
+  clear.title = 'Stop showing only this school';
+  clear.addEventListener('click', () => set({ schoolClear: true }));
+  actions.append(zoom, clear);
+  box.append(line, actions);
+  return box;
+}
+
+/** The school's facts, its zone tick box and the stops near it. */
+function pickedDetails(model, set) {
   const { choice, school } = model;
   const parts = [];
-  if (school && !model.searching) {
-    const line = el('div', 'school-name-row');
-    line.append(el('strong', 'school-name', school.name));
-    const change = el('button', 'text-button', 'Change');
-    change.type = 'button';
-    change.id = 'school-change';
-    change.addEventListener('click', () => set({ schoolSearching: true }));
-    line.append(change);
-    parts.push(line);
-    const facts = el('div', 'school-facts');
-    facts.append(...school.facts.map((text) => el('p', 'note', text)));
-    parts.push(facts);
-    if (school.hasZone) {
-      const box = el('label', 'check');
-      const input = el('input');
-      input.type = 'checkbox';
-      input.id = 'school-zone-only';
-      input.checked = choice.zoneOnly !== false;
-      input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
-      box.append(input, el('span', null, 'Only those living in its zone'));
-      parts.push(box);
-    }
-    if (school.stops) parts.push(stopsSection(school.stops));
-    return parts;
+  const facts = el('div', 'school-facts');
+  facts.append(...school.facts.map((text) => el('p', 'note', text)));
+  parts.push(facts);
+  if (school.hasZone) {
+    const box = el('label', 'check');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.id = 'school-zone-only';
+    input.checked = choice.zoneOnly !== false;
+    input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
+    box.append(input, el('span', null, 'Only those living in its zone'));
+    parts.push(box);
   }
+  if (school.stops) parts.push(stopsSection(school.stops, set));
+  return parts;
+}
+
+/** "Find a school": a search that lists the schools whose name, initials or
+ *  Ministry number match, as a list box. Picking one shows only it. */
+function schoolSearch(model, set, picked) {
   const field = el('div', 'school-search');
+  const label = el('label', 'school-search-label', picked ? 'Find another school' : 'Find a school');
+  label.htmlFor = 'school-search';
   const input = el('input', 'select school-input');
   input.type = 'search';
   input.id = 'school-search';
-  input.placeholder = "Type a school's name";
-  input.setAttribute('aria-label', 'Find a school');
+  input.placeholder = picked ? 'Find another school' : 'Name or initials, e.g. MAGS';
   input.autocomplete = 'off';
+  input.spellcheck = false;
   input.value = model.query || '';
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', 'school-results');
+  input.setAttribute('aria-expanded', 'false');
   const results = el('ul', 'school-results');
   results.id = 'school-results';
+  results.setAttribute('role', 'listbox');
   results.setAttribute('aria-label', 'Schools found');
+  let active = -1;
+  const options = () => [...results.querySelectorAll('[role="option"]')];
+  const choose = (d) => set({ schoolPick: model.moeOf(d) });
+  const mark = (k) => {
+    const list = options();
+    active = list.length ? (k + list.length) % list.length : -1;
+    list.forEach((option, j) => option.setAttribute('aria-selected', String(j === active)));
+    if (active >= 0) {
+      input.setAttribute('aria-activedescendant', list[active].id);
+      list[active].scrollIntoView({ block: 'nearest' });
+    } else input.removeAttribute('aria-activedescendant');
+  };
   const show = () => {
     const found = model.find(input.value);
-    results.replaceChildren(...found.map(([d, name, tag]) => {
-      const item = el('li');
-      const button = el('button', 'school-result');
-      button.type = 'button';
-      button.dataset.d = String(d);
-      button.append(el('span', 'school-result-name', name));
-      if (tag) button.append(el('span', 'school-result-tag', tag));
-      button.addEventListener('click', () => set({ schools: { ...choice, kind: 'one', moe: model.moeOf(d) }, schoolSearching: false, schoolFit: true, schoolQuery: '' }));
-      item.append(button);
+    active = -1;
+    input.removeAttribute('aria-activedescendant');
+    results.replaceChildren(...found.map(([d, name, tag], k) => {
+      const item = el('li', 'school-result');
+      item.id = `school-result-${k}`;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', 'false');
+      item.dataset.d = String(d);
+      item.append(el('span', 'school-result-name', name));
+      if (tag) item.append(el('span', 'school-result-tag', tag));
+      // pointerdown, not click, so the field keeps the cursor until the pick.
+      item.addEventListener('mousedown', (event) => event.preventDefault());
+      item.addEventListener('click', () => choose(d));
       return item;
     }));
-    if (!found.length && input.value.trim()) results.append(el('li', 'note', 'No match among the schools that teach these years. Try part of the name, or click the school on the map.'));
+    input.setAttribute('aria-expanded', String(found.length > 0));
+    results.hidden = !found.length && !input.value.trim();
+    if (!found.length && input.value.trim()) {
+      const none = el('li', 'note', 'No match among the schools that teach these years. Try part of the name, or the school on the map.');
+      none.setAttribute('role', 'presentation');
+      results.append(none);
+    }
   };
   input.addEventListener('input', () => {
     model.remember(input.value);
     show();
   });
+  input.addEventListener('focus', () => { if (model.onSearch) model.onSearch(); });
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') results.querySelector('button')?.click();
-    if (event.key === 'Escape' && school) set({ schoolSearching: false });
+    const list = options();
+    if (event.key === 'ArrowDown' && list.length) {
+      event.preventDefault();
+      mark(active + 1);
+    } else if (event.key === 'ArrowUp' && list.length) {
+      event.preventDefault();
+      mark(active < 0 ? list.length - 1 : active - 1);
+    } else if (event.key === 'Enter') {
+      const target = list[active >= 0 ? active : 0];
+      if (target) {
+        event.preventDefault();
+        choose(Number(target.dataset.d));
+      }
+    } else if (event.key === 'Escape' && input.value) {
+      // Escape empties the search first; the next one closes what it would.
+      event.preventDefault();
+      event.stopPropagation();
+      input.value = '';
+      model.remember('');
+      show();
+    }
   });
   show();
-  field.append(input, results);
-  parts.push(field, el('p', 'note', model.hint));
-  if (school) {
-    const back = el('button', 'text-button', `Back to ${school.name}`);
-    back.type = 'button';
-    back.addEventListener('click', () => set({ schoolSearching: false }));
-    parts.push(back);
-  }
-  return parts;
+  field.append(label, input, results);
+  return [field, el('p', 'note school-hint', model.hint)];
 }
 
-/** Stops near the school (One school): { intro, rows: [text], none, summary,
- *  far: { heading, rows: [text] } or null }. */
-function stopsSection(stops) {
+/** Stops near the school (One school): { intro, rows, none, summary, far:
+ *  { heading, rows } or null }, each row { text, name, icon, walk, k }. A
+ *  row gives the stop's symbol and walking badge as the map draws them, and
+ *  a Show button that finds it on the map. */
+function stopsSection(stops, set) {
   const listOf = (rows) => {
     const list = el('ul', 'stop-list');
-    for (const text of rows) list.append(el('li', null, text));
+    for (const row of rows) {
+      const item = el('li', 'stop-row');
+      const marks = el('span', 'stop-marks');
+      marks.append(keyIcon(row.icon, 0.7), keyIcon(`walk-${row.walk}`, 0.7));
+      const show = el('button', 'small-button stop-show', 'Show');
+      show.type = 'button';
+      show.setAttribute('aria-label', `Show ${row.name} on the map`);
+      show.addEventListener('click', () => set({ schoolStop: row.k }));
+      item.append(marks, el('span', 'stop-text', row.text), show);
+      list.append(item);
+    }
     return list;
   };
   const far = stops.far && stops.far.rows.length ? [el('p', 'stop-far-head', stops.far.heading), listOf(stops.far.rows)] : [];

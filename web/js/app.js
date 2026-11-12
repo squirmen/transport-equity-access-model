@@ -18,11 +18,13 @@ import {
 } from './fares.js';
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
-  BASEMAPS, boundsOf, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, onCells, onPoints, OVERLAYS, paintCells,
-  select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setSchoolPins, setSchoolStops, setSchoolZone, setTrip, showDestinationsFor,
+  BASEMAPS, boundsOf, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, layerStop, onCells, onPoints, OVERLAYS, paintCells,
+  pointInfo, ringPoint, select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setSchoolPins, setSchoolStops, setSchoolZone,
+  setPinsLarge, setStopNames, setTrip, showDestinationsFor, STOPS_APART, tripMode,
 } from './map.js';
+import { keyIcon, keyRows, pointAt, symbolsOnScreen } from './symbols.js';
 import {
-  ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
+  ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, FADED, FAIR,
   FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
   PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
 } from './palette.js';
@@ -37,9 +39,9 @@ import { placeHeader, renderPlace, tooltipLines } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 import {
   ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops, decodeZones,
-  DEFAULT_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, listAnswers, noZoneSentence, ptCsvLine, readChoice, readSchoolsMeta,
-  REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, farStopsHeading, isFarStop, stopLine, stopsAt, stopsCsvLines, stopsIntro,
-  stopsSplit, stopsSummary, tagOf, windowWords,
+  DEFAULT_CHOICE, DEFAULT_SCHOOL_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, listAnswers, nearStopWords, noZoneSentence,
+  notCountedReason, pointLine, ptCsvLine, readChoice, schoolKindLine, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, farStopsHeading, stopHours,
+  stopLine, stopsAt, stopsCsvLines, stopsIntro, stopsSplit, stopsSummary, stopSymbol, tagOf, windowWords,
   zoneDates, zoneEntry, zoneShares,
 } from './schools.js';
 
@@ -379,10 +381,47 @@ function set(patch) {
     downloadSchools();
     return;
   }
-  if ('schoolSearching' in patch) {
-    schoolUi.searching = patch.schoolSearching;
-    if ('schoolQuery' in patch) schoolUi.query = patch.schoolQuery;
-    delete patch.schoolSearching;
+  // A school picked by name, on the map or from a card: One school, that
+  // school, the map on its zone, and the cursor on its name.
+  if ('schoolPick' in patch) {
+    const moe = patch.schoolPick;
+    delete patch.schoolPick;
+    if ('pickService' in patch) {
+      if (patch.pickService !== state.service) Object.assign(patch, { service: patch.pickService, measure: 'standards' });
+      delete patch.pickService;
+    }
+    patch.schools = { ...state.schools, kind: 'one', moe };
+    schoolUi.fit = true;
+    schoolUi.query = '';
+    schoolUi.focus = 'name';
+    schoolUi.picked = moe;
+    if (phone()) setSheet($('side'), 'peek');
+  }
+  // Clear goes back to the choice used before One school.
+  if ('schoolClear' in patch) {
+    delete patch.schoolClear;
+    const kind = ['all', 'state', 'zone'].includes(schoolUi.lastKind) ? schoolUi.lastKind : DEFAULT_SCHOOL_CHOICE;
+    patch.schools = { ...state.schools, kind, moe: null };
+    schoolUi.query = '';
+    schoolUi.focus = 'field';
+  }
+  if ('schoolZoom' in patch) {
+    delete patch.schoolZoom;
+    schoolUi.fit = true;
+  }
+  if ('schoolStop' in patch) {
+    const k = patch.schoolStop;
+    delete patch.schoolStop;
+    showSchoolStop(k);
+    return;
+  }
+  if ('schoolFind' in patch) {
+    delete patch.schoolFind;
+    schoolUi.focus = 'field';
+    schoolUi.sig = null;
+  }
+  if ('schoolQuery' in patch) {
+    schoolUi.query = patch.schoolQuery;
     delete patch.schoolQuery;
   }
   if ('schoolFit' in patch) {
@@ -391,9 +430,9 @@ function set(patch) {
   }
   if ('schools' in patch) {
     const next = { ...ALL_CHOICE, ...patch.schools };
-    if (next.kind !== 'one' && state.schools.kind === 'one') schoolUi.searching = false;
-    // Picking One school with none chosen yet opens the search.
-    if (next.kind === 'one' && next.moe == null) schoolUi.searching = true;
+    if (next.kind === 'one' && state.schools.kind !== 'one') schoolUi.lastKind = state.schools.kind;
+    // One school with none picked yet: the cursor goes to the search.
+    if (next.kind === 'one' && next.moe == null && !schoolUi.focus) schoolUi.focus = 'field';
     if (next.kind !== state.schools.kind) schoolUi.message = null;
     patch.schools = next;
   }
@@ -564,7 +603,10 @@ function placeName(i) {
 
 // What the Schools row is doing beyond the link: the search box, a message
 // when a choice cannot be shown, and the zone shares last worked out.
-const schoolUi = { searching: false, query: '', fit: false, message: null, maskKey: null, cells: null, sig: null };
+// `focus` is where the cursor goes once the row is drawn ('field' or 'name');
+// `lastKind` the choice used before One school, for Clear; `picked` a school
+// just picked, said aloud once its figures are in.
+const schoolUi = { query: '', fit: false, message: null, maskKey: null, cells: null, sig: null, focus: null, lastKind: null, picked: null };
 // Reach lists, zones, zone outlines and stops as they arrive. They are kept
 // when the rest of the data arrives and the data set is rebuilt, since the
 // hexagons are the same.
@@ -1064,28 +1106,43 @@ function schoolCard() {
         const wanted = real === 'pt' ? ['pt', 'walk'] : [real];
         for (const m of wanted) if (schoolModes(service).includes(m)) requestReach(service, m);
       }
-      return cardLines({ ...ctx, shownMinutes }, mode, i, named);
+      const linked = [];
+      const lines = cardLines({ ...ctx, shownMinutes, linked }, mode, i, named);
+      lines.linked = linked;
+      return lines;
     },
   };
 }
 
 /** Stops near the school, for the One school panel: null where the build
  *  has no stops, or none for this school. The school's nearest train or
- *  ferry stations beyond the walk come after, under a line of their own. */
+ *  ferry stations beyond the walk come after, under a line of their own.
+ *  Each row: { text, name (for its Show button), icon, walk, k (its index in
+ *  stopsAt, as the map's symbols count them) }. */
 function stopsModel(d) {
   const stops = schoolStops();
   const split = stops ? stopsSplit(stops, d) : null;
   if (!split) return null;
+  const all = stopsAt(stops, d);
+  const row = (r) => {
+    const stop = stops.stops[r.s];
+    const sym = stopSymbol(r, stops);
+    const icon = { 'train-station': 'train-on', 'ferry-station': 'ferry-on', 'bus-near': 'bus-on', 'bus-none': 'bus-none' }[sym]
+      || (stop.mode === 'ferry' ? 'ferry-none' : 'train-none');
+    const name = (typeof stop.station === 'string' && stop.station) || stop.name || 'Unnamed stop';
+    return { text: stopLine(r, stops), name: stop.code ? `${name} (stop ${stop.code})` : name, icon, walk: r.walk, k: all.indexOf(r) };
+  };
   return {
     intro: stopsIntro(stops),
-    rows: split.near.map((row) => stopLine(row, stops)),
+    rows: split.near.map(row),
     none: `No stop within a ${stops.maxWalk}-minute walk.`,
     summary: stopsSummary(split, stops),
-    far: split.far.length ? { heading: farStopsHeading(split.far, stops), rows: split.far.map((row) => stopLine(row, stops)) } : null,
+    far: split.far.length ? { heading: farStopsHeading(split.far, stops), rows: split.far.map(row) } : null,
   };
 }
 
-/** The Schools row under Getting to. */
+/** The Schools row under Getting to: the choices, a search that is always
+ *  there, and the school picked under One school. */
 function renderSchoolsField() {
   const root = $('school-field');
   if (!schoolsAvailable()) {
@@ -1111,6 +1168,7 @@ function renderSchoolsField() {
     statusKind = 'error';
   }
   const stops = dest && appliedChoice() ? stopsModel(d) : null;
+  const touch = touchScreen();
   const model = {
     kinds,
     choice,
@@ -1120,48 +1178,88 @@ function renderSchoolsField() {
       hasZone: Boolean(cells && cells.any),
       stops,
     } : null,
-    searching: choice.kind === 'one' && (schoolUi.searching || !dest),
     query: schoolUi.query,
-    hint: 'Or click a school on the map.',
+    hint: `Or ${touch ? 'tap' : 'click'} a school's pin on the map.`,
     status,
     statusKind,
     budget: state.budget != null && appliedChoice() ? 'Fare budgets and fare maps are worked out for all schools only, so they are off for this choice. Pick All to use them.' : null,
     csv: schoolsReady && !(choice.kind === 'one' && !appliedChoice()),
   };
   // Redrawn only when it changes, so typing in the search box is never cut off.
-  const sig = JSON.stringify([service, model.kinds, model.choice, model.school, model.searching, status, model.budget, model.csv]);
-  if (sig === schoolUi.sig && root.childNodes.length) return;
-  schoolUi.sig = sig;
-  renderSchools(root, {
-    ...model,
-    remember: (q) => { schoolUi.query = q; },
-    find: (q) => findSchools(data.destinations, service, q).map((k) => [k, data.destinations[k].name, tagOf(data.destinations[k], service, { years: true })]),
-    moeOf: (k) => data.destinations[k].moe,
-  }, set);
+  const sig = JSON.stringify([service, model.kinds, model.choice, model.school, status, model.budget, model.csv, model.hint]);
+  if (sig !== schoolUi.sig || !root.childNodes.length) {
+    schoolUi.sig = sig;
+    renderSchools(root, {
+      ...model,
+      remember: (q) => { schoolUi.query = q; },
+      find: (q) => findSchools(data.destinations, service, q).map((k) => [k, data.destinations[k].name, tagOf(data.destinations[k], service, { years: true })]),
+      moeOf: (k) => data.destinations[k].moe,
+      // On a phone, the search takes the whole sheet while it is used.
+      onSearch: () => { if (phone() && $('side').dataset.sheet !== 'full') setSheet($('side'), 'full'); },
+    }, set);
+  }
+  // Where the cursor goes once the row is drawn: the search after One school
+  // or Clear, the school's name after a pick.
+  const want = schoolUi.focus;
+  if (want) {
+    const target = want === 'name' ? $('school-picked-name') : $('school-search');
+    if (target) {
+      schoolUi.focus = null;
+      target.focus({ preventScroll: want !== 'name' });
+    }
+  }
 }
 
-/** The pins, the zone outline, the stops and the school's label on the map. */
+/** Move the map to one of the stops near the school (its index in stopsAt),
+ *  ring it, and open what it says, as the panel's Show button asks. */
+function showSchoolStop(k) {
+  const stops = schoolStops();
+  const d = schoolIndex();
+  const rows = stops && d >= 0 ? stopsAt(stops, d) : null;
+  const row = rows && rows[k];
+  const stop = row && stops.stops[row.s];
+  if (!stop || !Number.isFinite(stop.lon)) return;
+  if (phone()) setSheet($('side'), 'peek');
+  const at = [stop.lon, stop.lat];
+  ringPoint(map, at);
+  map.easeTo({ center: at, zoom: Math.max(map.getZoom(), STOPS_APART + 0.1), duration: 600, padding: placePadding() });
+  map.once('moveend', () => {
+    ringPoint(map, at);
+    openPoint({ kind: 'near', layer: 'near-stop-all', ks: [k], at, key: `near|${k}` }, { focus: true });
+  });
+}
+
+/** One school with none picked yet: the panel asks for one, and the map
+ *  shows the schools to pick from over faded hexagons. */
+function schoolPicking() {
+  return schoolsAvailable() && state.schools.kind === 'one' && !activeChoice();
+}
+
+/** The school pins, the zone outline and the stops near the one school on
+ *  the map, and the map fitted to a school just picked. The pins show for
+ *  every school choice, All too, so a school can be picked from the map. */
 function renderSchoolMap() {
   if (!map) return false;
   const service = state.service;
   const choice = appliedChoice();
-  const picking = schoolsAvailable() && state.schools.kind === 'one' && !activeChoice();
+  const picking = schoolPicking();
   let spec = null;
   if (choice && data.schoolResult) {
-    spec = { service, counted: data.schoolResult.counted, focus: choice.kind === 'one' ? schoolIndex() : null, key: data.schoolKey };
-  } else if (picking) {
-    spec = { service, counted: null, focus: null, key: `pick|${service}` };
+    spec = { service, counted: data.schoolResult.counted, focus: choice.kind === 'one' ? schoolIndex() : null, one: choice.kind === 'one', key: data.schoolKey };
+  } else if (schoolsAvailable() && !activeChoice()) {
+    spec = { service, counted: null, focus: null, one: false, key: `${picking ? 'pick' : 'all'}|${service}|${data.destinations.length}` };
   }
   const d = choice && choice.kind === 'one' ? schoolIndex() : -1;
   // The outline of a school with a zone for these years, loaded when asked for.
   const outline = d >= 0 && schoolCells()?.any ? zoneOutline(service, d) : null;
   const stops = d >= 0 ? schoolStops() : null;
-  const near = stops ? stopsAt(stops, d) : null;
+  const rows = stops ? stopsAt(stops, d) : null;
   try {
     setSchoolPins(map, spec, data.destinations);
     setSchoolZone(map, outline);
-    setSchoolStops(map, near ? near.map((row) => ({ ...stops.stops[row.s], walk: row.walk, metres: row.metres, far: isFarStop(row, stops) })) : null,
-      d >= 0 ? `${service}|${d}` : null);
+    setSchoolStops(map, rows, stops, d >= 0 ? data.destinations[d] : null, d >= 0 ? `${service}|${d}|${rows ? rows.length : 0}` : null);
+    fadeCells(map, picking || trips.faded);
+    setPinsLarge(map, picking);
   } catch (error) {
     console.warn('School pins are not ready yet.', error);
   }
@@ -1171,7 +1269,10 @@ function renderSchoolMap() {
     // Wait for a zoned school's outline, so the map fits the whole zone.
     if (!zoned || outline || !schoolsMeta().zones || schoolStore.outlines.get(service)?.status === 'missing') {
       schoolUi.fit = false;
-      const box = outline ? boundsOf(outline) : null;
+      let box = outline ? boundsOf(outline) : null;
+      // The hexagon whose card is open stays in view too.
+      const open = state.selected != null && !$('place').hidden ? cellLngLat(state.selected) : null;
+      if (box && open) box = [Math.min(box[0], open[0]), Math.min(box[1], open[1]), Math.max(box[2], open[0]), Math.max(box[3], open[1])];
       userMoved = false;
       const pad = placePadding();
       if (box) {
@@ -1183,7 +1284,7 @@ function renderSchoolMap() {
           padding: { top: pad.top + 20, bottom: pad.bottom + 20, left: pad.left + 20, right: pad.right + 20 }, maxZoom: 15, duration: 600,
         });
       } else if (Number.isFinite(dest.lon)) {
-        map.flyTo({ center: [dest.lon, dest.lat], zoom: Math.max(map.getZoom(), 12.5), duration: 600 });
+        map.easeTo({ center: [dest.lon, dest.lat], zoom: Math.max(map.getZoom(), 14), padding: pad, duration: 600 });
       }
     }
   }
@@ -2738,11 +2839,12 @@ function goToPlace() {
   schedule();
 }
 
-/** Room around the whole place when it is fitted to the map, clear of the panel. */
+/** Room around what is fitted to the map, clear of the panel and of the
+ *  card when it is open. */
 function placePadding() {
-  return window.matchMedia('(max-width: 760px)').matches
-    ? { top: 120, bottom: 110, left: 16, right: 16 }
-    : { top: 30, bottom: 30, left: 390, right: 30 };
+  // On a phone, clear of the sheet when it is at its lowest (196 px).
+  if (window.matchMedia('(max-width: 760px)').matches) return { top: 120, bottom: $('side').dataset.sheet === 'peek' ? 206 : 110, left: 16, right: 16 };
+  return { top: 30, bottom: 30, left: 390, right: $('place').hidden ? 30 : 380 };
 }
 
 /** When the map settles somewhere with a different area, redraw the panel. */
@@ -3086,6 +3188,16 @@ function renderPickers() {
 function renderView(model) {
   renderPickers();
   renderSchoolsField();
+  // One school with none picked: no figure until there is a school to count.
+  if (schoolPicking() && schoolsReady && !model.waiting) {
+    const spec = current && current.panel ? keySpecOf(current) : null;
+    $('view').keySpec = spec ? { ...spec, faded: true } : null;
+    const box = el('div', 'hero');
+    box.append(el('p', 'hero-text', 'Pick a school to see who can reach it.'));
+    const touch = touchScreen();
+    $('view').replaceChildren(box, el('p', 'note counting', `Type its name above, or ${touch ? 'tap' : 'click'} its pin on the map.`));
+    return;
+  }
   if (model.waiting) {
     $('view').keySpec = null;
     $('view').replaceChildren(el('p', 'note', model.message || 'Loading the rest of the data for this view…'));
@@ -3262,42 +3374,59 @@ function keyNow(catchment) {
     out.faded = true;
     out.notes = [];
   }
-  out.onMap = [];
-  // Under a school choice the schools are pinned, counted or not.
-  const choice = appliedChoice();
-  const schoolPins = Boolean(choice) || (schoolsAvailable() && state.schools.kind === 'one');
-  if (schoolPins) {
-    const colour = DESTINATION_COLOURS[state.service] || DESTINATION_OTHER;
-    if (choice && choice.kind === 'one') {
-      out.onMap.push({ swatch: 'dot', colour: '#0c0c48', label: wordsFor().short });
-      if (schoolCells()?.any) out.onMap.push({ swatch: 'line', colour: '#0c0c48', label: 'Its zone' });
-      if (data.cellShare) out.onMap.push({ swatch: 'square', colour: OUTSIDE_ZONE, label: 'Outside its zone, not counted' });
-      const stops = schoolStops();
-      const listed = stops ? stopsAt(stops, schoolIndex()) : null;
-      if (listed && listed.some((row) => !isFarStop(row, stops))) {
-        out.onMap.push({ swatch: 'stop', colour: '#ffffff', label: `Stops within a ${stops.maxWalk}-minute walk, with the minutes; a dot where numbers would overlap` });
-      }
-      if (listed && listed.some((row) => stops.stops[row.s]?.mode)) out.onMap.push({ swatch: 'station', colour: '#0c0c48', label: 'Train or ferry station, with the minutes' });
-      out.onMap.push({ swatch: 'ring', colour: '#6b767c', label: 'Other schools' });
-    } else if (choice) {
-      out.onMap.push({ swatch: 'dot', colour, label: 'School counted' }, { swatch: 'ring', colour: '#6b767c', label: 'Not counted' });
-    } else {
-      out.onMap.push({ swatch: 'dot', colour, label: 'Click a school to pick it' });
-    }
-  }
-  for (const [k, spec2] of Object.entries(OVERLAYS)) {
-    if (!state.overlays[k] || !spec2.key) continue;
-    for (const entry of spec2.key) {
-      const destination = k === 'destinations';
-      if (destination && (!singleService() || schoolPins)) continue;
-      out.onMap.push({
-        swatch: entry.swatch,
-        colour: entry.colour || DESTINATION_COLOURS[state.service] || DESTINATION_OTHER,
-        label: destination ? capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service]) : entry.label,
-      });
-    }
-  }
+  // What is drawn on the map, each symbol only while it is on screen.
+  out.onMap = data ? keyRows(onScreenNow(), keyContext()) : [];
   return out;
+}
+
+// The symbols on screen when the map last settled (symbols.js symbolsOnScreen).
+let onScreen = new Set();
+let onScreenSig = '';
+
+/** The symbols on screen, with the grey of hexagons outside one school's
+ *  zone and the service's own symbol for Layers' places. */
+function onScreenNow(found = onScreen) {
+  const present = new Set(found);
+  if (present.delete('places') && singleService()) present.add(`svc-${state.service}`);
+  if (data && data.cellShare) present.add('outside');
+  return present;
+}
+
+/** What the key's rows need to know to name the symbols (symbols.js keyRows). */
+function keyContext() {
+  const choice = appliedChoice();
+  const d = choice && choice.kind === 'one' ? schoolIndex() : -1;
+  const stops = schoolStore.stops?.get('stops')?.value || null;
+  const services = {};
+  if (singleService()) services[state.service] = capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service] || state.service);
+  return {
+    kind: schoolPicking() ? 'pick' : choice ? choice.kind : 'all',
+    school: d >= 0 ? data.destinations[d].name : null,
+    hours: stops ? stopHours(stops) : '7–9am',
+    services,
+    touch: touchScreen(),
+  };
+}
+
+/** A phone, or a screen worked by touch: say tap, not click. */
+function touchScreen() {
+  return phone() || Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+
+/** When the map settles with other symbols on screen than before, the key follows. */
+function rekey() {
+  if (!map || !data) return;
+  let now;
+  try {
+    now = symbolsOnScreen(map);
+  } catch {
+    return;
+  }
+  const sig = [...now].sort().join('|');
+  if (sig === onScreenSig) return;
+  onScreen = now;
+  onScreenSig = sig;
+  renderKey(painted && painted !== current ? painted : null);
 }
 
 const capitalise = (text) => `${text[0].toUpperCase()}${text.slice(1)}`;
@@ -3360,6 +3489,9 @@ function keyContent(spec, { compact = false } = {}) {
     });
     nodes.push(list);
   }
+  // What is drawn on the map comes straight after the scale, so it shows
+  // in the room the key keeps for it (fitKey).
+  if (spec.onMap && spec.onMap.length) nodes.push(...onMapContent(spec.onMap, compact));
   const notes = (spec.notes || []).filter(Boolean);
   for (const text of compact ? notes.slice(0, 1) : notes) nodes.push(el('p', 'note', text));
   if (spec.after) nodes.push(...spec.after);
@@ -3378,17 +3510,33 @@ function keyContent(spec, { compact = false } = {}) {
       nodes.push(line);
     }
   }
-  if (spec.onMap && spec.onMap.length) {
-    nodes.push(el('p', 'k-sub', 'On the map'));
-    const list = el('div', 'k-rows k-layers');
-    for (const row of spec.onMap) {
-      const item = el('div', 'k-row');
-      item.append(swatchOf(row.swatch, row.colour), el('span', 'k-text', row.label), el('span'));
-      list.append(item);
-    }
-    nodes.push(list);
-  }
   return nodes;
+}
+
+/** The key's "On the map" rows, each with the image the map draws; on a
+ *  phone's strip, icon and short label pairs. */
+function onMapContent(rows, compact) {
+  if (compact) {
+    const strip = el('div', 'k-pairs');
+    strip.dataset.group = 'key-strip-symbols';
+    for (const row of rows) {
+      const pair = el('span', 'k-pair');
+      pair.dataset.sym = row.sym;
+      pair.append(keyIcon(row.icon, (row.scale || 0.75) * 0.85), el('span', null, row.short || row.label));
+      strip.append(pair);
+    }
+    return [strip];
+  }
+  const list = el('div', 'k-rows k-layers');
+  for (const row of rows) {
+    const item = el('div', 'k-row');
+    item.dataset.sym = row.sym;
+    const icon = el('span', 'k-icon');
+    icon.append(keyIcon(row.icon, row.scale || 0.75));
+    item.append(icon, el('span', 'k-text', row.label), el('span'));
+    list.append(item);
+  }
+  return [el('p', 'k-sub', 'On the map'), list, el('p', 'note k-hint', touchScreen() ? 'Tap a symbol for its name.' : 'Hover or tap a symbol for its name.')];
 }
 
 let lastKey = null;
@@ -3401,6 +3549,8 @@ function renderKey(catchment) {
   lastKey = spec;
   $('key-mode').textContent = spec.mode || '';
   $('key-body').replaceChildren(...keyContent(spec));
+  // Folded, or squeezed to its header, the key still shows the symbols on screen.
+  $('key-icons').replaceChildren(...(spec.onMap || []).slice(0, 8).map((row) => keyIcon(row.icon, 0.6)));
   // A phone shows the key as a strip in the sheet, under the headline.
   const heroBox = $('view').querySelector('.hero');
   $('view').querySelector('.key-inline')?.remove();
@@ -3451,8 +3601,20 @@ function fitKey() {
   // The panel outside its scrolling body: the header, the drawer buttons and the foot.
   const rest = $('panel').getBoundingClientRect().height - body.clientHeight;
   const room = side.clientHeight - gap - rest - Math.ceil(end + pad);
-  // Never less than the key's own header.
-  key.style.setProperty('--key-room', `${Math.max(Math.floor(room), 42)}px`);
+  // Never less than the key's own header, and while points are drawn, room
+  // for the scale and the first four "On the map" rows, so the symbols are
+  // explained.
+  let least = 42;
+  const rows = [...$('key-body').querySelectorAll('.k-layers .k-row')];
+  if (rows.length && !key.classList.contains('is-folded')) {
+    const kbody = $('key-body');
+    const last = rows[Math.min(3, rows.length - 1)];
+    const below = last.getBoundingClientRect().bottom - key.getBoundingClientRect().top + kbody.scrollTop;
+    least = Math.min(Math.ceil(below + 14), Math.floor(side.clientHeight * 0.46));
+  }
+  const fit = Math.max(Math.floor(room), least);
+  key.style.setProperty('--key-room', `${fit}px`);
+  key.classList.toggle('is-squeezed', fit <= 42);
 }
 
 // ---------------------------------------------------------------- drawers
@@ -3485,9 +3647,14 @@ function renderLayers() {
     if (k === 'destinations') {
       const single = singleService();
       row.querySelector('.layer-name').textContent = single ? capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service]) : spec.label;
-      row.querySelector('.layer-cap').textContent = single ? 'Follows Getting to · click one for its name' : 'Pick one service under Getting to';
-      const sw = row.querySelector('.key-swatch');
-      sw.style.setProperty('--swatch', DESTINATION_COLOURS[state.service] || DESTINATION_OTHER);
+      row.querySelector('.layer-cap').textContent = !single ? 'Pick one service under Getting to'
+        : isSchoolService(state.service) ? 'Schools are always shown' : `Follows Getting to · ${touchScreen() ? 'tap' : 'hover over'} one for its name`;
+      const icon = single ? `svc-${state.service}` : spec.icon;
+      const holder = row.querySelector('.layer-icon');
+      if (holder && holder.dataset.icon !== icon) {
+        holder.dataset.icon = icon;
+        holder.replaceChildren(keyIcon(icon, 0.6));
+      }
     }
   }
   const on = Object.keys(OVERLAYS).filter((k) => state.overlays[k]).length;
@@ -3709,7 +3876,15 @@ function announce() {
     // What a trip just said is not talked over.
     if (Date.now() < sayUntil) return;
     const heroBox = document.querySelector('#view .hero');
-    $('announce').textContent = heroBox ? heroBox.innerText.split('\n').filter(Boolean).slice(0, 2).join(' ') : '';
+    const text = heroBox ? heroBox.innerText.split('\n').filter(Boolean).slice(0, 2).join(' ') : '';
+    // A school just picked is named first, once its figures are in.
+    const d = schoolUi.picked != null && appliedChoice()?.kind === 'one' ? schoolIndex() : -1;
+    if (d >= 0 && data.destinations[d].moe === schoolUi.picked) {
+      schoolUi.picked = null;
+      $('announce').textContent = `Showing ${data.destinations[d].name} only. ${text}`;
+      return;
+    }
+    $('announce').textContent = text;
   }, 600);
 }
 
@@ -3961,6 +4136,11 @@ function showPlace(i) {
         extra,
         key,
         school: state.measure !== 'score' ? schoolCard() : null,
+        // A school the card names shows on its own, for its own service.
+        onSchool: (d, service) => {
+          const moe = data.destinations[d]?.moe;
+          if (moe != null) set({ schoolPick: moe, pickService: service });
+        },
       });
       if (trip) $('place-body').prepend(endLine(cell, card.tab));
     }
@@ -4018,6 +4198,8 @@ const trips = {
   drawn: '',
   fitted: '',
   said: '',
+  // Whether a trip's lines are drawn, which fades the hexagons under them.
+  faded: false,
 };
 
 function tripOpen() {
@@ -4138,13 +4320,15 @@ function drawTrip() {
       route: show.route,
       show,
     }) : null;
-    spec = { origin: state.selected, dest: card.dest, drawing };
+    // A and B and the route's label are drawn in the mode the trip rides.
+    spec = { origin: state.selected, dest: card.dest, drawing: drawing ? { ...drawing, mode: tripMode(show.swap?.trip?.routes || []) } : null };
   }
   const signature = spec ? JSON.stringify([spec.origin, spec.dest, spec.drawing]) : '';
   if (signature === trips.drawn) return;
   try {
     setTrip(map, spec);
-    fadeCells(map, Boolean(spec?.drawing?.lines?.length));
+    trips.faded = Boolean(spec?.drawing?.lines?.length);
+    fadeCells(map, trips.faded || schoolPicking());
     trips.drawn = signature;
     if (spec?.drawing?.stops?.length) keepStopsInView(spec.drawing.stops);
   } catch (error) {
@@ -4649,10 +4833,10 @@ function layerRows() {
         renderKey(painted && painted !== current ? painted : null);
         renderPeek();
       });
-      const first = spec.key[0];
-      const swatch = el('span', `key-swatch key-${first.swatch}`);
-      swatch.style.setProperty('--swatch', first.colour || DESTINATION_OTHER);
-      row.append(box, swatch, el('span', 'layer-name', spec.label), el('span', 'layer-cap', spec.caption ? spec.caption(data.meta) : ''));
+      const icon = el('span', 'layer-icon');
+      icon.dataset.icon = spec.icon;
+      icon.append(keyIcon(spec.icon, 0.6));
+      row.append(box, icon, el('span', 'layer-name', spec.label), el('span', 'layer-cap', spec.caption ? spec.caption(data.meta) : ''));
       nodes.push(row);
     }
   }
@@ -4723,6 +4907,7 @@ function wireControls() {
     const open = $('key-fold').getAttribute('aria-expanded') !== 'true';
     $('key-fold').setAttribute('aria-expanded', String(open));
     $('key').classList.toggle('is-folded', !open);
+    fitKey();
   });
   // Close ends a trip and goes back to the From card; otherwise it closes the card.
   $('place-close').addEventListener('click', () => {
@@ -4763,6 +4948,11 @@ function wireControls() {
       cancelPicking();
       return;
     }
+    // A symbol's popup closes first, and the cursor goes back to the map.
+    if (closePoint()) {
+      map.getCanvas().focus();
+      return;
+    }
     if (closeAreaMenu()) return;
     if (openDrawer) {
       const button = document.querySelector(`.drawers [data-drawer="${openDrawer}"]`);
@@ -4776,23 +4966,48 @@ function wireControls() {
     }
     if (state.selected != null) closePlace();
   });
-  // While picking, Enter on the map picks the hexagon under the mark in its middle.
+  // With the map focused from the keyboard, a ring marks its middle. The
+  // arrow keys move the map; when it stops, what is under the ring is read
+  // out (#map-say), and Enter opens it. While a trip's destination is
+  // picked, Enter picks the hexagon under the ring instead.
   const canvas = map.getCanvas();
+  // WebKit does not always count a focus from a key (Escape from a popup) as
+  // :focus-visible, so a key pressed just before counts too.
+  let keyAt = 0;
+  document.addEventListener('keydown', () => { keyAt = Date.now(); }, true);
   canvas.addEventListener('focus', () => {
-    if (card.picking && canvas.matches(':focus-visible')) showPickMark(true);
+    if (canvas.matches(':focus-visible') || Date.now() - keyAt < 1000) {
+      showPickMark(true);
+      saidUnder = '';
+      sayUnderMark();
+    }
   });
   canvas.addEventListener('blur', () => showPickMark(false));
   canvas.addEventListener('keydown', (event) => {
-    if (!card.picking || event.key !== 'Enter') return;
+    if (event.key !== 'Enter') return;
     event.preventDefault();
     showPickMark(true);
     const p = markPoint();
-    const i = cellAtPoint(map, [p.x, p.y]);
-    if (i == null) {
-      say('No hexagon there. Move the map with the arrow keys.');
+    if (card.picking) {
+      const i = cellAtPoint(map, [p.x, p.y]);
+      if (i == null) {
+        say('No hexagon there. Move the map with the arrow keys.');
+        return;
+      }
+      pickDestination(i);
       return;
     }
-    pickDestination(i);
+    const info = pointInfo(pointAt(map, p, 24));
+    if (info) openPoint(info, { focus: true });
+    else {
+      const i = cellAtPoint(map, [p.x, p.y]);
+      if (i != null) openCell(i);
+    }
+  });
+  map.on('moveend', () => {
+    if (document.activeElement !== canvas) return;
+    showPickMark(true);
+    sayUnderMark();
   });
   // The area list closes on a click elsewhere, and moves with the arrow keys.
   document.addEventListener('pointerdown', (event) => {
@@ -4839,77 +5054,16 @@ function wireControls() {
   layerRows();
   renderLayers();
 
-  onPoints(map, ({ kind, id, properties, lngLat }) => {
-    // Picking One school: a school's pin picks it.
-    const schoolPin = kind === 'destination' && id != null && schoolsAvailable() && data.destinations[id]?.services?.includes(state.service)
-      && data.destinations[id].moe != null;
-    if (schoolPin && state.schools.kind === 'one' && (schoolUi.searching || !activeChoice())) {
-      tooltip.hidden = true;
-      set({ schools: { ...state.schools, kind: 'one', moe: data.destinations[id].moe }, schoolSearching: false, schoolQuery: '' });
-      return;
-    }
-    const box = el('div', 'point-card');
-    if (kind === 'stop') {
-      const names = { rail_ferry: 'Train or ferry stop', frequent: 'Frequent stop', other: 'Bus stop' };
-      box.append(el('strong', null, names[properties.kind] || 'Stop'));
-      const rate = Number(properties.per_hour);
-      const window = 'at its busiest time';
-      box.append(el('span', null, Number.isFinite(rate)
-        ? `${rate.toFixed(rate < 10 ? 1 : 0)} departures an hour, ${window}`
-        : 'Departures not counted'));
-    } else {
-      box.append(el('strong', null, properties.name || 'Unnamed'));
-      const services = String(properties.services || '').replace(/[[\]"]/g, '').split(',').filter(Boolean);
-      const named = services.map((sid) => SERVICE_SHORT[sid.trim()] || sid.trim()).join(', ');
-      if (named) box.append(el('span', null, named));
-      if (schoolPin) {
-        const dest = data.destinations[id];
-        const tag = tagOf(dest, state.service);
-        if (tag) box.append(el('span', null, tag[0].toUpperCase() + tag.slice(1)));
-        const chosen = activeChoice()?.kind === 'one' && schoolIndex() === id;
-        if (!chosen) {
-          const pick = el('button', 'text-button', 'Minutes to this school');
-          pick.type = 'button';
-          pick.addEventListener('click', () => {
-            document.querySelector('.point-popup')?.remove();
-            $('sheet-pop').hidden = true;
-            set({ schools: { ...state.schools, kind: 'one', moe: dest.moe }, schoolSearching: false, schoolQuery: '', schoolFit: false });
-          });
-          box.append(pick);
-        }
+  onPoints(map, (info) => openPoint(info), {
+    hover(info, point) {
+      const said = describePoint(info);
+      // Nothing over the symbol whose popup is open, and no tooltip on a phone.
+      if (!said || phone() || (pointPopup && pointKey === info.key)) {
+        tooltip.hidden = true;
+        return;
       }
-    }
-    tooltip.hidden = true;
-    if (phone()) {
-      // On a phone a stop or a place opens in the sheet rather than over the map.
-      if (state.selected != null) closePlace();
-      const pop = $('sheet-pop');
-      const close = el('button', 'icon-button sheet-pop-close', '×');
-      close.type = 'button';
-      close.setAttribute('aria-label', 'Close');
-      close.addEventListener('click', () => {
-        pop.hidden = true;
-        window.requestAnimationFrame(sheetHeight);
-      });
-      pop.replaceChildren(box, close);
-      pop.hidden = false;
-      if ($('side').dataset.sheet === 'peek') setSheet($('side'), 'half');
-      $('side').scrollTop = 0;
-      return;
-    }
-    new window.maplibregl.Popup({ closeButton: true, offset: 10, className: 'point-popup' })
-      .setLngLat(lngLat)
-      .setDOMContent(box)
-      .addTo(map);
-  }, {
-    hover({ kind, id, properties }, point) {
-      const title = kind === 'stop' ? 'Public transport stop' : (properties.name || 'Unnamed');
-      const services = String(properties.services || '').replace(/[[\]"]/g, '').split(',').filter(Boolean);
-      const named = kind === 'stop' ? '' : services.map((sid) => SERVICE_SHORT[sid.trim()] || sid.trim()).join(', ');
-      const picking = kind === 'destination' && id != null && schoolsAvailable() && state.schools.kind === 'one'
-        && (schoolUi.searching || !activeChoice()) && data.destinations[id]?.services?.includes(state.service);
-      showTooltip([el('strong', null, title), named ? el('span', null, named) : null,
-        el('span', 'tooltip-hint', kind === 'stop' ? 'Click for departures' : picking ? 'Click to pick this school' : 'Click for details')], point);
+      showTooltip([el('strong', null, said.title), ...said.lines.slice(0, 3).map((text) => el('span', null, text)),
+        said.hint ? el('span', 'tooltip-hint', said.hint) : null], point);
     },
     leave() {
       tooltip.hidden = true;
@@ -4942,21 +5096,7 @@ function wireControls() {
         pickDestination(i);
         return;
       }
-      // Another hexagon opens its own card, and ends a trip that was open.
-      if (card.trip) {
-        card.trip = false;
-        card.dest = null;
-        card.tab = 'from';
-      }
-      select(map, state.selected, i);
-      state.selected = i;
-      $('sheet-pop').hidden = true;
-      // The tooltip shown at the click described the map before the card.
-      tooltip.hidden = true;
-      showPlace(i);
-      if (phone()) keepInView(i);
-      schedule();
-      writeHash();
+      openCell(i);
     },
   });
   // A move by hand lets the panel follow the map again.
@@ -4974,6 +5114,208 @@ function wireControls() {
     refreshArea();
     writeHash();
   });
+}
+
+/** Open hexagon i's card, as a click on it does. */
+function openCell(i) {
+  // Another hexagon opens its own card, and ends a trip that was open.
+  if (card.trip) {
+    card.trip = false;
+    card.dest = null;
+    card.tab = 'from';
+  }
+  closePoint();
+  select(map, state.selected, i);
+  state.selected = i;
+  $('sheet-pop').hidden = true;
+  // The tooltip shown at the click described the map before the card.
+  $('tooltip').hidden = true;
+  showPlace(i);
+  if (phone()) keepInView(i);
+  schedule();
+  writeHash();
+}
+
+// ---------------------------------------------------------------- what a symbol says
+
+/** What a symbol on the map says when hovered, tapped or opened from the
+ *  keyboard: { icon, title, lines, hint, actions: [[label, run, primary]] },
+ *  or null. `info` is map.js pointInfo. */
+function describePoint(info) {
+  if (!info || !data) return null;
+  const click = touchScreen() ? 'Tap' : 'Click';
+  if (info.kind === 'school') {
+    const dest = data.destinations[info.d];
+    if (!dest) return null;
+    const service = state.service;
+    const lines = [schoolKindLine(dest, service, SERVICE_SHORT[service] || service)];
+    const choice = appliedChoice();
+    const actions = [];
+    let icon = 'school-on';
+    if (info.picked) {
+      icon = 'school-picked';
+      lines.push('The school picked. The map is minutes to it.');
+      actions.push([schoolCells()?.any ? 'Zoom to its zone' : 'Zoom to it', () => set({ schoolZoom: true }), true]);
+      actions.push(['Find another school', () => set({ schoolFind: true }), false]);
+    } else {
+      if (choice && choice.kind === 'one') {
+        icon = 'school-out';
+        const picked = data.destinations[schoolIndex()];
+        lines.push(`Not counted: One school counts ${picked ? picked.name : 'one school'} only.`);
+      } else if (choice && (choice.kind === 'zone' || choice.kind === 'state')) {
+        const under = choice.kind === 'zone' ? 'In zone' : 'State';
+        if (data.schoolResult?.counted?.[info.d]) lines.push(`Counted under ${under}.`);
+        else {
+          icon = 'school-out';
+          const why = notCountedReason(dest, service, choice);
+          lines.push(`Not counted under ${under}${why ? `: ${why}` : ''}.`);
+        }
+      }
+      if (dest.moe != null) {
+        const instead = activeChoice()?.kind === 'one';
+        actions.push([instead ? 'Show this school instead' : 'Show only this school', () => set({ schoolPick: dest.moe }), true]);
+      }
+    }
+    const moved = pointLine(dest, movedPoints()[dest.moe]);
+    if (moved) lines.push(moved);
+    return {
+      icon,
+      title: dest.name || 'Unnamed school',
+      lines,
+      hint: info.picked ? 'The school picked' : dest.moe != null ? `${click} to show only this school` : null,
+      actions,
+    };
+  }
+  if (info.kind === 'place') {
+    const dest = data.destinations[info.d];
+    if (!dest) return null;
+    const named = (dest.services || []).map((sid) => SERVICE_SHORT[sid] || sid);
+    return { icon: `svc-${state.service}`, title: dest.name || 'Unnamed', lines: [named.join(', ')], hint: null, actions: [] };
+  }
+  if (info.kind === 'near') {
+    const stops = schoolStops();
+    const d = schoolIndex();
+    const rows = stops && d >= 0 ? stopsAt(stops, d) : null;
+    const said = rows ? nearStopWords(info.ks.map((k) => rows[k]).filter(Boolean), stops) : null;
+    if (!said) return null;
+    const row = rows[info.ks[0]];
+    const sym = stopSymbol(row, stops);
+    const icon = { 'train-station': 'train-on', 'ferry-station': 'ferry-on', 'bus-near': 'bus-on', 'bus-none': 'bus-none' }[sym] || `${said.mode}-none`;
+    return { icon, title: said.title, lines: said.lines, hint: null, actions: [] };
+  }
+  if (info.kind === 'stop') {
+    const stop = layerStop(info.k);
+    if (!stop) return null;
+    const what = stop.kind === 'rail_ferry' ? (stop.mode === 'ferry' ? 'Ferry terminal' : 'Train station')
+      : stop.kind === 'frequent' ? 'Bus stop, four or more an hour' : 'Bus stop, fewer than four an hour';
+    const rate = Number(stop.per_hour);
+    const icon = stop.kind === 'rail_ferry' ? `${stop.mode === 'ferry' ? 'ferry' : 'train'}-on` : stop.kind === 'frequent' ? 'bus-on' : 'bus-few';
+    const title = stop.name ? `${stop.name}${stop.code ? ` (stop ${stop.code})` : ''}` : what;
+    return {
+      icon,
+      title,
+      lines: [what, Number.isFinite(rate) ? `${rate.toFixed(rate < 10 ? 1 : 0)} departures an hour at its busiest` : 'Departures not counted'],
+      hint: null,
+      actions: [],
+    };
+  }
+  return null;
+}
+
+// The popup open over a symbol, and which symbol it is for.
+let pointPopup = null;
+let pointKey = null;
+
+/** Close a symbol's popup, or its sheet on a phone. True if one was open. */
+function closePoint() {
+  const pop = $('sheet-pop');
+  const sheet = pop && !pop.hidden && pop.dataset.point === 'yes';
+  if (sheet) {
+    pop.hidden = true;
+    window.requestAnimationFrame(sheetHeight);
+  }
+  if (!pointPopup) return sheet;
+  const popup = pointPopup;
+  pointPopup = null;
+  pointKey = null;
+  popup.remove();
+  return true;
+}
+
+/** A symbol clicked, tapped or opened from the keyboard: its popup, or on a
+ *  phone the sheet. Picking One school, a school's pin picks it. */
+function openPoint(info, { focus = false } = {}) {
+  if (!info) return;
+  if (info.kind === 'school' && !info.picked && schoolPicking() && data.destinations[info.d]?.moe != null) {
+    $('tooltip').hidden = true;
+    set({ schoolPick: data.destinations[info.d].moe });
+    return;
+  }
+  const said = describePoint(info);
+  if (!said) return;
+  const box = el('div', 'point-card');
+  const head = el('h3', 'point-title');
+  head.tabIndex = -1;
+  head.append(keyIcon(said.icon, 0.65), el('span', null, said.title));
+  box.append(head, ...said.lines.map((text) => el('p', null, text)));
+  if (said.actions.length) {
+    const row = el('div', 'point-actions');
+    for (const [label, run, primary] of said.actions) {
+      const button = el('button', `point-button${primary ? ' is-primary' : ''}`, label);
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        closePoint();
+        run();
+      });
+      row.append(button);
+    }
+    box.append(row);
+  }
+  $('tooltip').hidden = true;
+  closePoint();
+  if (phone()) {
+    // On a phone a symbol opens in the sheet rather than over the map.
+    if (state.selected != null) closePlace();
+    const pop = $('sheet-pop');
+    const close = el('button', 'icon-button sheet-pop-close', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.addEventListener('click', () => closePoint());
+    pop.replaceChildren(box, close);
+    pop.dataset.point = 'yes';
+    pop.hidden = false;
+    if ($('side').dataset.sheet === 'peek') setSheet($('side'), 'half');
+    $('side').scrollTop = 0;
+    if (focus) head.focus();
+    window.requestAnimationFrame(sheetHeight);
+    return;
+  }
+  const popup = new window.maplibregl.Popup({ closeButton: true, offset: info.picked ? [0, -34] : 14, className: 'point-popup', maxWidth: '300px', focusAfterOpen: false })
+    .setLngLat(info.at)
+    .setDOMContent(box)
+    .addTo(map);
+  pointPopup = popup;
+  pointKey = info.key;
+  popup.on('close', () => {
+    if (pointPopup === popup) {
+      pointPopup = null;
+      pointKey = null;
+    }
+  });
+  if (focus) head.focus();
+}
+
+let saidUnder = '';
+/** Read out what is under the map's middle ring, for someone moving the map
+ *  with the keyboard. */
+function sayUnderMark() {
+  if (!map || card.picking) return;
+  const p = markPoint();
+  const said = describePoint(pointInfo(pointAt(map, p, 24)));
+  const text = said ? `${said.title}. ${said.lines[0]}. Press Enter for more.` : '';
+  if (text === saidUnder) return;
+  saidUnder = text;
+  $('map-say').textContent = text;
 }
 
 /** On a phone the card covers the lower half of the map: move the map so the
@@ -5000,7 +5342,22 @@ function applyOverlays() {
       // The style is not in yet; adding the layers applies every tick again.
     }
   }
+  if (state.overlays.stops) requestStopNames();
 }
+
+// Stop names for the Stops layer come from transit.json, loaded the first
+// time the layer is on (overlays.json gives only what the map draws).
+let stopNames = null;
+function requestStopNames() {
+  if (stopNames) return;
+  stopNames = Promise.all([fetchJson(`${DATA_BASE}${CITY}/`, 'transit'), overlaysLoaded])
+    .then(([transit]) => {
+      if (!setStopNames(map, transit)) console.warn('transit.json does not match the stops on the map; stops are shown without names.');
+    })
+    .catch((error) => console.warn('Stop names could not be loaded.', error));
+}
+// Set when the network layers have arrived (init).
+let overlaysLoaded = Promise.resolve();
 
 /** The opening view: every city, and what each one is like. */
 async function start() {
@@ -5228,6 +5585,8 @@ async function init() {
   basemaps.setAttribute('aria-label', 'Basemap');
   basemapButtons(basemaps);
   map = createMap('map', { topRight: elementControl(basemaps) });
+  // The key lists what is on screen, so it follows the map when it settles.
+  map.on('idle', rekey);
   // Exposed for browser tests and scripted tours.
   // For checks from the console and tests: the area the panel is for.
   window.team = {
@@ -5237,6 +5596,9 @@ async function init() {
     // A phone's sheet, for tests: peek, half or full.
     sheet: (size) => setSheet($('side'), size),
     drawer: (name) => setDrawer(name),
+    // For tests: the symbols drawn on screen now, and the key's rows for them.
+    onScreen: () => [...onScreenNow(symbolsOnScreen(map))],
+    keyRows: () => [...document.querySelectorAll('#key-body [data-sym], #view .key-inline [data-sym]')].map((row) => row.dataset.sym),
   };
   if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? (painted.kind || 'catchment') : 'team' });
   // For tests: where a trip stands.
@@ -5297,6 +5659,8 @@ async function init() {
   }
   rememberCity(CITY);
   setServices(data.meta);
+  // A link to One school with none picked opens with the cursor in the search.
+  if (state.schools.kind === 'one' && state.schools.moe == null) schoolUi.focus = 'field';
   // The place picker shows this place until the list of places arrives.
   const here = el('option', null, place.name);
   here.value = CITY;
@@ -5343,7 +5707,7 @@ async function init() {
     setOverlays(map, {}, data.destinations);
     setBasemap(map, state.basemap);
     applyOverlays();
-    overlaysReady.then((overlays) => setOverlays(map, overlays, data.destinations));
+    overlaysLoaded = overlaysReady.then((overlays) => setOverlays(map, overlays, data.destinations));
   };
   if (styleReady) {
     addLayers();

@@ -1,15 +1,15 @@
 // Stops near a school, from the 0.12.0 review: each school's nearest train
 // or ferry stations beyond the 15-minute walk (`far`), as the One school
-// section, its summary, the CSV lines and the map's stop tags show them.
+// section, its summary, the CSV lines and the map's stop symbols show them.
 // Mt Albert Grammar School's figures are the build's (Auckland, 15 Sep 2026).
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { stopLabelOrder, stopLabelPlan } from '../../web/js/map.js';
 import {
-  decodeStops, farStopsHeading, isFarStop, stationNoun, stopLine, stopsAt, stopsCsvLines, stopsSplit, stopsSummary,
+  decodeStops, farStopsHeading, isFarStop, nearStopWords, stationNoun, stopLine, stopsAt, stopsCsvLines, stopsSplit, stopsSummary, stopSymbol,
 } from '../../web/js/schools.js';
+import { nearStopFeatures } from '../../web/js/symbols.js';
 
 const E_W = [{ route: 'E-W', mode: 'train', headsigns: ['Manukau via City Centre', 'Swanson'], trips: 23 }];
 const FILE = {
@@ -73,15 +73,16 @@ test('a school with a station within the walk lists it as before, and nothing fu
   assert.ok(!stopsCsvLines(stops, 1).some((line) => line.startsWith('Nearest')));
 });
 
-test('a ferry stop, and a school with none within the walk', () => {
+test('a ferry terminal, and a school with none within the walk', () => {
   const stops = decodeStops(FILE);
   const split = stopsSplit(stops, 2);
   assert.equal(split.near.length, 0);
-  assert.equal(farStopsHeading(split.far, stops), 'Nearest ferry stop, beyond a 15-minute walk');
-  assert.equal(stopsSummary(split, stops), 'none within 15 min · 1 ferry stop within 30 min');
-  assert.deepEqual(stopsCsvLines(stops, 2).slice(1, 3), ['No stop within a 15-minute walk.', 'Nearest ferry stop, beyond a 15-minute walk (up to 3 within a 30-minute walk):']);
+  // "Ferry terminal", as the map's key names it (0.12.1; "ferry stop" before).
+  assert.equal(farStopsHeading(split.far, stops), 'Nearest ferry terminal, beyond a 15-minute walk');
+  assert.equal(stopsSummary(split, stops), 'none within 15 min · 1 ferry terminal within 30 min');
+  assert.deepEqual(stopsCsvLines(stops, 2).slice(1, 3), ['No stop within a 15-minute walk.', 'Nearest ferry terminal, beyond a 15-minute walk (up to 3 within a 30-minute walk):']);
   assert.equal(stopsSummary(stopsSplit(stops, 3), stops), 'none');
-  assert.equal(stationNoun([split.far[0], stopsSplit(stops, MAGS).far[0]], stops), 'train stations and ferry stops');
+  assert.equal(stationNoun([split.far[0], stopsSplit(stops, MAGS).far[0]], stops), 'train stations and ferry terminals');
 });
 
 test('an older stops.json, with no far stations, reads as before', () => {
@@ -96,14 +97,26 @@ test('an older stops.json, with no far stations, reads as before', () => {
   assert.ok(isFarStop({ walk: 16 }, older));
 });
 
-test('stop tags on the map: stations first, then the nearest stops; a tag that would overlap is a dot', () => {
+test('stops on the map: each a symbol for its mode and trips, its walking badge away from the school', () => {
   const stops = decodeStops(FILE);
-  const tags = stopsAt(stops, MAGS).map((row) => ({ ...stops.stops[row.s], walk: row.walk, metres: row.metres, far: isFarStop(row, stops) }));
-  assert.deepEqual(stopLabelOrder(tags).map((i) => tags[i].code), ['119', '120', '104', '1427', '8816']);
-  // Three tags 18 px wide: the second sits on the first, the third clear of both.
-  const items = [{ x: 100, y: 100, w: 18, h: 17 }, { x: 108, y: 104, w: 18, h: 17 }, { x: 140, y: 100, w: 18, h: 17 }];
-  assert.deepEqual([...stopLabelPlan(items)], [0, 2]);
-  // The school's name is drawn already: a tag under it is a dot.
-  assert.deepEqual([...stopLabelPlan(items, [{ left: 130, top: 90, right: 260, bottom: 110 }])], [0]);
-  assert.deepEqual([...stopLabelPlan([])], []);
+  const rows = stopsAt(stops, MAGS);
+  assert.deepEqual(rows.map((row) => stopSymbol(row, stops)), ['bus-none', 'bus-near', 'train-station', 'train-station', 'train-station']);
+  const school = { lon: 174.7253, lat: -36.8847 };
+  const features = nearStopFeatures(rows, stops, school, { grouped: false });
+  assert.equal(features.length, 5);
+  const props = features.map((f) => f.properties);
+  assert.deepEqual(props.map((p) => p.img), ['bus-none', 'bus-on', 'train-on', 'train-on', 'train-on']);
+  assert.deepEqual(props.map((p) => p.badge), ['walk-1', 'walk-7', 'walk-16', 'walk-17', 'walk-21']);
+  // Stations get their badges first, then the quickest walks.
+  const placed = [...props].sort((a, b) => a.place - b.place).map((p) => p.walk);
+  assert.deepEqual(placed, [16, 17, 21, 1, 7]);
+  // A badge goes on the side of its stop away from the school.
+  assert.deepEqual(props.map((p) => p.side), ['L', 'L', 'L', 'L', 'R']);
+  // What a stop says when hovered or tapped.
+  assert.deepEqual(nearStopWords([rows[0]], stops), {
+    title: 'Mount Albert Grammar School (stop 1427)', mode: 'bus',
+    lines: ['Bus stop · 1 min walk to the school (95 m)', 'No trips on any day in the timetable used'],
+  });
+  assert.deepEqual(nearStopWords([rows[2]], stops).lines, ['Train station · 16 min walk to the school (891 m)', '23 trips arriving 7–9am: E-W']);
+  assert.deepEqual(nearStopFeatures([], stops, school), []);
 });

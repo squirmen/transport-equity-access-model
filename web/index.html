@@ -32,6 +32,8 @@
   <link rel="modulepreload" href="js/panel.js">
   <link rel="modulepreload" href="js/fold.js">
   <link rel="modulepreload" href="js/map.js">
+  <link rel="modulepreload" href="js/symbols.js">
+  <link rel="modulepreload" href="js/glyphs.js">
   <link rel="modulepreload" href="js/format.js">
   <link rel="modulepreload" href="js/palette.js">
   <link rel="modulepreload" href="js/equity.js">
@@ -57,6 +59,8 @@
 <body>
   <a class="skip-link" href="#panel">Skip to controls</a>
   <div id="map" role="region" aria-label="Map"></div>
+  <!-- What is under the map's middle ring, read out as the map is moved from the keyboard. -->
+  <p class="visually-hidden" id="map-say" aria-live="polite"></p>
   <button id="brand-chip" class="brand-chip" type="button" aria-haspopup="dialog" aria-label="About TEAM">
     <img src="assets/team-mark.svg" alt="" width="20" height="20"><span>TEAM</span>
   </button>
@@ -193,6 +197,7 @@
       <button id="key-fold" class="k-head" type="button" aria-expanded="true" aria-controls="key-body">
         <span class="k-title" id="key-title">Key</span>
         <span class="k-mode" id="key-mode"></span>
+        <span class="k-icons" id="key-icons" aria-hidden="true"></span>
         <svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
       </button>
       <div id="key-body" class="k-body"></div>
