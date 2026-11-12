@@ -85,17 +85,50 @@ def checked_rows() -> pd.DataFrame:
     return table if len(table) else pd.DataFrame(columns=["moe", "lon", "lat", "rule"])
 
 
+def test_a_checked_row_with_no_point_keeps_the_directory_point(tmp_path):
+    folder = tmp_path / "configs"
+    folder.mkdir()
+    (folder / "points.csv").write_text("moe,name,lon,lat,source,reason,rule,checked_by,checked_on\n"
+                                       "1,A,174.5,-36.5,website,outside,,a person,2026-11-13\n"
+                                       "2,B,,,website,kept: shared campus,,a person,2026-11-13\n"
+                                       "3,C,,,website,kept,,,\n")
+    assert set(schools.corrected_points(folder)) == {1}
+    assert set(schools.kept_points(folder)) == {2}
+    assert schools.checked_points(folder) == {1: "moved", 2: "kept"}
+
+
+def test_a_school_a_person_checked_is_no_longer_listed():
+    listed, linz, osm = made_up()
+    audited = school_points.audit(listed, linz, osm, checked={2: "kept", 4: "moved"}).set_index("moe")
+    assert audited["checked"].dropna().to_dict() == {2: "kept", 4: "moved"}
+    # Flags still describe the directory's point.
+    assert audited.loc[2, "flags"].startswith("300 m outside")
+    assert school_points.to_check(audited.reset_index()).tolist() == [False, False, True, False, True]
+
+
+# The 0.12.1 review checked every school more than 50 m outside its LINZ
+# grounds in the 0.12.0 audit that rule D5-1 left alone: 14 moved, 6 kept.
+CHECKED_MOVED = {52, 472, 481, 603, 1165, 2899, 3346, 3628, 3630, 3686, 3687, 3691, 4135, 4204}
+CHECKED_KEPT = {324, 1491, 1699, 3102, 3698, 4121}
+
+
 @pytest.mark.skipif(not GROUNDS.exists(), reason="needs LINZ school grounds in the data root (scripts/fetch_school_grounds.py)")
 def test_moved_points_are_inside_their_grounds():
     linz = school_points.read_linz_grounds(GROUNDS).set_index("moe")
     rows = checked_rows()
-    assert len(rows) == 3  # Te Aute College, Te Kura aa Iwi o Ngaati Kauwhata, Porirua Montessori Primary School
-    for row in rows.to_dict("records"):
-        assert row["rule"] == school_points.RULE
+    by_rule = rows[rows["rule"] == school_points.RULE]
+    assert set(by_rule["moe"].astype(int)) == {232, 3618, 3641}  # Te Aute College, Te Kura aa Iwi o Ngaati Kauwhata, Porirua Montessori Primary School
+    by_hand = rows[rows["rule"] != school_points.RULE]
+    has_point = by_hand["lon"].astype(str).str.strip() != ""
+    assert set(by_hand.loc[has_point, "moe"].astype(int)) == CHECKED_MOVED
+    assert set(by_hand.loc[~has_point, "moe"].astype(int)) == CHECKED_KEPT
+    assert by_hand["source"].str.len().min() > 40 and by_hand["reason"].str.len().min() > 10
+    for row in rows[rows["lon"].astype(str).str.strip() != ""].to_dict("records"):
         point = gpd.GeoSeries([Point(float(row["lon"]), float(row["lat"]))], crs=4326).to_crs(2193).iloc[0]
         grounds = linz.geometry[int(row["moe"])]
         assert grounds.contains(point), row["name"]
-        assert point.distance(grounds.boundary) >= school_points.INSET_M - 0.5, row["name"]
+        if row["rule"] == school_points.RULE:
+            assert point.distance(grounds.boundary) >= school_points.INSET_M - 0.5, row["name"]
 
 
 def test_mags_keeps_the_ministry_point():
@@ -116,6 +149,10 @@ def test_every_flagged_school_is_listed(place):
     assert (audited["flags"].notna() == flagged).all()
     moved = audited[audited["move"]]
     assert set(moved["moe"]) <= set(checked_rows()["moe"].astype(int))
+    # Every school more than 50 m outside its grounds was moved by rule or checked by a person.
+    assert (audited.loc[outside, "move"].astype(bool) | audited.loc[outside, "checked"].notna()).all()
+    expected = audited["moe"].map(lambda m: "moved" if m in CHECKED_MOVED else "kept" if m in CHECKED_KEPT else None)
+    assert (audited["checked"].fillna("") == expected.fillna("")).all()
     if place == "auckland":
         mags = audited.set_index("moe").loc[69]
         assert mags["linz_outside_m"] == 0 and not mags["move"] and pd.isna(mags["flags"])

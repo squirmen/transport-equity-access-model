@@ -5,7 +5,7 @@ grounds in LINZ NZ Facilities and OpenStreetMap and with the street network
 (src/team/school_points.py has the rule and the sources). Writes:
 
     <to>/school_points_audit.csv     every school, every measure
-    <to>/school_points_to_check.csv  schools that need a person's look and were not moved
+    <to>/school_points_to_check.csv  schools that need a person's look: not moved by rule, not checked
     <to>/school_points_moved.csv     schools rule D5-1 moves
 
 With --write-points the moves go into configs/schools/points.csv (rows with
@@ -78,11 +78,12 @@ def main() -> int:
         listed = schools.school_table(settings)
         frame = school_points.audit_place(settings, work / path.stem, snapped, listed)
         frames.append(frame)
-        print(f"{path.stem}: {len(frame)} schools, {int(frame['move'].sum())} moved, "
-              f"{int((frame['flags'].notna() & ~frame['move']).sum())} to check", flush=True)
+        print(f"{path.stem}: {len(frame)} schools, {int(frame['move'].sum())} moved by rule, "
+              f"{int(frame['checked'].notna().sum())} checked by a person, "
+              f"{int(school_points.to_check(frame).sum())} to check", flush=True)
     audited = pd.concat(frames, ignore_index=True)
     audited.to_csv(args.to / "school_points_audit.csv", index=False)
-    to_check = audited[audited["flags"].notna() & ~audited["move"]]
+    to_check = audited[school_points.to_check(audited)]
     to_check.to_csv(args.to / "school_points_to_check.csv", index=False)
     moves = audited[audited["move"]].drop_duplicates("moe")
     moves.to_csv(args.to / "school_points_moved.csv", index=False)
@@ -95,6 +96,8 @@ def main() -> int:
         "no_linz": int(audited["linz_outside_m"].isna().sum()),
         "inside_other": int((audited["inside_other"].notna() | audited["inside_other_osm"].notna()).sum()),
         "moved": moves[["moe", "name", "moved_m"]].to_dict("records"),
+        "checked_moved": int(audited.loc[audited["checked"] == "moved", "moe"].nunique()),
+        "checked_kept": int(audited.loc[audited["checked"] == "kept", "moe"].nunique()),
         "to_check": int(to_check["moe"].nunique()),
         "rule": school_points.RULE_TEXT,
     }

@@ -7,7 +7,8 @@ Everything here is read from three inputs:
   (`scripts/fetch_school_directory.py`), cut to the place's routing area
   whatever the regional council;
 * `configs/schools/points.csv`, corrected map points, checked by a person or
-  moved by rule D5-1 (`school_points.py`);
+  moved by rule D5-1 (`school_points.py`), and directory points a person
+  checked and kept (no lon and lat);
 * `configs/schools/entrances.csv`, entrances a person has checked;
 * `configs/schools/attributes.csv`, directory fields a person has checked and
   corrected.
@@ -316,17 +317,44 @@ def _checked(path: Path) -> pd.DataFrame:
     return table[keep].copy()
 
 
+def _has_point(row: dict) -> bool:
+    return str(row.get("lon", "") or "").strip() != "" and str(row.get("lat", "") or "").strip() != ""
+
+
 def corrected_points(folder: Path = REPO_CONFIGS) -> dict[int, tuple[float, float, str]]:
     """Replacements for directory points: {moe: (lon, lat, source)}.
 
     A row counts when checked_by and checked_on are filled: by a person, or
     by a rule (`rule` D5-1, checked_by "rule D5-1"), which moves a point only
     when two sources agree where the school's grounds are (school_points.py).
+    A checked row with no lon and lat keeps the directory's point
+    (kept_points) and is not a replacement.
     """
     table = _checked(folder / "points.csv")
     out = {}
     for row in table.to_dict("records"):
-        out[int(row["moe"])] = (float(row["lon"]), float(row["lat"]), str(row.get("source", "")))
+        if _has_point(row):
+            out[int(row["moe"])] = (float(row["lon"]), float(row["lat"]), str(row.get("source", "")))
+    return out
+
+
+def kept_points(folder: Path = REPO_CONFIGS) -> dict[int, str]:
+    """Directory points a person checked and kept: {moe: source}. A checked
+    points.csv row with no lon and lat: the check found the Ministry's point
+    right, whatever the grounds records say."""
+    table = _checked(folder / "points.csv")
+    return {int(r["moe"]): str(r.get("source", "") or "") for r in table.to_dict("records") if not _has_point(r)}
+
+
+def checked_points(folder: Path = REPO_CONFIGS) -> dict[int, str]:
+    """Schools whose point a person has checked: {moe: 'moved' or 'kept'}.
+    Points moved by rule D5-1 are not in it."""
+    table = _checked(folder / "points.csv")
+    out = {}
+    for row in table.to_dict("records"):
+        if str(row.get("rule", "") or "").strip():
+            continue
+        out[int(row["moe"])] = "moved" if _has_point(row) else "kept"
     return out
 
 
@@ -844,14 +872,22 @@ def _summary(settings: Settings) -> dict:
 
 def points_meta(settings: Settings, schools: pd.DataFrame) -> dict:
     """What the map point check found (school_points.py): how many points were
-    checked, which rule D5-1 moved, and how many are listed for a person."""
+    checked, which rule D5-1 or a person moved, which a person checked and
+    kept, and how many are still listed for a person."""
     from . import school_points
 
     moved = schools[schools["point"] == "corrected"] if "point" in schools else schools.iloc[:0]
+    kept = kept_points()
+    here = schools[schools["moe"].isin(list(kept))] if "moe" in schools else schools.iloc[:0]
     out = {
         "rule": school_points.RULE_TEXT,
+        # by: "rule" for rule D5-1, "check" for a point a person checked and moved.
         "moved": [{"moe": int(r["moe"]), "name": r["name"], "metres": float(r.get("point_moved_m") or 0.0),
-                   "source": r.get("point_source")} for r in moved.to_dict("records")],
+                   "source": r.get("point_source"),
+                   "by": "rule" if str(r.get("point_source") or "").startswith(f"{school_points.RULE}:") else "check"}
+                  for r in moved.to_dict("records")],
+        # Directory points a person checked and kept, though a grounds record disagreed.
+        "kept": [{"moe": int(r["moe"]), "name": r["name"], "source": kept[int(r["moe"])]} for r in here.to_dict("records")],
         "audited": None,
         "to_check": None,
     }
@@ -859,7 +895,10 @@ def points_meta(settings: Settings, schools: pd.DataFrame) -> dict:
     if path.exists():
         audited = pd.read_csv(path)
         out["audited"] = int(len(audited))
-        out["to_check"] = int((audited["flags"].notna() & ~audited["move"].astype(bool)).sum())
+        flagged = audited["flags"].notna() & ~audited["move"].astype(bool)
+        if "checked" in audited:
+            flagged &= audited["checked"].isna()
+        out["to_check"] = int(flagged.sum())
     return out
 
 
