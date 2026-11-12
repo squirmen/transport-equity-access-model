@@ -1166,7 +1166,11 @@ export function countingLine(destinations, service, choice, {
   }
   if (choice.kind === 'state') {
     const left = notCounted.length ? ` Not counted: ${andList(notCounted)}.` : '';
-    return `Counting ${thousands(c.state)} state ${plural} taught in English.${left}${who} ${NO_ZONES}${listed}`;
+    const designated = (destinations || []).filter((dest) => serves(dest, service) && isState(dest) && isDesignated(dest)).map((dest) => dest.name);
+    const character = designated.length
+      ? ` Counted, though ${designated.length === 1 ? 'its board' : 'their boards'} may decline a student whose family does not accept the school's character: ${andList(designated)} (designated character; In zone leaves ${designated.length === 1 ? 'it' : 'them'} out).`
+      : '';
+    return `Counting ${thousands(c.state)} state ${plural} taught in English.${left}${character}${who} ${NO_ZONES}${listed}`;
   }
   // In zone: the state schools taught in English that must take a child living here.
   const z = zoneTally(destinations, service, zones, choice.students);

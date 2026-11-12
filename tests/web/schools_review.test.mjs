@@ -84,7 +84,7 @@ test('designated character schools: counted under State, left out of In zone, an
   assert.match(line, /Nor is Vanguard Military School: designated character school, whose board may decline a student whose family does not accept its character\./);
   assert.match(line, /1 school here stops at Year 10 and 2 start at Year 11/);
   const state = countingLine(D, S, { ...ALL_CHOICE, kind: 'state' }, { plural: 'secondary schools' });
-  assert.doesNotMatch(state, /Vanguard/);
+  assert.match(state, /Counted, though its board may decline a student whose family does not accept the school's character: Vanguard Military School \(designated character; In zone leaves it out\)\./);
 });
 
 test('One school counts the ages its years cover, and only girls at a girls’ school, at the place’s share', () => {
