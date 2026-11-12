@@ -1423,8 +1423,17 @@ function robustModel(service, standard) {
     everyTime = weightedShare(ok, data.pop);
   }
 
-  // More than one way to get there in time.
-  const ways = Uint8Array.from({ length: data.n }, (_, i) => perMode.filter((t) => t[i] <= standard).length);
+  // More than one way to get there in time. Where public transport is the
+  // quicker of the trip and the walk, it is a way of its own only where a
+  // bus or train is quicker than walking; otherwise the walk would count twice.
+  const walkAt = counting.indexOf('walk');
+  const ptAt = counting.indexOf('pt');
+  const orWalk = Boolean(data.meta.pt_or_walk) && walkAt >= 0 && ptAt >= 0;
+  const ways = Uint8Array.from({ length: data.n }, (_, i) => perMode.filter((t, k) => {
+    if (!(t[i] <= standard)) return false;
+    if (orWalk && k === ptAt && perMode[walkAt][i] <= t[i]) return false;
+    return true;
+  }).length);
   const twoOrMore = weightedShare(Uint8Array.from(ways, (w) => (w >= 2 ? 1 : 0)), data.pop);
   const onlyOne = weightedShare(Uint8Array.from(ways, (w) => (w === 1 ? 1 : 0)), data.pop);
 

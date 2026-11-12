@@ -1421,14 +1421,17 @@ export function cardLines(ctx, mode, i, named = []) {
  *  `residents` is everyone living in each hexagon (`pop` in older calls);
  *  `children`, where the figures count children, is how many of the
  *  service's ages live there, written as `childrenColumn`; `include` says
- *  which hexagons get a row (by default those with residents). */
+ *  which hexagons get a row (by default those with residents). Numbers have
+ *  one decimal place, except a share of residents in a zone, which has the
+ *  three zones.json gives it. */
 export function schoolsCsv({
   h3, residents = null, pop = null, children = null, childrenColumn = null, include = null,
   placeNames, t, near, ties, destinations, modes, header = [], extra = {},
 }) {
   const people = residents || pop;
   const quote = (v) => (/[",\n#]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  const value = (v) => (Number.isFinite(v) ? String(Math.round(v * 10) / 10) : '');
+  const value = (v, digits = 1) => (Number.isFinite(v) ? String(Math.round(v * 10 ** digits) / 10 ** digits) : '');
+  const DIGITS = { zone_share: 3 };
   const moeOf = (mode, i) => {
     const first = near[mode] ? near[mode][i] : -1;
     if (first == null || first < 0) return '';
@@ -1446,7 +1449,7 @@ export function schoolsCsv({
     for (const m of modes) cells.push(value(t[m] ? t[m][i] : NaN), moeOf(m, i));
     for (const key of extraKeys) {
       const v = extra[key][i];
-      cells.push(typeof v === 'number' ? value(v) : quote(v ?? ''));
+      cells.push(typeof v === 'number' ? value(v, DIGITS[key]) : quote(v ?? ''));
     }
     lines.push(cells.join(','));
   }

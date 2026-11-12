@@ -659,6 +659,10 @@ test('the CSV: residents and children, zone_share, R5 minutes and the header lin
   assert.equal(lines.length, 3 + 4, 'hexagons outside the zone are left out');
   assert.equal(lines[6], '89bb50021b7ffff,V,122.8,8,15,69,6,69,15,69,26,1');
   assert.match(ptCsvLine('in the usual window', false), /^Public transport: the median of trips/, 'a round-1 build');
+  // Shares keep the three places zones.json gives them; minutes keep one.
+  const small = schoolsCsv({ h3: ['a'], residents: [10], placeNames: [''], t: { walk: [12.34] }, near: {}, ties: {}, destinations: D, modes: ['walk'],
+    extra: { zone_share: Float32Array.of(0.347) } });
+  assert.equal(small.trim().split('\n')[1], 'a,,10,12.3,,0.347');
 });
 
 test('the nearest among some schools, for one hexagon', () => {

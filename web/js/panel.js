@@ -628,9 +628,13 @@ export function renderNeedsZone(root, model) {
     school: `${model.noZone || 'It has no home zone.'} So it is off for this school.`,
     everyone: 'Tick Only those living in its zone, under the school, to turn it on.',
   }[model.zoneWhy || 'build'];
-  root.replaceChildren(
-    el('p', 'note', `${tab} needs ${model.noun}'s home zone, to know who would go there. ${why} Access gives the minutes to the school from every hexagon.`),
+  // Set out as the tab's headline, so the key never covers it.
+  const box = el('div', 'hero');
+  box.append(
+    el('p', 'hero-text', `${tab} needs ${model.noun}'s home zone, to know who would go there.`),
+    el('p', 'hero-sub', `${why} Access gives the minutes to the school from every hexagon.`),
   );
+  root.replaceChildren(box);
 }
 
 /** One school's zone, area by area, the furthest first: the people in each

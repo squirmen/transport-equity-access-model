@@ -2,9 +2,11 @@
 stylesheet held back the way WebKit can leave it, on a build with the 0.12.0
 round-2 school files (zones, ages, public transport or walking, stops).
 
-    python tests/web/schools_browser.py --base "http://localhost:8812/web/?data=../build/site/data/" --out build/shots/schools
+    python tests/web/schools_browser.py --base "http://localhost:8812/web/?data=../build/site/data/" \
+        --fixture "http://localhost:8812/web/?city=web&data=../tests/fixtures/" --out build/shots/schools
 
-`--base` is the page with ?data= for the build (no city). The scenes:
+`--base` is the page with ?data= for the build (no city); `--fixture` the
+page on the synthetic fixture (tests/fixtures/make_web_fixture.py). The scenes:
 
 - the councillors' slide link, written without sch: it opens In zone, the
   link then says sch=zone, the line under the headline says which schools
@@ -23,7 +25,11 @@ round-2 school files (zones, ages, public transport or walking, stops).
 - the tooltip's first line is the card's;
 - the About text has the In zone, Who is counted and How times are worked
   out sections;
-- on a phone, the choices are one select and the card opens clear of the map.
+- on a phone, the choices are one select and the card opens clear of the map;
+- a place built before zones (Christchurch in round 1's files), or any place
+  where zones.json is missing, shows All and says so (--old-city);
+- on the fixture: In zone by default, and One school with its zone, stops and
+  Who misses out.
 
 It saves a screenshot of each. Exits with status 1 on any failure or any
 console error (a 404 for a file a test build does not have is not one).
@@ -67,7 +73,8 @@ def panel(page: Page) -> dict:
       band: document.querySelector('#place-body .verdict')?.innerText || '',
       strong: (document.querySelector('#place-body .verdict strong')?.textContent || '').trim(),
       hash: location.hash,
-      key: document.getElementById('key-body')?.innerText || '',
+      // textContent: the key may be folded away, and WebKit gives no innerText for what is hidden.
+      key: document.getElementById('key-body')?.textContent || '',
       painted: window.team.map.queryRenderedFeatures({ layers: ['cells-fill'] }).filter((f) => f.state && f.state.k != null).length,
       outline: (() => { const s = window.team.map.getSource('school-zone'); return s && s._data && s._data.geometry ? s._data.geometry.type : null; })(),
       stopTags: document.querySelectorAll('.map-tag.is-school-stop').length,
@@ -174,6 +181,36 @@ def desktop(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
         check(problems, f"{engine} about", text in about, text)
 
 
+def older(page: Page, base: str, city: str, out: Path, engine: str, problems: list[str]) -> None:
+    """A build with no zones: All, and a line saying why."""
+    seen = go(page, base, city, "s=secondary_school&m=pt")
+    check(problems, f"{engine} no zones", "Zones could not be loaded; showing all schools." in seen["school"], seen["school"])
+    check(problems, f"{engine} no zones", "sch=all" in seen["hash"] and seen["counting"].startswith("Counting all"), seen["hash"] + seen["counting"])
+    page.screenshot(path=str(out / f"{engine}-13-no-zones.png"))
+
+
+def fixture(page: Page, base: str, out: Path, engine: str, problems: list[str]) -> None:
+    """The synthetic fixture: the same rules on made-up files."""
+    page.goto("about:blank")
+    page.goto(f"{base}#s=secondary_school&m=pt")
+    ready(page)
+    seen = panel(page)
+    check(problems, f"{engine} fixture", "sch=zone" in seen["hash"] and seen["counting"].startswith("In zone:"), seen["hash"] + seen["counting"])
+    check(problems, f"{engine} fixture", "children aged 13–17" in seen["hero"], seen["hero"])
+    page.screenshot(path=str(out / f"{engine}-14-fixture-in-zone.png"))
+    page.goto("about:blank")
+    page.goto(f"{base}#s=secondary_school&m=best&sch=one:9030")
+    ready(page)
+    seen = panel(page)
+    check(problems, f"{engine} fixture one", "living in Testville State Secondary 1's zone" in seen["hero"], seen["hero"])
+    check(problems, f"{engine} fixture one", seen["outline"] == "Polygon" and seen["stopTags"] == 2, f"{seen['outline']} {seen['stopTags']}")
+    page.click("#tabs [data-view='people']")
+    ready(page)
+    seen = panel(page)
+    check(problems, f"{engine} fixture people", "can't reach it within 30 minutes" in seen["hero"], seen["hero"])
+    page.screenshot(path=str(out / f"{engine}-15-fixture-one-people.png"))
+
+
 def phone(browser, base: str, out: Path, engine: str, problems: list[str], errors: list[str]) -> None:
     context = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=engine != "firefox", has_touch=True)
     page = context.new_page()
@@ -215,6 +252,8 @@ def phone(browser, base: str, out: Path, engine: str, problems: list[str], error
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True, help="the page with ?data= for the build to test, no city")
+    parser.add_argument("--fixture", help="the page on the synthetic fixture, with ?city= and ?data=")
+    parser.add_argument("--old-city", default="christchurch", help="a place in the build with no zones, or none to skip")
     parser.add_argument("--out", default="build/shots/schools")
     parser.add_argument("--engines", default="chromium,webkit")
     args = parser.parse_args()
@@ -230,6 +269,10 @@ def main() -> int:
             page.on("pageerror", lambda exc, e=engine: errors.append(f"{e}: {exc}"))
             held_back(page)
             desktop(page, args.base, out, engine, problems)
+            if args.old_city != "none":
+                older(page, args.base, args.old_city, out, engine, problems)
+            if args.fixture:
+                fixture(page, args.fixture, out, engine, problems)
             phone(browser, args.base, out, engine, problems, errors)
             browser.close()
     for line in problems + errors:
