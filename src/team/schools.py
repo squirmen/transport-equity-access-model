@@ -4,11 +4,15 @@ trip to it ends, and the reach lists the site filters by kind of school.
 Everything here is read from three inputs:
 
 * the directory snapshot, one dated file for the whole country
-  (`scripts/fetch_school_directory.py`), cut to the place by regional council;
-* `configs/schools/points.csv`, map points a person has checked and corrected;
-* `configs/schools/entrances.csv`, entrances a person has checked.
+  (`scripts/fetch_school_directory.py`), cut to the place's routing area
+  whatever the regional council;
+* `configs/schools/points.csv`, corrected map points, checked by a person or
+  moved by rule D5-1 (`school_points.py`);
+* `configs/schools/entrances.csv`, entrances a person has checked;
+* `configs/schools/attributes.csv`, directory fields a person has checked and
+  corrected.
 
-Only rows with `checked_by` and `checked_on` filled are used from the two CSV
+Only rows with `checked_by` and `checked_on` filled are used from the CSV
 files. docs/schools.md sets out every rule below and why.
 
 A school is routed to its checked entrances when it has any, and otherwise to
@@ -182,20 +186,84 @@ def unknown_types(settings: Settings, directory: pd.DataFrame) -> list[str]:
     return sorted({t for t in directory.get("Org_Type", pd.Series(dtype=str)) if t and t not in known})
 
 
-def regions(settings: Settings) -> list[str]:
-    spec = settings.raw.get("schools") or {}
-    return [str(r) for r in spec.get("regions", [])]
+# A school is kept only where the place's street file has a street a person
+# can walk on within this many metres of its map point. R5 links a point to
+# the nearest street within 1,600 m; past about a kilometre the nearest street
+# in the file is seldom the school's own, because the file stops a little
+# beyond the place's census blocks, and the trip would be timed to the wrong
+# road.
+STREET_REACH_M = 1000.0
 
 
-def place_directory(settings: Settings) -> pd.DataFrame:
-    """The open schools in the place's regional councils, as the directory has them."""
+def routing_area(settings: Settings) -> tuple[float, float, float, float] | None:
+    """The box a place's schools may be in: the cut every national destination
+    file gets (`destinations.city_bounds`, census blocks plus 0.08 degrees).
+    None when the place has no census blocks to cut by."""
+    if "census_sa1" not in settings.raw["data"] or not settings.data("census_sa1").exists():
+        return None
+    from .destinations import city_bounds
+
+    return tuple(float(v) for v in city_bounds(settings))  # type: ignore[return-value]
+
+
+def street_metres(settings: Settings, lon: np.ndarray, lat: np.ndarray) -> np.ndarray | None:
+    """Straight-line metres from each point to the nearest street a person can
+    walk on in the place's street file (school_points.walkable_ways); None
+    when the place has no street file."""
+    if "osm" not in settings.raw["data"] or not settings.data("osm").exists():
+        return None
+    import geopandas as gpd
+
+    from .school_points import walkable_ways
+
+    ways = walkable_ways(settings.data("osm"), settings.cache_dir / "school_checks")
+    points = gpd.GeoSeries(gpd.points_from_xy(lon, lat), crs=4326).to_crs(2193)
+    nearest = ways.sindex.nearest(points, return_all=False, return_distance=True)
+    out = np.full(len(points), np.inf)
+    (where, _), distance = nearest
+    out[where] = distance
+    return out
+
+
+def place_directory(settings: Settings, record: dict | None = None) -> pd.DataFrame:
+    """The open schools in the place's routing area, from any region, as the
+    directory has them: inside `routing_area` and within STREET_REACH_M of a
+    street in the place's street file, so they can be routed.
+
+    Before 0.12.0 a place kept only its own regional councils' schools, so a
+    school over a regional boundary was never counted, however near. Pass a
+    dict as `record` to be told which schools in the box were left out for
+    being too far from the street file.
+    """
     table = read_directory(settings.data("schools"))
-    wanted = regions(settings)
-    if wanted and "Regional_Council" in table:
-        table = table[table["Regional_Council"].isin(wanted)]
     status = table.get("Status", pd.Series("", index=table.index)).str.lower()
     # 'Proposed' schools are not open yet; an empty status is taken as open.
-    return table[(status == "") | status.str.contains("open")].copy()
+    table = table[(status == "") | status.str.contains("open")]
+    area = routing_area(settings)
+    if area is not None and {"Longitude", "Latitude"} <= set(table.columns):
+        west, south, east, north = area
+        lon = pd.to_numeric(table["Longitude"], errors="coerce")
+        lat = pd.to_numeric(table["Latitude"], errors="coerce")
+        table = table[lon.between(west, east) & lat.between(south, north)]
+        metres = street_metres(settings, pd.to_numeric(table["Longitude"]).to_numpy(), pd.to_numeric(table["Latitude"]).to_numpy())
+        if metres is not None:
+            far = metres > STREET_REACH_M
+            if record is not None:
+                record["far_from_streets"] = [
+                    {"moe": int(m), "name": n, "region": r or None, "street_m": round(float(d))}
+                    for m, n, r, d in zip(table.loc[far, "School_Id"], table.loc[far, "Org_Name"],
+                                          table.loc[far].get("Regional_Council", pd.Series("", index=table.index[far])), metres[far])
+                ]
+            table = table[~far]
+    return table.copy()
+
+
+def regional_councils(table: pd.DataFrame) -> dict[str, int]:
+    """Schools by regional council, for the record of where they came from."""
+    if "Regional_Council" not in table or table.empty:
+        return {}
+    names = table["Regional_Council"].fillna("").replace("", "not given")
+    return {str(k): int(v) for k, v in names.value_counts().sort_index().items()}
 
 
 def _checked(path: Path) -> pd.DataFrame:
@@ -213,12 +281,62 @@ def _checked(path: Path) -> pd.DataFrame:
 
 
 def corrected_points(folder: Path = REPO_CONFIGS) -> dict[int, tuple[float, float, str]]:
-    """Checked replacements for directory points: {moe: (lon, lat, source)}."""
+    """Replacements for directory points: {moe: (lon, lat, source)}.
+
+    A row counts when checked_by and checked_on are filled: by a person, or
+    by a rule (`rule` D5-1, checked_by "rule D5-1"), which moves a point only
+    when two sources agree where the school's grounds are (school_points.py).
+    """
     table = _checked(folder / "points.csv")
     out = {}
     for row in table.to_dict("records"):
         out[int(row["moe"])] = (float(row["lon"]), float(row["lat"]), str(row.get("source", "")))
     return out
+
+
+def point_rules(folder: Path = REPO_CONFIGS) -> dict[int, dict]:
+    """The rest of each used points.csv row: rule, reason and who checked it."""
+    table = _checked(folder / "points.csv")
+    return {int(r["moe"]): {k: str(r.get(k, "") or "") for k in ("rule", "reason", "source", "checked_by", "checked_on")}
+            for r in table.to_dict("records")}
+
+
+# A state school the directory gives no teaching language for, whose peak body
+# is one of the two Māori-medium bodies, is taken as Māori-medium: of the 113
+# open schools with a peak body in the 12 November 2026 directory, 106 teach
+# all students in te reo Māori.
+MAORI_PEAK_BODIES = ("Ngā Kura ā Iwi o Aotearoa Inc", "Te Rūnanga nui o ngā Kura Kaupapa Māori o Aotearoa")
+
+
+def checked_attributes(folder: Path = REPO_CONFIGS) -> dict[int, dict[str, tuple[str, str]]]:
+    """Checked corrections to directory fields: {moe: {field: (value, source)}}.
+
+    `field` is a directory column (Language_of_Instruction, CoEd_Status, ...);
+    the corrected value is read as if the directory had it.
+    """
+    table = _checked(folder / "attributes.csv")
+    out: dict[int, dict[str, tuple[str, str]]] = {}
+    for row in table.to_dict("records"):
+        out.setdefault(int(row["moe"]), {})[str(row["field"]).strip()] = (str(row.get("value", "")).strip(), str(row.get("source", "")))
+    return out
+
+
+def teaching_language(record: dict, corrected: dict[str, tuple[str, str]] | None = None) -> tuple[str | None, str | None]:
+    """A school's teaching language and where it came from.
+
+    directory     the directory's Language_of_Instruction
+    attributes    configs/schools/attributes.csv, checked by a person
+    peak_body     not given, but a state school whose peak body is Māori-medium
+    None          not given
+    """
+    if corrected and "Language_of_Instruction" in corrected:
+        return LANGUAGES.get(corrected["Language_of_Instruction"][0]), "attributes"
+    language = LANGUAGES.get(record.get("Language_of_Instruction", ""))
+    if language is not None:
+        return language, "directory"
+    if KINDS.get(record.get("Authority", "")) == "state" and str(record.get("KMEPeakBody", "")).strip() in MAORI_PEAK_BODIES:
+        return "maori", "peak_body"
+    return None, None
 
 
 def checked_entrances(folder: Path = REPO_CONFIGS) -> dict[int, list[tuple[float, float, str]]]:
@@ -234,17 +352,24 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
     """One row per school that some school service counts, with what it is.
 
     Columns: school (moe:<id>), moe, name, org_type, authority, kind, language,
-    medium, coed, years_from, years_to, roll, roll_date, scheme, lon, lat,
-    point (directory or corrected), entrances (checked entrances, 0 for none),
-    services (comma-separated), and sex_<service> for each school service.
+    language_source, medium, coed, years_from, years_to, roll, roll_date,
+    scheme, region (regional council), lon, lat, point (directory or
+    corrected), point_source, point_moved_m, dir_lon, dir_lat (the directory's
+    point), entrances (checked entrances, 0 for none), services
+    (comma-separated), and sex_<service> for each school service.
     """
     directory = place_directory(settings) if directory is None else directory
     by_type = type_services(settings)
     levels = {sid: school_level(sid, settings.services[sid]) for sid in school_service_ids(settings)}
     moved = corrected_points(folder)
+    rules = point_rules(folder)
     entrances = checked_entrances(folder)
+    fixes = checked_attributes(folder)
     rows = []
     for record in directory.to_dict("records"):
+        moe_text = str(record.get("School_Id", "")).strip()
+        corrected = fixes.get(int(moe_text), {}) if moe_text.isdigit() else {}
+        record = {**record, **{k: v for k, (v, _) in corrected.items()}}
         services = by_type.get(record.get("Org_Type", ""), [])
         if not services:
             continue
@@ -254,12 +379,16 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
             log.warning("school %s has no map point; left out", record.get("School_Id"))
             continue
         moe = int(record["School_Id"])
-        point = "directory"
+        point, point_source, moved_m = "directory", "directory", 0.0
+        dir_lon, dir_lat = lon, lat
         if moe in moved:
-            lon, lat, _ = moved[moe]
+            lon, lat, source = moved[moe]
             point = "corrected"
+            rule = rules.get(moe, {})
+            point_source = f"{rule.get('rule') or 'checked'}: {source}".strip()
+            moved_m = _metres(dir_lon, dir_lat, lon, lat)
         years = TYPE_YEARS.get(record.get("Org_Type", ""), (None, None))
-        language = LANGUAGES.get(record.get("Language_of_Instruction", ""))
+        language, language_source = teaching_language(record, corrected)
         row = {
             "school": f"moe:{moe}",
             "moe": moe,
@@ -268,6 +397,7 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
             "authority": record.get("Authority"),
             "kind": KINDS.get(record.get("Authority", "")),
             "language": language,
+            "language_source": language_source,
             # English-medium, other, or not stated (null).
             "medium": None if language is None else ("english" if language == "english" else "other"),
             "coed": record.get("CoEd_Status") or None,
@@ -276,9 +406,14 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
             "roll": _int(record.get("Total")),
             "roll_date": _date(record.get("Roll_Date")),
             "scheme": str(record.get("Enrolment_Scheme", "")).strip().lower() == "yes",
+            "region": record.get("Regional_Council") or None,
             "lon": lon,
             "lat": lat,
             "point": point,
+            "point_source": point_source,
+            "point_moved_m": round(moved_m, 1),
+            "dir_lon": dir_lon,
+            "dir_lat": dir_lat,
             "entrances": len(entrances.get(moe, [])),
             "services": ",".join(services),
         }
@@ -289,6 +424,16 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
     if table.empty:
         return table
     return table.sort_values("moe").reset_index(drop=True)
+
+
+def _metres(lon0: float, lat0: float, lon1: float, lat1: float) -> float:
+    """Straight-line metres between two WGS84 points, in NZTM."""
+    from pyproj import Transformer
+
+    to_nztm = Transformer.from_crs(4326, 2193, always_xy=True)
+    x0, y0 = to_nztm.transform(lon0, lat0)
+    x1, y1 = to_nztm.transform(lon1, lat1)
+    return float(np.hypot(x1 - x0, y1 - y0))
 
 
 def routing_points(schools: pd.DataFrame, folder: Path = REPO_CONFIGS) -> pd.DataFrame:
@@ -329,26 +474,24 @@ def build(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Write destinations/schools.parquet (routing points) and
     destinations/school_list.parquet (one row per school), with a record of
     the snapshot they came from."""
-    directory = place_directory(settings)
+    left_out: dict = {}
+    directory = place_directory(settings, left_out)
     missing = unknown_types(settings, directory)
     if missing:
         raise SystemExit(f"School types in no service and not excluded: {', '.join(missing)}. "
                          "Add them to a service's school_types or to schools.EXCLUDED_TYPES.")
+    # place_directory has already cut the directory to the place's routing
+    # area, by each school's directory point.
     schools = school_table(settings, directory)
     points = routing_points(schools)
-    # Directories come by region, which can be wider than the place. Keep the
-    # schools around it, as for every other destination.
-    if "census_sa1" in settings.raw["data"] and settings.data("census_sa1").exists():
-        from .destinations import city_bounds
+    target = settings.out("destinations", "schools.parquet")
+    if target.exists():
+        # The points the school runs were routed to, for `team schools reroute`.
+        import shutil
 
-        west, south, east, north = city_bounds(settings)
-        inside = schools["lon"].between(west, east) & schools["lat"].between(south, north)
-        if (~inside).any():
-            log.info("left out %d schools outside the place", int((~inside).sum()))
-        schools = schools[inside].reset_index(drop=True)
-        points = points[points["school"].isin(set(schools["school"]))].reset_index(drop=True)
+        shutil.copy2(target, target.with_name("schools_previous.parquet"))
     schools.to_parquet(settings.out("destinations", "school_list.parquet"), index=False)
-    points.to_parquet(settings.out("destinations", "schools.parquet"), index=False)
+    points.to_parquet(target, index=False)
     source = settings.data("schools")
     meta = snapshot_meta(source)
     record = {
@@ -357,7 +500,10 @@ def build(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
         "retrieved": meta.get("retrieved"),
         "source_modified": meta.get("resource_last_modified"),
         "roll_dates": schools["roll_date"].value_counts(dropna=False).rename(index=lambda v: v or "none").to_dict(),
-        "regions": regions(settings),
+        "routing_area": routing_area(settings),
+        "street_reach_m": STREET_REACH_M,
+        "far_from_streets": left_out.get("far_from_streets", []),
+        "regional_councils": regional_councils(schools.rename(columns={"region": "Regional_Council"})),
         "schools": int(len(schools)),
         "points": int(points["id"].nunique()),
         "corrected_points": int((schools["point"] == "corrected").sum()),
@@ -541,6 +687,10 @@ def counting_line(schools: pd.DataFrame, service: str) -> dict:
         "state_maori": int(((serves["kind"] == "state") & (serves["language"] == "maori")).sum()),
         "state_pacific": int(((serves["kind"] == "state") & (serves["language"] == "pacific")).sum()),
         "state_language_unknown": int(((serves["kind"] == "state") & serves["medium"].isna()).sum()),
+        # State schools taken as Māori-medium from their peak body, the
+        # directory giving no teaching language (teaching_language).
+        "state_maori_peak_body": sorted(serves.loc[(serves["kind"] == "state") & (serves.get("language_source") == "peak_body"), "name"].tolist())
+        if "language_source" in serves else [],
         "sex": {s: int((sex == s).sum()) for s in SEXES},
         "sex_unknown": int(sex.isna().sum()),
         "state_sex": {s: int((state_english[f"sex_{service}"] == s).sum()) for s in SEXES},
@@ -768,6 +918,32 @@ def data_dates(settings: Settings) -> dict:
     return out
 
 
+def _summary(settings: Settings) -> dict:
+    path = settings.output_dir / "destinations" / "schools_summary.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def points_meta(settings: Settings, schools: pd.DataFrame) -> dict:
+    """What the map point check found (school_points.py): how many points were
+    checked, which rule D5-1 moved, and how many are listed for a person."""
+    from . import school_points
+
+    moved = schools[schools["point"] == "corrected"] if "point" in schools else schools.iloc[:0]
+    out = {
+        "rule": school_points.RULE_TEXT,
+        "moved": [{"moe": int(r["moe"]), "name": r["name"], "metres": float(r.get("point_moved_m") or 0.0),
+                   "source": r.get("point_source")} for r in moved.to_dict("records")],
+        "audited": None,
+        "to_check": None,
+    }
+    path = settings.output_dir / "destinations" / "school_points_audit.csv"
+    if path.exists():
+        audited = pd.read_csv(path)
+        out["audited"] = int(len(audited))
+        out["to_check"] = int((audited["flags"].notna() & ~audited["move"].astype(bool)).sum())
+    return out
+
+
 def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool = False) -> dict:
     """The schools part of summary.json's meta."""
     spec = settings.raw.get("schools") or {}
@@ -780,9 +956,15 @@ def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool = False
             "retrieved": meta.get("retrieved"),
             "source_modified": meta.get("resource_last_modified"),
             "sha256": meta.get("sha256"),
-            "regions": regions(settings),
+            # Schools come from any region inside the place's routing area.
+            "regional_councils": ({str(k): int(v) for k, v in schools["region"].fillna("not given").value_counts().sort_index().items()}
+                                  if "region" in schools else {}),
+            "routing_area": routing_area(settings),
+            "street_reach_m": STREET_REACH_M,
+            "far_from_streets": _summary(settings).get("far_from_streets", []),
             "roll_dates": schools["roll_date"].fillna("none").value_counts().to_dict(),
         },
+        "points": points_meta(settings, schools),
         "dates": data_dates(settings),
         "services": services,
         "choices": ["all", "state", "one"] + (["zone"] if zones_in else []),
@@ -795,7 +977,10 @@ def meta_block(settings: Settings, schools: pd.DataFrame, zones_in: bool = False
         "buses": spec.get("buses"),
         "bus_note": spec.get("bus_note"),
         "minutes": "R5 gives whole minutes, rounded down: 30 min means under 31.",
-        "spread": "pt only: 10th and 90th percentiles of the trip over every departure minute in the window.",
+        "spread": "pt only: 10th and 90th percentiles over every departure minute in the window of the quicker of "
+                  "the trip leaving then and walking.",
+        "pt_or_walk": "Public transport lists hold the quicker of R5's trip and walking for each school; r5 gives R5's "
+                      "own minutes where they are slower or missing.",
     }
 
 

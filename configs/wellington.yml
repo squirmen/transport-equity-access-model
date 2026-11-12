@@ -24,6 +24,7 @@ data:
   grid: processed/wellington/grid/wellington_h3_r9_population.parquet
   jobs_grid: processed/wellington/grid/wellington_h3_r9_v2_opportunities.parquet
   schools: raw/nz/education/moe_schools_directory_2026-11-12.csv
+  school_grounds: raw/nz/education/linz_nz_facilities_2026-11-12.gpkg   # LINZ school grounds, for checking school map points
   ece: raw/wellington/education/educationcounts_ece_wellington.json
   census_sa1: raw/wellington/census/statsnz_census_sa1_2023_wellington.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
@@ -74,9 +75,9 @@ routing:
 standard_modes: [walk, bike_low_stress, pt]
 
 # Schools come from the Ministry's national directory snapshot (data.schools),
-# cut to these regional councils. docs/schools.md has the rules.
+# kept wherever they are inside the place's routing area, from any region.
+# docs/schools.md has the rules.
 schools:
-  regions: [Wellington Region]
   buses: in_timetable        # school buses in the timetable: in_timetable or none_found
   bus_note: "Metlink's timetable has 123 school bus routes (route type 712), 272 trips."
 

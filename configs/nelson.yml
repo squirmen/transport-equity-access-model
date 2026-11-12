@@ -24,6 +24,7 @@ data:
   grid: processed/nelson/grid/nelson_h3_r9_population.parquet
   jobs_grid: processed/nelson/grid/nelson_h3_r9_v2_opportunities.parquet
   schools: raw/nz/education/moe_schools_directory_2026-11-12.csv
+  school_grounds: raw/nz/education/linz_nz_facilities_2026-11-12.gpkg   # LINZ school grounds, for checking school map points
   ece: raw/nelson/education/educationcounts_ece_nelson.json
   census_sa1: raw/nelson/census/statsnz_census_sa1_2023_nelson.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
@@ -74,9 +75,9 @@ routing:
 standard_modes: [walk, bike_low_stress, pt]
 
 # Schools come from the Ministry's national directory snapshot (data.schools),
-# cut to these regional councils. docs/schools.md has the rules.
+# kept wherever they are inside the place's routing area, from any region.
+# docs/schools.md has the rules.
 schools:
-  regions: [Nelson Region, Tasman Region]
   buses: none_found        # school buses in the timetable: in_timetable or none_found
   bus_note: "No school bus routes found in the timetable (by route type or by a school's name)."
 
