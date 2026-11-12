@@ -31,6 +31,7 @@ data:
   census_ages: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa1.json
   census_ages_sa2: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa2.json
   census_age_shape: processed/nz/census/age_shape_sa2_2018.parquet
+  census_sex: processed/nz/census/sex_by_age_sa2_2018.parquet
   school_grounds: raw/nz/education/linz_nz_facilities_2026-11-12.gpkg   # LINZ school grounds, for checking school map points
   ece: raw/whanganui/education/educationcounts_ece_whanganui.json
   census_sa1: raw/whanganui/census/statsnz_census_sa1_2023_whanganui.geojson
@@ -146,7 +147,7 @@ services:
     label: Secondary school
     window: am_peak
     standard_minutes: 30
-    school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite]
+    school_types: [Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite, Composite (Year 1-10), Restricted Composite (Year 7-10), Secondary (Year 7-10)]
   tertiary:
     label: Tertiary or trades training
     window: am_peak

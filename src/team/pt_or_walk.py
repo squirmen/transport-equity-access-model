@@ -15,7 +15,9 @@ transport time and walking all the way, origin by destination:
 For `pt` the walk is the `walk` run (4.8 km/h). For a mode that walks at a
 slower pace (`pt_slow`, 3.6 km/h) it is the walk at that pace, worked out
 from the walk run as floor(walking minutes x usual pace / slower pace), the
-factor the errand rounds already use. Walking does not depend on the clock,
+factor the errand rounds already use. Taken from whole minutes, it is often
+a minute quicker than R5's own walk at 3.6 km/h (SLOW_NOTE). Walking does
+not depend on the clock,
 so the same walk serves every window. A pair where walking is at least as
 quick is a walk (`walk_quicker`): no fare, no bus or train. Whole minutes
 rounded down, as before; the 60-minute limit still applies.
@@ -50,6 +52,11 @@ COVERS = [
     "how many ways meet the standard (options_): public transport counts only where a bus or train is quicker than walking",
 ]
 NOT_COVERED = ["cell-to-cell trips and MATE (?mate=1)"]
+# Checked against R5 routing at 3.6 km/h on the same network and slopes (289
+# Auckland pairs, 0.12.0 review): the derived walk was a minute quicker in 124,
+# the same in 148 and a minute slower in 17.
+SLOW_NOTE = ("The walk at the slower pace is worked out from whole minutes at 4.8 km/h, rounded down, so it is often a "
+             "minute quicker than a walk routed at 3.6 km/h, and now and then a minute slower.")
 
 RULE = ("Public transport is the quicker of R5's public transport trip and walking all the way, pair by pair. "
         "A pair where walking is at least as quick is a walk: no fare, no bus or train.")

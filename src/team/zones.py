@@ -475,9 +475,42 @@ def resident_points(addresses: pd.DataFrame, pieces, cells, wanted: set[int], he
     return points.reset_index(drop=True)
 
 
+def inside_shares(geometries: dict[str, object], addresses: pd.DataFrame, cells, extent) -> dict[str, float]:
+    """For each zone, the share of the homes in it that are inside the
+    place's hexagons, by current address points (all of them, since homes
+    outside the place's census blocks have no resident count here). The
+    address file covers the place's routing area (`extent`, NZTM polygon);
+    where a zone reaches beyond it, the share is scaled by the part of the
+    zone's area inside it, so a zone mostly outside the place is never
+    taken as inside it. A school over a regional boundary can have most of
+    its zone outside the place (Tuakau College, south of Auckland)."""
+    import h3
+    import shapely
+    from pyproj import Transformer
+
+    if not geometries:
+        return {}
+    xs, ys = addresses["x"].to_numpy(dtype="float64"), addresses["y"].to_numpy(dtype="float64")
+    known = set(str(c) for c in cells)
+    lon, lat = Transformer.from_crs(2193, 4326, always_xy=True).transform(xs, ys)
+    in_place = np.fromiter((h3.latlng_to_cell(b, a, 9) in known for a, b in zip(lon, lat)), dtype=bool, count=len(xs))
+    out = {}
+    for school, geometry in geometries.items():
+        x0, y0, x1, y1 = geometry.bounds
+        near = np.flatnonzero((xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1))
+        inside = near[shapely.contains_xy(geometry, xs[near], ys[near])] if len(near) else near
+        area = geometry.area
+        covered = shapely.intersection(geometry, extent).area / area if area > 0 and extent is not None else 1.0
+        if not len(inside):
+            out[school] = 0.0
+            continue
+        out[school] = round(float(in_place[inside].mean()) * min(1.0, float(covered)), 3)
+    return out
+
+
 def resident_shares(cover: pd.DataFrame, points: pd.DataFrame, geometries: dict[str, object],
                     centre_xy: np.ndarray, n: int, counted: set[str] | None = None,
-                    held_by_set: dict[int, float] | None = None
+                    held_by_set: dict[int, float] | None = None, all_sets: dict | None = None
                     ) -> tuple[pd.DataFrame, list[tuple[str, ...]], set[int]]:
     """Each zone's share of each hexagon's residents, the majority set, and
     the hexagons whose residents live in more than one set.
@@ -491,7 +524,9 @@ def resident_shares(cover: pd.DataFrame, points: pd.DataFrame, geometries: dict[
     then the lower sorted list of schools). With `counted`, the sets and the
     split are over those schools' zones only (the zones In zone counts);
     shares are given for every zone. `held_by_set`, when given, is filled
-    with the share of each split hexagon's residents living in its set.
+    with the share of each split hexagon's residents living in its set, and
+    `all_sets` with every set holding residents of a split hexagon and its
+    share: {cell: [(members, share), ...]}.
     Returns (rows cell, school, w), sets per cell (sorted tuples of school
     keys), split cells.
     """
@@ -549,6 +584,9 @@ def resident_shares(cover: pd.DataFrame, points: pd.DataFrame, geometries: dict[
             sets[cell] = best[1] if best else tuple(sorted(base))
             if held_by_set is not None and held.sum() > 1:
                 held_by_set[cell] = -best[0][0] / total
+            if all_sets is not None and held.sum() > 1:
+                all_sets[cell] = [(tuple(sorted(base | {s for s, hit in zip(names, key) if hit})), float(wt / total))
+                                  for key, wt in zip(keys[held], weight[held])]
     shares = pd.concat(rows, ignore_index=True)
     shares = shares[shares["w"] > 0].sort_values(["cell", "school"]).reset_index(drop=True)
     return shares, sets, split
@@ -582,7 +620,10 @@ def build(settings: Settings, table: pd.DataFrame, listed: pd.DataFrame | None) 
     hexes = hexagons(cells)
     centre_xy = centres(cells)
     about = listed.set_index("school")
-    state_english = set(about.index[(about["kind"] == "state") & (about["medium"] == "english")])
+    # The schools In zone counts: state, taught in English, and not a
+    # designated character school (schools.in_zone_school).
+    character = about["character"] if "character" in about else pd.Series(None, index=about.index)
+    state_english = set(about.index[(about["kind"] == "state") & (about["medium"] == "english") & (character != "designated")])
     services = school_service_ids(settings)
     geometries = {s: zone_geometries(zones, status, s) for s in services}
     covers = {s: area_cover(hexes, geometries[s]) for s in services}
@@ -593,22 +634,35 @@ def build(settings: Settings, table: pd.DataFrame, listed: pd.DataFrame | None) 
     pieces, blocks = ages.block_pieces(settings)
     points = pd.DataFrame(columns=["cell", "x", "y", "w", "source"])
     address_info = {"file": None, "points": 0}
+    path = settings.data("addresses") if "addresses" in settings.raw["data"] else None
+    addresses = pd.read_parquet(path, columns=["x", "y"]) if path is not None and path.exists() else None
+    inside: dict[str, dict[str, float]] = {}
+    if addresses is not None:
+        from shapely.geometry import box
+        from pyproj import Transformer
+
+        from .destinations import city_bounds
+
+        west, south, east, north = city_bounds(settings)
+        corners = Transformer.from_crs(4326, 2193, always_xy=True).transform([west, east, east, west], [south, south, north, north])
+        extent = box(min(corners[0]), min(corners[1]), max(corners[0]), max(corners[1]))
+        inside = {s: inside_shares(geometries[s], addresses, cells, extent) for s in services}
     if crossed:
-        path = settings.data("addresses") if "addresses" in settings.raw["data"] else None
-        if path is None or not path.exists():
+        if addresses is None:
             raise SystemExit("Zone lines cross hexagons but no address points are configured (data.addresses).")
-        addresses = pd.read_parquet(path, columns=["x", "y"])
         weighted = address_weights(addresses, blocks.to_crs("EPSG:2193"))
         address_info = {"file": path.name, "points": int(len(addresses)),
                         "points_with_residents": int((weighted["w"] > 0).sum())}
         points = resident_points(weighted, pieces, cells, crossed, hexes)
     out = {"status": status, "cells": cells, "services": {}, "geometries": geometries, "zones": zones,
-           "addresses": address_info, "state_english": state_english, "listed": listed}
+           "addresses": address_info, "state_english": state_english, "listed": listed, "inside": inside}
     for service in services:
         in_set: dict[int, float] = {}
+        all_sets: dict = {}
         shares, sets, split = resident_shares(covers[service], points, geometries[service], centre_xy, n, state_english,
-                                              in_set)
-        out["services"][service] = {"shares": shares, "sets": sets, "split": sorted(split), "in_set": in_set}
+                                              in_set, all_sets)
+        out["services"][service] = {"shares": shares, "sets": sets, "split": sorted(split), "in_set": in_set,
+                                    "all_sets": all_sets}
     return out
 
 
@@ -645,6 +699,11 @@ def payload(settings: Settings, state: dict, dest_index: dict) -> dict:
             entry["date_unknown"] = True
         if record.get("map_from"):
             entry["map_from"] = record["map_from"]
+        # The share of the homes in its zone that are inside the place, by
+        # service, where under 99.5% (inside_shares).
+        partly = {s: v for s, by in (state.get("inside") or {}).items() for k, v in by.items() if k == record["school"] and v < 0.995}
+        if partly:
+            entry["inside"] = partly
         schools[str(d)] = entry
     body = {"format": FORMAT, "source": file_record(settings), "reference_date": REFERENCE_DATE.isoformat(),
             "rule": RULE.format(date=REFERENCE_DATE.isoformat()), "schools": schools,
@@ -785,6 +844,14 @@ def write(settings: Settings, folder: Path, state: dict | None, dest_index: dict
      pd.DataFrame(columns=["h3", "service", "moe", "residents_share", "in_zone_set"])).to_parquet(keep, index=False)
     annotate(state["listed"], state)[["school", "moe", "zone_status", "zone_from", "zone_next_from"]].to_parquet(
         settings.out("zones", "school_zones.parquet"), index=False)
+    # Every set of zones holding residents of a split hexagon, with its share
+    # of them, by destination index: what scripts/zone_split_effect.py uses to
+    # count each child in the set they live in, against the one-set rule.
+    split_sets = {service: {str(c): [[sorted(dest_index[m] for m in members if m in dest_index), round(w, 6)]
+                                     for members, w in sets]
+                            for c, sets in sorted(block.get("all_sets", {}).items())}
+                  for service, block in state["services"].items()}
+    settings.out("zones", "split_sets.json").write_text(json.dumps(split_sets, separators=(",", ":")))
     splits = split_people(state, table) if table is not None else {}
     meta = {
         "source": body["source"],

@@ -35,6 +35,8 @@ def school_settings(tmp_path: Path, directory: Path, intermediate_types: list[st
     raw["services"] = {k: v for k, v in raw["services"].items() if v.get("school_types")}
     if intermediate_types is not None:
         raw["services"]["intermediate_school"]["school_types"] = intermediate_types
+        # The secondary types before the 0.12.0 review, which left Years 7-10 out.
+        raw["services"]["secondary_school"]["school_types"] = ["Secondary (Year 7-15)", "Secondary (Year 9-15)", "Secondary (Year 11-15)", "Composite"]
     return Settings(raw=raw, config_path=tmp_path / "c.yml", data_root=tmp_path, output_dir=tmp_path / "out", cache_dir=tmp_path / "cache")
 
 
@@ -100,10 +102,18 @@ def test_proposed_schools_are_not_counted(tmp_path):
     assert 723 not in table.index  # Te Pae School, proposed for 2027
 
 
-def test_year_7_to_10_schools_count_for_intermediate_only(tmp_path):
+def test_year_7_to_10_schools_count_for_intermediate_and_years_9_10(tmp_path):
+    # From the 0.12.0 review they teach Years 9 and 10 too, so secondary
+    # school counts them for its first stage (schools.STAGES).
     table = sample_table(tmp_path)
-    assert table.loc[876, "services"] == "intermediate_school"  # Restricted Composite (Year 7-10)
-    assert table.loc[553, "services"] == "intermediate_school"  # Secondary (Year 7-10)
+    assert table.loc[876, "services"] == "intermediate_school,secondary_school"  # Restricted Composite (Year 7-10)
+    assert table.loc[553, "services"] == "intermediate_school,secondary_school"  # Secondary (Year 7-10)
+    assert schools.covers(7, 10, schools.STAGES["secondary_school"]["junior"])
+    assert not schools.covers(7, 10, schools.STAGES["secondary_school"]["senior"])
+    assert not schools.covers(11, 15, schools.STAGES["secondary_school"]["junior"])
+    assert schools.stage_split([(9, 15), (7, 15)], "secondary_school") is None
+    assert schools.stage_split([(9, 15), (11, 15)], "secondary_school") == ["junior", "senior"]
+    assert schools.stage_split([(7, 10)], "intermediate_school") is None
 
 
 def test_every_school_type_is_counted_or_excluded_on_purpose(tmp_path):
@@ -518,3 +528,56 @@ def test_a_car_short_list_keeps_the_nearest_in_zone_school_for_each_student():
     # school (5), the boys' (moe:3, 7); cell 1 keeps moe:4, open to anyone.
     assert plain["destination"].tolist() == ["moe:1", "moe:1"]
     assert kept["destination"].tolist() == ["moe:1", "moe:2", "moe:3", "moe:1", "moe:4"]
+
+
+# ---------------------------------------------------------------------------
+# The 0.12.0 review: designated character schools and secondary in two stages
+
+
+def test_a_checked_designated_character_row_marks_the_school_and_in_zone_leaves_it_out(tmp_path):
+    folder = tmp_path / "configs"
+    folder.mkdir()
+    write_csv(folder, "attributes.csv", "moe,name,field,value,source,checked_by,checked_on\n"
+              "69,Mt Albert Grammar School,Designated_Character,Yes,a test,a person,2026-11-13\n"
+              "69,Mt Albert Grammar School,Org_Type,Secondary (Year 11-15),a test,a person,2026-11-13\n")
+    settings = school_settings(tmp_path, FIXTURES / "directory_sample.csv")
+    table = schools.school_table(settings, folder=folder).set_index("moe")
+    assert table.loc[69, "character"] == "designated" and table.loc[69, "character_source"] == "a test"
+    assert (table.loc[69, "years_from"], table.loc[69, "years_to"]) == (11, 15)
+    assert pd.isna(table.loc[70, "character"])
+    assert schools.counting_line(table.reset_index(), "secondary_school")["state_designated"] == ["Mt Albert Grammar School"]
+    assert not schools.in_zone_school("state", "english", "designated")
+    assert schools.in_zone_school("state", "english", None)
+
+
+def stage_dests():
+    def school(moe, years, **extra):
+        return {"moe": moe, "name": str(moe), "kind": "state", "medium": "english", "services": ["secondary_school"],
+                "years": list(years), "sex": {"secondary_school": "co-ed"}, "scheme": False, **extra}
+    # As web/js tests/web/schools_review.test.mjs: a junior high, a senior
+    # high, a Years 9-15 college and a designated character senior school.
+    return [school(6948, (7, 10)), school(563, (11, 15)), school(37, (9, 15)), school(854, (11, 15), character="designated")]
+
+
+def test_secondary_school_in_two_stages_takes_the_slower_student_as_the_page_does():
+    dests = stage_dests()
+    walk = {"o": [0, 4, 7], "d": [3, 0, 1, 2, 2, 0, 1], "m": [8, 10, 15, 25, 12, 20, 30]}
+    reaches = {"walk": walk, "bike_low_stress": walk, "pt": walk}
+    modes = ["walk", "bike_low_stress", "pt"]
+    assert schools.dest_stages(dests, "secondary_school") == ["junior", "senior"]
+    assert schools.choice_groups(dests, "secondary_school", "state", "both") == [
+        ("girls", "junior"), ("girls", "senior"), ("boys", "junior"), ("boys", "senior")]
+    assert schools.choice_groups(dests, "secondary_school", "all", None) == [(None, None)]
+    every = schools.choice_times(reaches, dests, "secondary_school", "all", None, modes)
+    assert list(every["walk"]) == [8, 12]
+    state = schools.choice_times(reaches, dests, "secondary_school", "state", "both", modes)
+    assert list(state["walk"]) == [10, 12] and list(state["best"]) == [10, 12]
+    zone = schools.choice_times(reaches, dests, "secondary_school", "zone", "both", modes,
+                                zones={"schools": {}, "in": {"secondary_school": {"o": [0, 0, 0], "d": []}}})
+    assert list(zone["walk"]) == [15, 12], "In zone leaves the designated character school out"
+    named = schools.choice_named(reaches, dests, "secondary_school", "zone", "both", 0,
+                                 zones={"schools": {}, "in": {"secondary_school": {"o": [0, 0, 0], "d": []}}})
+    assert named["walk"] == [563]
+    assert 3 in schools.published_counts(dests, "secondary_school", "state", "girls", stage="senior")
+    assert 3 not in schools.published_counts(dests, "secondary_school", "zone", "girls", zones={"schools": {}}, stage="senior")
+    assert 0 not in schools.published_counts(dests, "secondary_school", "state", "girls", stage="senior")

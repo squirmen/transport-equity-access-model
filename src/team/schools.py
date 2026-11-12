@@ -162,6 +162,42 @@ def takes(sex: str | None, student: str) -> bool:
     return sex == "co-ed" or sex == student
 
 
+# Secondary school in two stages. A Years 7-10 school (or Years 1-10) stops
+# at Year 10 and a Years 11-15 school starts at Year 11, so where a place has
+# one, State and In zone count a hexagon only when a student in Years 9-10
+# and one in Years 11-13 can each reach a school that teaches them, as with
+# girls and boys (docs/schools.md, "Secondary school in two stages").
+STAGES = {"secondary_school": {"junior": (9, 10), "senior": (11, 13)}}
+
+
+def covers(years_from, years_to, span: tuple[int, int]) -> bool:
+    """Whether a school teaching years_from to years_to teaches any year in span."""
+    try:
+        return int(years_from) <= span[1] and int(years_to) >= span[0]
+    except (TypeError, ValueError):
+        return True
+
+
+def stage_split(years: list[tuple], service: str) -> list[str] | None:
+    """The stages a service is split into, or None: only where some school
+    teaching it teaches one stage and not the other. `years` holds each such
+    school's (years_from, years_to)."""
+    stages = STAGES.get(service)
+    if not stages:
+        return None
+    for lo, hi in years:
+        if sum(covers(lo, hi, span) for span in stages.values()) == 1:
+            return list(stages)
+    return None
+
+
+def in_zone_school(kind, medium, character) -> bool:
+    """What In zone counts: a state school taught in English that is not a
+    designated character school, whose board may decline a student whose
+    family does not accept its character (s 204)."""
+    return kind == "state" and medium == "english" and character != "designated"
+
+
 def _int(value) -> int | None:
     number = pd.to_numeric(value, errors="coerce")
     return int(number) if pd.notna(number) else None
@@ -353,7 +389,9 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
 
     Columns: school (moe:<id>), moe, name, org_type, authority, kind, language,
     language_source, medium, coed, years_from, years_to, roll, roll_date,
-    scheme, region (regional council), lon, lat, point (directory or
+    scheme, character ('designated' for a designated character school, from a
+    checked attributes row), character_source, org_type_source, region
+    (regional council), lon, lat, point (directory or
     corrected), point_source, point_moved_m, dir_lon, dir_lat (the directory's
     point), entrances (checked entrances, 0 for none), services
     (comma-separated), and sex_<service> for each school service.
@@ -389,6 +427,9 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
             moved_m = _metres(dir_lon, dir_lat, lon, lat)
         years = TYPE_YEARS.get(record.get("Org_Type", ""), (None, None))
         language, language_source = teaching_language(record, corrected)
+        # A designated character school (s 204), from a checked attributes
+        # row: the directory has no field for it.
+        designated = str(record.get("Designated_Character", "")).strip().lower() == "yes"
         row = {
             "school": f"moe:{moe}",
             "moe": moe,
@@ -406,6 +447,9 @@ def school_table(settings: Settings, directory: pd.DataFrame | None = None, fold
             "roll": _int(record.get("Total")),
             "roll_date": _date(record.get("Roll_Date")),
             "scheme": str(record.get("Enrolment_Scheme", "")).strip().lower() == "yes",
+            "character": "designated" if designated else None,
+            "character_source": corrected["Designated_Character"][1] if designated else None,
+            "org_type_source": corrected["Org_Type"][1] if "Org_Type" in corrected else None,
             "region": record.get("Regional_Council") or None,
             "lon": lon,
             "lat": lat,
@@ -691,6 +735,8 @@ def counting_line(schools: pd.DataFrame, service: str) -> dict:
         # directory giving no teaching language (teaching_language).
         "state_maori_peak_body": sorted(serves.loc[(serves["kind"] == "state") & (serves.get("language_source") == "peak_body"), "name"].tolist())
         if "language_source" in serves else [],
+        # State schools taught in English that In zone leaves out as designated character schools.
+        "state_designated": sorted(state_english.loc[state_english.get("character", pd.Series(None, index=state_english.index)) == "designated", "name"].tolist()),
         "sex": {s: int((sex == s).sum()) for s in SEXES},
         "sex_unknown": int(sex.isna().sum()),
         "state_sex": {s: int((state_english[f"sex_{service}"] == s).sum()) for s in SEXES},
@@ -870,8 +916,14 @@ STUDENTS = ("both", "girls", "boys")
 GOLDEN_MODES = ("walk", "bike_low_stress", "bike", "pt", "car")
 
 
+def dest_stages(dests: list[dict], service: str) -> list[str] | None:
+    """stage_split for the schools in destinations.json that teach `service`."""
+    years = [tuple(d.get("years") or (None, None)) for d in dests if service in d.get("services", []) and "moe" in d]
+    return stage_split(years, service)
+
+
 def published_counts(dests: list[dict], service: str, choice: str, student: str | None,
-                     zones: dict | None = None) -> set[int]:
+                     zones: dict | None = None, stage: str | None = None) -> set[int]:
     """Destination indices a choice counts, from destinations.json entries.
 
     all: every school serving the service. state: kind 'state' and medium
@@ -879,7 +931,9 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
     home, by their status in zones.json (no scheme, or no usable map); the
     zoned ones are counted per cell from zones.json's `in` (zone_cells). A
     student ('girls' or 'boys') keeps the schools whose sex for the service
-    is co-ed or theirs. 'one:<moe>' is that school alone.
+    is co-ed or theirs. 'one:<moe>' is that school alone. In zone leaves out
+    designated character schools. `stage` ('junior' or 'senior', STAGES)
+    keeps the schools that teach those years.
     """
     if choice == "zone" and zones is None:
         raise ValueError("the In zone choice needs zones.json")
@@ -894,6 +948,10 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
             continue
         if choice in ("state", "zone") and not (d.get("kind") == "state" and d.get("medium") == "english"):
             continue
+        if choice == "zone" and d.get("character") == "designated":
+            continue
+        if stage and not covers(*(d.get("years") or (None, None)), STAGES[service][stage]):
+            continue
         if choice == "zone":
             entry = statuses.get(str(i)) or {}
             status = entry.get("status") or (d.get("zone") or {}).get("status") or ("no_map" if d.get("scheme") else "none")
@@ -905,7 +963,7 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
     return out
 
 
-def zone_cells(dests: list[dict], zones: dict, service: str, student: str | None) -> np.ndarray:
+def zone_cells(dests: list[dict], zones: dict, service: str, student: str | None, stage: str | None = None) -> np.ndarray:
     """The zoned schools In zone counts in each cell, as keys cell * (number
     of destinations + 1) + destination index: zones.json's `in` set for the
     service, kept to the schools that take the student."""
@@ -913,7 +971,7 @@ def zone_cells(dests: list[dict], zones: dict, service: str, student: str | None
     offsets = np.asarray(block["o"], dtype="int64")
     dest = np.asarray(block["d"], dtype="int64")
     cell = np.repeat(np.arange(len(offsets) - 1), np.diff(offsets))
-    allowed = published_counts(dests, service, "state", student)
+    allowed = {d for d in published_counts(dests, service, "state", student, stage=stage) if dests[d].get("character") != "designated"}
     keep = np.isin(dest, np.fromiter(allowed, dtype="int64", count=len(allowed))) if allowed else np.zeros(len(dest), bool)
     return cell[keep] * (len(dests) + 1) + dest[keep]
 
@@ -950,27 +1008,47 @@ def published_times(reach: dict, keep: set[int], cells_keys: np.ndarray | None =
     return out_t, out_d
 
 
-def _keep(dests, service, choice, student, zones):
-    keep = published_counts(dests, service, choice, student, zones)
-    keys = zone_cells(dests, zones, service, student) if choice == "zone" else None
+def _keep(dests, service, choice, student, zones, stage=None):
+    keep = published_counts(dests, service, choice, student, zones, stage)
+    keys = zone_cells(dests, zones, service, student, stage) if choice == "zone" else None
     return keep, keys
 
 
+def choice_groups(dests: list[dict], service: str, choice: str, student: str | None) -> list[tuple[str | None, str | None]]:
+    """The students a choice must serve together, as (student, stage) pairs:
+    girls and boys for girls and boys together, and, for secondary school in
+    a place with a Years 7-10 or Years 11-15 school, each stage. A hexagon
+    counts only when every one of them can reach a school in time."""
+    if choice not in ("state", "zone"):
+        return [(student, None)]
+    sexes = ["girls", "boys"] if student in (None, "both") else [student]
+    stages = dest_stages(dests, service) or [None]
+    return [(sex, stage) for sex in sexes for stage in stages]
+
+
 def choice_times(reaches: dict[str, dict], dests: list[dict], service: str, choice: str,
-                 student: str | None, standard_modes: list[str], zones: dict | None = None) -> dict[str, np.ndarray]:
+                 student: str | None, standard_modes: list[str], zones: dict | None = None,
+                 stage: str | None = None) -> dict[str, np.ndarray]:
     """Minutes by mode, and 'best', for one choice (In zone needs `zones`,
     the place's zones.json).
 
-    For girls and boys together (student 'both'), a mode's time is the slower
-    of the girls' and the boys' times by that mode, and the best time is the
-    slower of the girls' best and the boys' best: each student takes their
-    own quickest way, and the hexagon counts only if both get there in time.
+    Where a choice serves more than one group (choice_groups: girls and boys,
+    and the two stages of secondary school), a mode's time is the slowest of
+    the groups' times by that mode, and the best time is the slowest of the
+    groups' best: each student takes their own quickest way, and the hexagon
+    counts only if all get there in time.
     """
-    if choice in ("state", "zone") and student in (None, "both"):
-        girls = choice_times(reaches, dests, service, choice, "girls", standard_modes, zones)
-        boys = choice_times(reaches, dests, service, choice, "boys", standard_modes, zones)
-        return {m: np.fmax(girls[m], boys[m]) + np.where(np.isnan(girls[m]) | np.isnan(boys[m]), np.nan, 0.0) for m in girls}
-    keep, keys = _keep(dests, service, choice, student, zones)
+    if stage is None:
+        groups = choice_groups(dests, service, choice, student)
+        if len(groups) > 1:
+            parts = [choice_times(reaches, dests, service, choice, g, standard_modes, zones, st or "") for g, st in groups]
+            out = {}
+            for m in parts[0]:
+                stack = np.vstack([p[m] for p in parts])
+                out[m] = np.where(np.isnan(stack).any(axis=0), np.nan, np.nanmax(np.where(np.isnan(stack), -np.inf, stack), axis=0))
+            return out
+        student, stage = groups[0][0], groups[0][1] or ""
+    keep, keys = _keep(dests, service, choice, student, zones, stage or None)
     out = {}
     for mode, reach in reaches.items():
         out[mode], _ = published_times(reach, keep, keys, len(dests))
@@ -985,10 +1063,11 @@ def choice_named(reaches: dict[str, dict], dests: list[dict], service: str, choi
     """The schools named for one cell under a choice, by mode: the first
     counted school in the cell's reach list and every counted school tied
     with it, in the list's order (minutes, metres, MoE number), as MoE
-    numbers. For girls and boys together, the slower one's schools; both
-    sets, in list order, when their times are equal."""
-    def one(student_: str | None) -> dict[str, tuple[float, list[int]]]:
-        keep, keys = _keep(dests, service, choice, student_, zones)
+    numbers. Where a choice serves more than one group (choice_groups), the
+    slowest group's schools; the schools of every group at that time, in list
+    order, when they tie."""
+    def one(student_: str | None, stage_: str | None) -> dict[str, tuple[float, list[int]]]:
+        keep, keys = _keep(dests, service, choice, student_, zones, stage_)
         here = set() if keys is None else {int(k % (len(dests) + 1)) for k in keys if k // (len(dests) + 1) == cell}
         out = {}
         for mode, reach in reaches.items():
@@ -1009,17 +1088,48 @@ def choice_named(reaches: dict[str, dict], dests: list[dict], service: str, choi
     def moe(reach: dict, positions: list[int]) -> list[int]:
         return [dests[reach["d"][k]]["moe"] for k in sorted(set(positions))]
 
-    if choice in ("state", "zone") and student in (None, "both"):
-        girls, boys = one("girls"), one("boys")
+    groups = choice_groups(dests, service, choice, student)
+    if len(groups) > 1:
+        parts = [one(g, st) for g, st in groups]
         out = {}
         for mode, reach in reaches.items():
-            (g, gk), (b, bk) = girls[mode], boys[mode]
-            if np.isnan(g) or np.isnan(b):
+            times = [p[mode][0] for p in parts]
+            if any(np.isnan(t) for t in times):
                 out[mode] = []
-            else:
-                out[mode] = moe(reach, gk if g > b else bk if b > g else gk + bk)
+                continue
+            slowest = max(times)
+            out[mode] = moe(reach, [k for p in parts if p[mode][0] == slowest for k in p[mode][1]])
         return out
-    return {mode: moe(reaches[mode], ks) for mode, (_, ks) in one(student).items()}
+    g, st = groups[0]
+    return {mode: moe(reaches[mode], ks) for mode, (_, ks) in one(g, st).items()}
+
+
+def one_school_weights(meta: dict, ages: dict, service: str, dest: dict) -> tuple[str, np.ndarray] | None:
+    """Who One school counts, as the page does (web/js/ages.js schoolAgeKey):
+    the children of the ages its own years cover (13-14 for a secondary
+    school that stops at Year 10, 15-17, that is 13-17 less 13-14, for one
+    that starts at Year 11) and, at a girls' or a boys' school, that sex, as
+    the place's share of those ages (meta.ages.sex). Returns the key and the
+    weights, or None where the build sends no ages for the service."""
+    group = ((meta.get("ages") or {}).get("services") or {}).get(service)
+    if not group or group not in ages:
+        return None
+    arr = lambda k: np.nan_to_num(np.array([np.nan if v is None else v for v in ages[k]], dtype="float64"))
+    key, weights = group, arr(group)
+    years = dest.get("years") or [None, None]
+    if service == "secondary_school" and group == "13_17" and "13_14" in ages and None not in years:
+        junior = covers(years[0], years[1], STAGES[service]["junior"])
+        senior = covers(years[0], years[1], STAGES[service]["senior"])
+        if junior and not senior:
+            key, weights = "13_14", arr("13_14")
+        elif senior and not junior:
+            key, weights = "15_17", np.maximum(0.0, arr("13_17") - arr("13_14"))
+    sex = (dest.get("sex") or {}).get(service)
+    girls = (((meta.get("ages") or {}).get("sex") or {}).get("girls") or {}).get(key)
+    if sex in ("girls", "boys") and girls is not None:
+        weights = weights * (girls if sex == "girls" else 1.0 - girls)
+        key = f"{key}:{sex}"
+    return key, weights
 
 
 def zone_share(zones: dict, service: str, dest: int, n: int) -> np.ndarray:
@@ -1064,15 +1174,24 @@ def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str, zone_sta
     """The first school in each cell's list for All, State, State girls and
     State boys (and every school tied with it), in the same order; with
     `zone_state` (zones.build), also for In zone girls and In zone boys, each
-    cell by its In zone set. Exact for those choices; One school is not
+    cell by its In zone set and without designated character schools. Where
+    secondary school is split in two stages (STAGES), State and In zone are
+    kept for each stage too. Exact for those choices; One school is not
     available from it."""
     about = listed.set_index("school")
     groups = {
         "all": pd.Series(True, index=about.index),
         "state": (about["kind"] == "state") & (about["medium"] == "english"),
     }
+    serving = about[about["services"].str.split(",").apply(lambda v: service in v)] if "services" in about else about
+    years = list(zip(serving["years_from"], serving["years_to"])) if {"years_from", "years_to"} <= set(serving.columns) else []
+    stages = stage_split(years, service) or [None]
+    teaches = {st: (about.apply(lambda r: covers(r["years_from"], r["years_to"], STAGES[service][st]), axis=1) if st
+                    else pd.Series(True, index=about.index)) for st in stages}
     for student in ("girls", "boys"):
-        groups[f"state_{student}"] = groups["state"] & about[f"sex_{service}"].apply(lambda s: takes(s, student))
+        for st in stages:
+            groups[f"state_{student}{'_' + st if st else ''}"] = groups["state"] & teaches[st] & about[f"sex_{service}"].apply(lambda s: takes(s, student))
+    designated = about["character"] == "designated" if "character" in about else pd.Series(False, index=about.index)
     keep = np.zeros(len(reach), dtype=bool)
 
     def nearest(member: np.ndarray) -> None:
@@ -1097,8 +1216,10 @@ def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str, zone_sta
         in_set = np.array([cell * size + codes[s] for cell, members in enumerate(block["sets"])
                            for s in members if s in codes], dtype="int64")
         in_here = np.isin(pair, in_set)
+        open_to_all = reach["destination"].map(everyone).fillna(False).to_numpy(dtype=bool)
         for student in ("girls", "boys"):
-            base = reach["destination"].map(groups[f"state_{student}"]).fillna(False).to_numpy(dtype=bool)
-            open_to_all = reach["destination"].map(everyone).fillna(False).to_numpy(dtype=bool)
-            nearest(base & (open_to_all | in_here))
+            for st in stages:
+                member = groups[f"state_{student}{'_' + st if st else ''}"] & ~designated
+                base = reach["destination"].map(member).fillna(False).to_numpy(dtype=bool)
+                nearest(base & (open_to_all | in_here))
     return reach[keep]

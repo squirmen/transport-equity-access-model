@@ -7,8 +7,10 @@
     team zones check                   enrolment zone statuses and the schools to look at (reports only)
     team ages check                    children by age group against Stats NZ's totals (reports only)
     team schools reroute               route only the schools that changed, then check a sample
+    team schools relabel               a school that gains a service keeps its minutes: no routing
     team schools verify                route a sample of origins to every school and compare
     team schools stops                 stops within a 15-minute walk of each school, with morning trips
+    team schools stops --recount       count the trips at those stops again, without routing the walks
     team schools audit-points          each school's map point against its grounds and the streets
     team route --all                   run every routing job (resumable)
     team route --all --shard 1/3       route every third batch, to split work across processes
@@ -83,10 +85,16 @@ def cmd_schools(args: argparse.Namespace) -> int:
         report = routing.verify_school_runs(settings, sample=args.sample, modes=args.modes, record=True)
         _report(report, args.json)
         return 0 if report["identical"] else 1
+    if args.action == "relabel":
+        from . import routing
+
+        report = routing.relabel_schools(settings, reason=args.reason or "", backup=Path(args.backup) if args.backup else None)
+        _report(report, args.json)
+        return 0
     if args.action == "stops":
         from . import school_stops
 
-        report = school_stops.build(settings)
+        report = school_stops.recount(settings) if args.recount else school_stops.build(settings)
         _report(report, args.json)
         return 0
     if args.action == "audit-points":
@@ -246,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_destinations)
 
     p = sub.add_parser("schools", help="school directory checks, re-routing changed schools, stops near schools")
-    p.add_argument("action", choices=["check", "split", "reroute", "verify", "stops", "audit-points"])
+    p.add_argument("action", choices=["check", "split", "reroute", "relabel", "verify", "stops", "audit-points"])
     p.add_argument("--schools", nargs="+", help="reroute: only these changed schools (moe:<id>); others are refused")
     p.add_argument("--modes", nargs="+", help="reroute, verify: only these modes")
     p.add_argument("--reason", help="reroute: why, for the run's record (D4, D5, ...)")
@@ -257,6 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sample", type=int, default=300, help="reroute, verify: origins in the check (default 300)")
     p.add_argument("--json", help="write the report here too")
     p.add_argument("--to", help="audit-points: folder for the audit (default: <out>/destinations)")
+    p.add_argument("--recount", action="store_true", help="stops: count the trips at the stops listed again, without routing the walks")
     p.set_defaults(func=cmd_schools)
 
     p = sub.add_parser("zones", help="enrolment zone checks (reports only)")

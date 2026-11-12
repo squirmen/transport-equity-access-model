@@ -205,6 +205,8 @@ def school_entry(record: pd.Series, services: list[str]) -> dict:
         "point": record["point"],
         "point_note": point_note(record),
         "language_source": clean(record.get("language_source")),
+        # 'designated' for a designated character school (configs/schools/attributes.csv).
+        "character": clean(record.get("character")),
     }
 
 
@@ -689,6 +691,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
     meta["pt_or_walk"] = {
         "rule": pt_or_walk.RULE,
         "slow_factor": round(pt_or_walk.walk_factor(settings, "pt_slow"), 4) if "pt_slow" in settings.modes else None,
+        "slow_note": pt_or_walk.SLOW_NOTE if "pt_slow" in settings.modes else None,
         "covers": pt_or_walk.COVERS,
         "not_covered": pt_or_walk.NOT_COVERED,
         "r5_columns": "_r5",
@@ -777,6 +780,11 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
     folder = settings.output_dir / "site" / "downloads"
     folder.mkdir(parents=True, exist_ok=True)
     flat = table.drop(columns=[c for c in table.columns if c.startswith("id_")]).reset_index()
+    # Columns added in 0.12.0 go last, so the columns a 0.11 script read by
+    # position stay together: R5's own public transport times (_r5), the
+    # jobs and fares on foot with no fare (_z0), and children by age.
+    added = [c for c in flat.columns if c.endswith("_r5") or c.endswith("_z0") or c.startswith("age_")]
+    flat = flat[[c for c in flat.columns if c not in added] + added]
     for column in flat.columns:
         if flat[column].dtype == "object":
             flat[column] = flat[column].astype("string")
@@ -814,7 +822,7 @@ DOWNLOAD_NOTES = {
     "{slug}_h3.csv": "The same fields without shapes.",
     "{slug}_schools.csv": "Every school counted, with its kind, teaching language, who it takes, years, roll and map point.",
     "{slug}_school_zones.csv": "Each hexagon's share of residents in each school's zone, and the zones In zone counts it in.",
-    "{slug}_school_stops.csv": "Stops and stations within a 15-minute walk of each school, with the routes and trips stopping there from 7am to 9am.",
+    "{slug}_school_stops.csv": "Stops and stations within a 15-minute walk of each school, with the routes and trips arriving there from 7am to 9am.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }
@@ -848,7 +856,7 @@ __ROWS__
 </tbody>
 </table>
 <h2>Terms</h2>
-<p>The data is derived from OpenStreetMap (Open Database Licence), Stats NZ and the Ministry of Education (CC BY 4.0), and __AGENCY__ open data. Parts derived from OpenStreetMap are shared under the Open Database Licence.</p>
+<p>The data is derived from OpenStreetMap (Open Database Licence); Stats NZ, the Ministry of Education's schools directory and Land Information New Zealand (NZ Addresses, NZ Facilities) (CC BY 4.0); the Ministry of Education's enrolment zones (CC BY 3.0 NZ); and __AGENCY__ open data. Parts derived from OpenStreetMap are shared under the Open Database Licence.</p>
 <h2>Citation</h2>
 <p>Welch, T. F. (2026). TEAM: Transport Equity and Access Model, __PLACE__. Version __VERSION__. Better Places Lab, University of Auckland.</p>
 </body>

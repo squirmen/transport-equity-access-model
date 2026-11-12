@@ -173,6 +173,12 @@ def main() -> int:
             usable = {m: r for m, r in reaches.items() if answers(r)}
             times = schools.choice_times(usable, dests, service, choice, student, standard_modes, zones)
             w = weights
+            if choice.startswith("one:") and children:
+                d = next(k for k, x in enumerate(dests) if x.get("moe") == int(choice.split(":")[1]) and service in x["services"])
+                own = schools.one_school_weights(meta, ages, service, dests[d])
+                if own is not None:
+                    out.setdefault("one_weights", {}).setdefault(choice, {})[service] = own[0]
+                    w = own[1]
             if who == "zone":
                 d = next(k for k, x in enumerate(dests) if x.get("moe") == int(choice.split(":")[1]) and service in x["services"])
                 if zoned(d, service):

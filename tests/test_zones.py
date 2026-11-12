@@ -448,3 +448,26 @@ def test_zone_files_agree_with_each_other(place):
         assert counts["zoned"] + counts["no_map"] + counts["none"] + counts["not_applied"] + counts["unclear_years"] == counts["state_english"]
     for d, entry in z["schools"].items():
         assert dests[int(d)]["moe"] == entry["moe"] and dests[int(d)]["zone"]["status"] == entry["status"]
+
+
+def test_the_share_of_a_zones_homes_inside_the_place():
+    import h3
+    from pyproj import Transformer
+    from shapely.geometry import box
+
+    # Two address points in a place hexagon, two outside it, all in one zone.
+    to_nztm = Transformer.from_crs(4326, 2193, always_xy=True)
+    lat, lng = -36.88, 174.72
+    inside_cell = h3.latlng_to_cell(lat, lng, 9)
+    x0, y0 = to_nztm.transform(lng, lat)
+    x1, y1 = to_nztm.transform(lng + 0.05, lat)
+    addresses = pd.DataFrame({"x": [x0, x0 + 5, x1, x1 + 5], "y": [y0, y0 + 5, y1, y1 + 5]})
+    lo, hi = min(y0, y1), max(y0, y1)
+    zone = box(x0 - 50, lo - 50, x1 + 50, hi + 50)
+    extent = box(x0 - 1e5, lo - 1e5, x1 + 1e5, hi + 1e5)
+    got = zones.inside_shares({"moe:1": zone}, addresses, [inside_cell], extent)
+    assert got == {"moe:1": 0.5}
+    # A zone reaching beyond the address file's extent is scaled by the part inside it.
+    taller = box(x0 - 50, lo - 50, x1 + 50, hi + 50 + (hi - lo + 100))
+    assert zones.inside_shares({"moe:1": taller}, addresses, [inside_cell], zone)["moe:1"] < 0.5
+    assert zones.inside_shares({"moe:2": box(0, 0, 1, 1)}, addresses, [inside_cell], extent) == {"moe:2": 0.0}

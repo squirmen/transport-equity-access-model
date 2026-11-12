@@ -946,6 +946,116 @@ def reroute_schools(
     return report
 
 
+def relabelled_schools(previous: pd.DataFrame, current: pd.DataFrame) -> dict[str, tuple[list[str], list[str]]]:
+    """Schools whose services changed and nothing else: the same routing
+    points at the same places. {school: (services before, services after)}."""
+    before, after = _point_keys(previous), _point_keys(current)
+    points = lambda keys: {(p, lon, lat) for p, _, lon, lat in keys}
+    services = lambda keys: sorted({svc for _, svc, _, _ in keys})
+    return {s: (services(before[s]), services(after[s])) for s in sorted(set(before) & set(after), key=_moe_key)
+            if before[s] != after[s] and points(before[s]) == points(after[s])}
+
+
+def relabel_schools(settings: Settings, reason: str = "", backup: Path | None = None) -> dict:
+    """Give a school that gains a service the minutes it already has, without
+    routing: a school's minutes do not depend on which service counts it.
+
+    For schools whose services changed and whose points did not (Years 7-10
+    schools counted for secondary school from the 0.12.0 review), each school
+    run's cached pairs gain a copy of the school's rows under each service it
+    gained, taken from a service it had, and lose the rows of any service it
+    lost; each batch summary is worked out again from its pairs, and the run
+    and its manifest are rewritten with the new membership and a `relabelled`
+    record, so `team plan` shows nothing to do. A school that was added,
+    removed or moved is refused: route it with `team schools reroute`. The
+    batches and pairs are copied to `backup`/<run> first (default:
+    <cache>/reroute_backup).
+    """
+    from . import schools as school_data
+
+    folder = settings.output_dir / "destinations"
+    current = pd.read_parquet(folder / "schools.parquet")
+    previous_path = folder / "schools_previous.parquet"
+    if not previous_path.exists():
+        raise SystemExit(f"{previous_path} is missing: rebuild the schools with `team destinations --only schools` first.")
+    previous = pd.read_parquet(previous_path)
+    change = changed_schools(previous, current)
+    relabel = relabelled_schools(previous, current)
+    other = (set(change["added"]) | set(change["removed"]) | set(change["moved"])) - set(relabel)
+    if other:
+        raise SystemExit(f"These schools were added, removed or moved and need routing: {', '.join(sorted(other, key=_moe_key))}")
+    report = {"place": settings.raw.get("name"), "schools": {s: {"before": b, "after": a} for s, (b, a) in relabel.items()}, "runs": {}}
+    if not relabel:
+        log.info("no school changed its services; nothing to relabel")
+        return report
+    backup = Path(backup) if backup else settings.cache_dir / "reroute_backup"
+    origins = load_origins(settings)
+    size = int(settings.routing.get("batch_size", 2000))
+    for dataset, mode_id, window in school_runs(settings):
+        transit = settings.modes[mode_id]["kind"] == "transit"
+        tag = run_tag(dataset, mode_id, window, transit)
+        output = settings.out("routing", f"{tag}.parquet")
+        manifest_path = output.with_suffix(".json")
+        record = json.loads(manifest_path.read_text())
+        table = _window_points(settings, current, window if transit else None)
+        before = _window_points(settings, previous, window if transit else None)
+        members = members_digest(table)
+        if record.get("members") == members:
+            report["runs"][tag] = "already current"
+            continue
+        if record.get("members") != members_digest(before):
+            raise SystemExit(f"{tag} was not routed to the schools in schools_previous.parquet; route it in full.")
+        wanted = set(table["service"])
+        batch_dir = settings.output_dir / "routing" / "batches" / tag
+        pairs_dir = settings.cache_dir / "pairs" / tag
+        _reroute_backup(batch_dir, pairs_dir, backup / tag)
+        added_rows = 0
+        for start in batch_starts(len(origins), size):
+            name = f"origins_{start:06d}.parquet"
+            pairs = pd.read_parquet(pairs_dir / name)
+            parts = []
+            drop = np.zeros(len(pairs), dtype=bool)
+            for school, (old, new) in relabel.items():
+                mine = (pairs["destination"] == school).to_numpy()
+                kept = [svc for svc in old if svc in new and svc in wanted] or [svc for svc in old if svc in set(pairs.loc[mine, "service"])]
+                gained = [svc for svc in new if svc not in old and svc in wanted]
+                lost = [svc for svc in old if svc not in new]
+                if lost:
+                    drop |= mine & pairs["service"].isin(lost).to_numpy()
+                if gained and kept:
+                    source = pairs[mine & (pairs["service"] == kept[0]).to_numpy()]
+                    for svc in gained:
+                        parts.append(source.assign(service=svc))
+                        added_rows += len(source)
+            out = pd.concat([pairs[~drop], *parts], ignore_index=True) if parts or drop.any() else pairs
+            out = out.astype({c: pairs[c].dtype for c in pairs.columns})
+            out = out.sort_values(["origin", "service", "minutes", "destination"], kind="stable").reset_index(drop=True)
+            summary = school_data.summarise(out)
+            tmp = pairs_dir / f"origins_{start:06d}.{os.getpid()}.tmp.parquet"
+            out.to_parquet(tmp, index=False)
+            tmp.replace(pairs_dir / name)
+            tmp = batch_dir / f"origins_{start:06d}.{os.getpid()}.tmp.parquet"
+            summary.to_parquet(tmp, index=False)
+            tmp.replace(batch_dir / name)
+        batches = sorted(batch_dir.glob("origins_*[0-9].parquet"))
+        result = pd.concat([pd.read_parquet(p) for p in batches], ignore_index=True)
+        result.to_parquet(output, index=False)
+        all_targets = _points(table)
+        relabelled = list(record.get("relabelled", []))
+        relabelled.append({"schools": {s: {"before": b, "after": a} for s, (b, a) in relabel.items()}, "reason": reason,
+                           "pairs_added": int(added_rows), "members_before": record.get("members"),
+                           "written": dt.datetime.now().isoformat(timespec="seconds")})
+        record.update({"destinations": int(len(all_targets)), "scope": scope_digest(all_targets), "members": members,
+                       "rows": int(len(result)), "relabelled": relabelled})
+        manifest_path.write_text(json.dumps(record, indent=2, default=str))
+        network_used = network_inputs(settings, settings.modes[mode_id])
+        (batch_dir / "scope.json").write_text(json.dumps({"destinations": scope_digest(all_targets), "count": int(len(all_targets)),
+                                                          "network": network_used, "members": members}))
+        report["runs"][tag] = {"rows": int(len(result)), "pairs_added": int(added_rows)}
+        log.info("%s: relabelled %d schools, %d pairs added", tag, len(relabel), added_rows)
+    return report
+
+
 def verify_school_runs(settings: Settings, sample: int = 300, seed: int = 20261112, modes: list[str] | None = None,
                        record: bool = False) -> dict:
     """Route a sample of origins to every school point in this process and

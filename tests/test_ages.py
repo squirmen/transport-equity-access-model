@@ -48,11 +48,32 @@ def test_band_splits():
                           "f10": [0.25], "f11": [0.2], "f12": [0.2], "f13": [0.2], "f14": [0.15],
                           "f15": [0.3], "f16": [0.3], "f17": [0.2]})
     got = ages.groups(bands).iloc[0].to_dict()
-    assert got == pytest.approx({"0_4": 30.0, "5_10": 52.5, "11_12": 20.0, "13_17": 65.5})
+    # 13_14 (Years 9-10) is kept for a secondary school that takes one stage only.
+    assert got == pytest.approx({"0_4": 30.0, "5_10": 52.5, "11_12": 20.0, "13_17": 65.5, "13_14": 17.5})
     even = ages.even_groups(bands).iloc[0].to_dict()
-    assert even == pytest.approx({"0_4": 30.0, "5_10": 50.0, "11_12": 20.0, "13_17": 56.0})
+    assert even == pytest.approx({"0_4": 30.0, "5_10": 50.0, "11_12": 20.0, "13_17": 56.0, "13_14": 20.0})
     # The groups never take more than the bands hold: ages 5 to 17 from 5-9, 10-14 and 60% of 15-19 at most.
     assert got["5_10"] + got["11_12"] + got["13_17"] <= 40 + 50 + 60
+    assert got["13_14"] <= got["13_17"]
+
+
+def test_girls_share_comes_from_the_places_2018_sa2s(tmp_path):
+    shape = pd.DataFrame({"sa1": ["1", "2", "3"], "sa2_2018": ["100", "100", "200"],
+                          **{f"f{a}": [0.2] * 3 for a in range(10, 18)}})
+    shape.to_parquet(tmp_path / "shape.parquet")
+    rows = []
+    for area, female in (("100", 4), ("200", 6), ("300", 10)):
+        for age in range(0, 20):
+            rows.append({"area": area, "age": age, "female": float(female), "total": 10.0})
+    pd.DataFrame(rows).to_parquet(tmp_path / "sex.parquet")
+    settings = type("S", (), {})()
+    settings.raw = {"data": {"census_sex": "sex.parquet", "census_age_shape": "shape.parquet"}}
+    settings.data = lambda key: tmp_path / settings.raw["data"][key]
+    out = ages.sex_shares(settings, {"1", "3"})
+    # SA2s 100 and 200 only (300 is not the place's): (4 + 6) / 20 at every age.
+    assert out["girls"]["13_17"] == pytest.approx(0.5) and out["girls"]["15_17"] == pytest.approx(0.5)
+    assert out["sa2s"] == 2
+    assert ages.sex_shares(type("N", (), {"raw": {"data": {}}})(), {"1"}) is None
 
 
 def test_suppressed_bands_take_the_sa2_share():

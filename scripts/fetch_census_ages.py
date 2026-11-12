@@ -32,6 +32,12 @@ Writes:
     processed/nz/census/age_shape_sa2_2018.parquet       sa1, sa2_2018, f10..f17, sources
     (each with a .metadata.json)
 
+With --sex, writes processed/nz/census/sex_by_age_sa2_2018.parquet instead:
+females and all people at each age 0 to 19 by 2018 SA2 (and '9999', New
+Zealand), from the same 2018 table (Sex 2 and 9). The build uses it for the
+share of girls among the children a girls' school (or a boys' school) can
+take (ages.sex_shares).
+
 With --ade FILE (the 2023 single-year table by 2023 SA2, downloaded from
 Aotearoa Data Explorer by hand), the same shape is made from 2023 instead and
 written to processed/nz/census/age_shape_sa2_2023.parquet; point the configs'
@@ -70,6 +76,7 @@ TABLE_2018_FILE = Path("raw/nz/census/statsnz_census2018_age_sex_ethnic_sa2_2026
                        "Age-sex-by-ethnic-group-2006-2013-2018-RC-TA-SA2-DHB.zip")
 SHAPE_FILE = Path("processed/nz/census/age_shape_sa2_2018.parquet")
 SHAPE_FILE_2023 = Path("processed/nz/census/age_shape_sa2_2023.parquet")
+SEX_FILE = Path("processed/nz/census/sex_by_age_sa2_2018.parquet")
 MIN_BAND = 30
 AGENT = {"User-Agent": "research-data-fetch"}
 BANDS = {"10_14": range(10, 15), "15_19": range(15, 20)}
@@ -148,6 +155,26 @@ def single_years_2018(zip_path: Path) -> pd.DataFrame:
     return table.reindex(columns=range(0, 20))
 
 
+def sex_by_age_2018(zip_path: Path) -> pd.DataFrame:
+    """Females and all people at each age 0 to 19, by 2018 SA2 code and
+    '9999' (New Zealand): columns area, age, female, total (NaN where
+    confidential)."""
+    wanted = {f"{a:03d}" for a in range(0, 20)}
+    parts = []
+    with zipfile.ZipFile(zip_path) as archive, archive.open("Data8277.csv") as handle:
+        for chunk in pd.read_csv(handle, dtype=str, chunksize=2_000_000):
+            keep = (chunk["Year"] == "2018") & (chunk["Ethnic"] == "9999") & chunk["Sex"].isin(["2", "9"]) & chunk["Age"].isin(wanted)
+            area = chunk["Area"]
+            keep &= ((area.str.len() == 6) & (area != "999999")) | (area == "9999")
+            parts.append(chunk.loc[keep, ["Age", "Area", "Sex", "count"]])
+    rows = pd.concat(parts, ignore_index=True)
+    rows["value"] = pd.to_numeric(rows["count"], errors="coerce")
+    table = rows.pivot_table(index=["Area", "Age"], columns="Sex", values="value", aggfunc="first", dropna=False).reset_index()
+    out = pd.DataFrame({"area": table["Area"].astype(str), "age": table["Age"].astype(int),
+                        "female": table.get("2"), "total": table.get("9")})
+    return out.sort_values(["area", "age"]).reset_index(drop=True)
+
+
 def single_years_2023(path: Path) -> pd.DataFrame:
     """The same shape from an Aotearoa Data Explorer CSV of CEN23_POP_001 (total
     ethnicity, total gender, 2023, by SA2): one row per area and age. Columns
@@ -216,8 +243,28 @@ def main() -> int:
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--date", default="2026-11-12", help="date in the 2018 SA2 polygon file's name")
     parser.add_argument("--ade", help="2023 single-year table by 2023 SA2 from Aotearoa Data Explorer (CSV)")
+    parser.add_argument("--sex", action="store_true", help="write the females-by-age table by 2018 SA2 only")
     args = parser.parse_args()
     root = Path(args.data_root)
+    if args.sex:
+        table = sex_by_age_2018(root / TABLE_2018_FILE)
+        path = root / SEX_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        table.to_parquet(path, index=False)
+        nat = table[table["area"] == "9999"]
+        meta = {
+            "dataset": "Females and all people at each age 0 to 19 by 2018 SA2, 2018 Census (Data8277: Total ethnicity, Sex 2 and 9)",
+            "inputs": {"table": TABLE_2018, "table_file": str(TABLE_2018_FILE)},
+            "areas": int(table["area"].nunique()),
+            "national_female_share_13_17": round(float(nat.loc[nat["age"].between(13, 17), "female"].sum()
+                                                       / nat.loc[nat["age"].between(13, 17), "total"].sum()), 4),
+            "licence": "CC BY 4.0, Stats NZ",
+            "written_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        Path(str(path) + ".metadata.json").write_text(json.dumps(meta, indent=2))
+        print(json.dumps(meta, indent=1))
+        return 0
     points = sa1_points(root)
     log.info("%d SA1s across the places", len(points))
 

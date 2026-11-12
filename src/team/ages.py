@@ -20,8 +20,14 @@ sets out the rule; in short:
    people split by its area in each hexagon.
 
 Ages are as at the census (7 March 2023). A child's school year is taken
-from age, so 13-17 stands for Years 9-13: some 13-year-olds are in Year 8,
-some 17-year-olds have left school.
+from age, so 13-17 stands for Years 9-13. Census day is early in the school
+year, so about a third of Year 7 and of Year 9 students are counted with the
+age group below, and some 17-year-olds have left school.
+
+13_14 (Years 9-10) is kept as well, for a secondary school that takes one
+stage only; 15-17 (Years 11-13) is 13_17 less 13_14. The share of girls
+among the children of each group comes from the 2018 Census single years by
+sex in the place's 2018 SA2s (sex_shares), for girls' and boys' schools.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from .config import Settings
 
 log = logging.getLogger("team.ages")
 
-GROUPS = {"0_4": (0, 4), "5_10": (5, 10), "11_12": (11, 12), "13_17": (13, 17)}
+GROUPS = {"0_4": (0, 4), "5_10": (5, 10), "11_12": (11, 12), "13_17": (13, 17), "13_14": (13, 14)}
 SERVICE_GROUP = {
     "early_childhood": "0_4",
     "primary_school": "5_10",
@@ -49,6 +55,9 @@ LABELS = {
     "5_10": {"label": "children aged 5–10", "years": "Years 1–6", "ages": [5, 10]},
     "11_12": {"label": "children aged 11–12", "years": "Years 7–8", "ages": [11, 12]},
     "13_17": {"label": "children aged 13–17", "years": "Years 9–13", "ages": [13, 17]},
+    "13_14": {"label": "children aged 13–14", "years": "Years 9–10", "ages": [13, 14]},
+    # Not sent: the page takes 13_17 less 13_14.
+    "15_17": {"label": "children aged 15–17", "years": "Years 11–13", "ages": [15, 17], "from": "13_17 less 13_14"},
 }
 COLUMNS = [f"age_{g}" for g in GROUPS]
 RULE = ("2023 Census five-year age bands by SA1, split into single years by the 2018 Census shape of the "
@@ -67,7 +76,7 @@ SOURCES = [
     "https://services2.arcgis.com/vKb0s8tBIA3bdocZ/arcgis/rest/services/2018_Census_usually_resident_population_and_age_groups_by_Statistical_Area_2/FeatureServer/0",
 ]
 # Bands each group is built from, for the rounding allowance in sa2_check.
-GROUP_BANDS = {"0_4": 1, "5_10": 2, "11_12": 1, "13_17": 2}
+GROUP_BANDS = {"0_4": 1, "5_10": 2, "11_12": 1, "13_17": 2, "13_14": 1}
 
 
 def _records(path: Path) -> pd.DataFrame:
@@ -144,6 +153,7 @@ def groups(bands: pd.DataFrame) -> pd.DataFrame:
         "5_10": b["b5_9"] + f[10] * b["b10_14"],
         "11_12": (f[11] + f[12]) * b["b10_14"],
         "13_17": (f[13] + f[14]) * b["b10_14"] + (f[15] + f[16] + f[17]) * b["b15_19"],
+        "13_14": (f[13] + f[14]) * b["b10_14"],
     }, index=bands.index)
 
 
@@ -155,7 +165,31 @@ def even_groups(bands: pd.DataFrame) -> pd.DataFrame:
         "5_10": b["b5_9"] + 0.2 * b["b10_14"],
         "11_12": 0.4 * b["b10_14"],
         "13_17": 0.4 * b["b10_14"] + 0.6 * b["b15_19"],
+        "13_14": 0.4 * b["b10_14"],
     }, index=bands.index)
+
+
+SEX_RULE = ("Girls' share of the children of each age group: females over everyone at those single years of age in "
+            "the 2018 Census, summed over the 2018 SA2s the place's SA1s fall in (Data8277, Total ethnicity). Used "
+            "for a girls' school (boys: one less this); it assumes girls and boys of an age live in the same places "
+            "inside the place.")
+
+
+def sex_shares(settings: Settings, sa1s: set[str]) -> dict | None:
+    """{group: girls' share} for the place, or None without the table."""
+    if "census_sex" not in settings.raw.get("data", {}) or not settings.data("census_sex").exists():
+        return None
+    table = pd.read_parquet(settings.data("census_sex"))
+    shape, _ = read_shape(settings)
+    areas = set(shape.loc[shape.index.isin(sa1s), "sa2_2018"].astype(str))
+    mine = table[table["area"].isin(areas) & table["female"].notna() & table["total"].notna()]
+    out = {}
+    for group, (lo, hi) in {**GROUPS, "15_17": (15, 17)}.items():
+        rows = mine[mine["age"].between(lo, hi)]
+        total = float(rows["total"].sum())
+        out[group] = round(float(rows["female"].sum()) / total, 4) if total > 0 else None
+    return {"girls": out, "sa2s": len(areas), "rule": SEX_RULE,
+            "source": "Stats NZ, 2018 Census age by single year and sex by SA2 (Data8277), CC BY 4.0"}
 
 
 def read_shape(settings: Settings) -> tuple[pd.DataFrame, dict]:
@@ -387,6 +421,7 @@ def compute(settings: Settings, origins) -> tuple[pd.DataFrame, dict]:
         "sa1_without_shape": info["sa1_without_shape"],
         "national_shape_used": info["national_shape_used"],
         "grid_check": check,
+        "sex": sex_shares(settings, set(blocks["sa1"].astype(str))),
     }
     return out, summary
 
@@ -433,4 +468,7 @@ def meta(settings: Settings, table: pd.DataFrame) -> dict | None:
         "filled": summary.get("filled"),
         "national_shape_used": summary.get("national_shape_used"),
         "grid_check": summary.get("grid_check"),
+        # The share of girls among the children of each group, for a girls'
+        # or a boys' school (sex_shares).
+        "sex": summary.get("sex"),
     }

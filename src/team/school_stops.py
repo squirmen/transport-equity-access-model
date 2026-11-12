@@ -7,11 +7,14 @@ and elevation, 4.8 km/h, whole minutes rounded down. Stops with a walk of 15
 minutes or less are kept. Platforms with a `parent_station` are grouped under
 the station, whose walk is its quickest platform's.
 
-For each kept stop: the routes and trips stopping there with a departure
-from 07:00:00 to 08:59:59 on the routing day (Tuesday 15 September 2026),
-counting the services that run that day by calendar.txt and
-calendar_dates.txt; per route its short name, mode (from `route_type`),
-headsigns and trips. A stop is listed whether or not the trip R5 times uses
+For each kept stop: the routes and trips that set down there (drop_off_type
+not 1) arriving from 07:00:00 to 08:59:59 on the routing day (Tuesday 15
+September 2026), counting the services that run that day by calendar.txt and
+calendar_dates.txt; per route (by short name and mode) its mode (from
+`route_type`), headsigns and trips. At the school end students get off, so a
+school bus that ends at the school's stop counts, and a train counts as it
+arrives. Trips a person can board there in the window (pickup_type not 1,
+departing in the window) are kept too, as `boarding`. A stop is listed whether or not the trip R5 times uses
 it: this says what is near the school, not how the median trip gets there.
 A stop no trip in the feed stops at on any day is listed too, marked
 `served` false: Auckland's "Mount Albert Grammar School" stop (1427) is one,
@@ -43,6 +46,7 @@ log = logging.getLogger("team.school_stops")
 
 MAX_WALK_MINUTES = 15
 SEARCH_METRES = 1300.0
+COLUMNS = ["school", "moe", "stop", "code", "name", "station", "lat", "lon", "walk", "metres", "routes", "trips", "boarding", "served"]
 
 # GTFS route_type, basic and extended, to the word the site uses.
 BASIC_MODES = {0: "tram", 1: "metro", 2: "train", 3: "bus", 4: "ferry", 5: "cable car", 6: "gondola", 7: "funicular",
@@ -127,55 +131,74 @@ def stop_table(stops: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def departures(feed: zipfile.ZipFile, wanted: set[str], day: dt.date, start: int, end: int) -> pd.DataFrame:
-    """Trips stopping at the `wanted` stops with a departure in [start, end) on
-    `day`: stop_id, trip_id, route_id, headsign. A trip of the day before
-    that runs past midnight counts at its time less 24 hours. The stops any
-    trip in the feed stops at, on any day, are in `.attrs["served"]`."""
+    """Trips calling at the `wanted` stops in [start, end) on `day`: stop_id,
+    trip_id, route_id, headsign, alight (sets down there, drop_off_type not
+    1, arriving in the window) and board (picks up there, pickup_type not 1,
+    departing in the window). A trip of the day before that runs past
+    midnight counts at its time less 24 hours. The stops any trip in the feed
+    stops at, on any day, are in `.attrs["served"]`."""
     trips = _read(feed, "trips.txt", ["trip_id", "route_id", "service_id", "trip_headsign"])
     calendar = _read(feed, "calendar.txt")
     dates = _read(feed, "calendar_dates.txt")
     today = services_on(calendar, dates, day)
     yesterday = services_on(calendar, dates, day - dt.timedelta(days=1))
-    times = _read(feed, "stop_times.txt", ["trip_id", "stop_id", "departure_time", "arrival_time", "stop_headsign", "pickup_type"])
+    times = _read(feed, "stop_times.txt", ["trip_id", "stop_id", "departure_time", "arrival_time", "stop_headsign",
+                                           "pickup_type", "drop_off_type"])
     times = times[times["stop_id"].isin(wanted)].copy()
     served = set(times["stop_id"])
-    clock = times["departure_time"].where(times["departure_time"].str.strip() != "", times.get("arrival_time", ""))
-    times["seconds"] = _seconds(clock.fillna(""))
-    if "pickup_type" in times:
-        # 1: no pickup there, so nobody boards.
-        times = times[times["pickup_type"].str.strip() != "1"]
+    departure = times["departure_time"].where(times["departure_time"].str.strip() != "", times["arrival_time"])
+    arrival = times["arrival_time"].where(times["arrival_time"].str.strip() != "", times["departure_time"])
+    times["dep"] = _seconds(departure.fillna(""))
+    times["arr"] = _seconds(arrival.fillna(""))
     times = times.merge(trips, on="trip_id", how="inner")
-    on_today = times["service_id"].isin(today) & (times["seconds"] >= start) & (times["seconds"] < end)
-    late = times["service_id"].isin(yesterday) & (times["seconds"] >= start + 86400) & (times["seconds"] < end + 86400)
-    times = times[on_today | late]
+
+    def within(seconds: pd.Series) -> pd.Series:
+        on_today = times["service_id"].isin(today) & (seconds >= start) & (seconds < end)
+        late = times["service_id"].isin(yesterday) & (seconds >= start + 86400) & (seconds < end + 86400)
+        return on_today | late
+
+    # 1: no pickup (or no drop-off) there.
+    times["board"] = within(times["dep"]) & (times["pickup_type"].str.strip() != "1")
+    times["alight"] = within(times["arr"]) & (times["drop_off_type"].str.strip() != "1")
+    times = times[times["board"] | times["alight"]]
     headsign = times.get("stop_headsign", pd.Series("", index=times.index)).fillna("").str.strip()
     times["headsign"] = headsign.where(headsign != "", times["trip_headsign"].fillna("").str.strip())
-    out = times[["stop_id", "trip_id", "route_id", "headsign"]].reset_index(drop=True)
+    out = times[["stop_id", "trip_id", "route_id", "headsign", "alight", "board"]].reset_index(drop=True)
     out.attrs["served"] = served
     return out
 
 
-def _routes_by_group(times: pd.DataFrame, routes: pd.DataFrame, group: pd.Series) -> dict[str, tuple[list[dict], int]]:
-    """Per stop group: routes (short name, mode, headsigns, trips) and trips in all."""
+def _route_name(about: pd.DataFrame, route_id) -> str:
+    name = about["route_short_name"].get(route_id, "") if "route_short_name" in about else ""
+    if not str(name).strip():
+        name = about["route_long_name"].get(route_id, route_id) if "route_long_name" in about else route_id
+    return str(name).strip()
+
+
+def _routes_by_group(times: pd.DataFrame, routes: pd.DataFrame, group: pd.Series) -> dict[str, tuple[list[dict], int, int]]:
+    """Per stop group: routes that set down there in the window (short name,
+    mode, headsigns, trips), the trips setting down in all, and the trips a
+    person can board there. A feed with one route_id per direction or variant
+    under the same short name (Otago's 1A and 1B are both '1') is one route."""
     if times.empty:
         return {}
-    frame = times.assign(group=times["stop_id"].map(group))
     about = routes.set_index("route_id")
+    frame = times.assign(group=times["stop_id"].map(group),
+                         route=times["route_id"].map(lambda r: _route_name(about, r)),
+                         mode=times["route_id"].map(lambda r: route_mode(about["route_type"].get(r) if "route_type" in about else None)))
     out = {}
     for key, rows in frame.groupby("group", sort=False):
+        alight = rows[rows["alight"]]
         listed = []
-        for route_id, part in rows.groupby("route_id", sort=False):
-            name = about["route_short_name"].get(route_id, "") if "route_short_name" in about else ""
-            if not str(name).strip():
-                name = about["route_long_name"].get(route_id, route_id) if "route_long_name" in about else route_id
+        for (name, mode), part in alight.groupby(["route", "mode"], sort=False):
             listed.append({
-                "route": str(name).strip(),
-                "mode": route_mode(about["route_type"].get(route_id) if "route_type" in about else None),
+                "route": name,
+                "mode": mode,
                 "headsigns": sorted({h for h in part["headsign"] if h}),
                 "trips": int(part["trip_id"].nunique()),
             })
         listed.sort(key=lambda r: (-r["trips"], r["route"]))
-        out[str(key)] = (listed, int(rows["trip_id"].nunique()))
+        out[str(key)] = (listed, int(alight["trip_id"].nunique()), int(rows.loc[rows["board"], "trip_id"].nunique()))
     return out
 
 
@@ -253,7 +276,7 @@ def build(settings: Settings) -> dict:
     for record in walks.to_dict("records"):
         key = str(record["group"])
         info = about.loc[key] if key in about.index else about.loc[record["from_id"]]
-        listed_routes, trips = by_group.get(key, ([], 0))
+        listed_routes, trips, boarding = by_group.get(key, ([], 0, 0))
         rows.append({
             "school": record["school"],
             "moe": int(str(record["school"]).split(":")[1]),
@@ -267,10 +290,10 @@ def build(settings: Settings) -> dict:
             "metres": round(float(record["metres"])),
             "routes": json.dumps(listed_routes, ensure_ascii=False),
             "trips": trips,
+            "boarding": boarding,
             "served": key in served_groups,
         })
-    table = pd.DataFrame(rows, columns=["school", "moe", "stop", "code", "name", "station", "lat", "lon", "walk", "metres", "routes",
-                                        "trips", "served"])
+    table = pd.DataFrame(rows, columns=COLUMNS)
     table = table.sort_values(["moe", "walk", "metres", "stop"], kind="stable").reset_index(drop=True)
     table.to_parquet(settings.out("destinations", "school_stops.parquet"), index=False)
 
@@ -290,10 +313,42 @@ def build(settings: Settings) -> dict:
         "schools": int(listed["moe"].nunique()),
         "schools_with_none": int(len(set(listed["school"]) - set(table["school"]))),
         "stops_listed": int(len(table)),
+        "counts": COUNT_RULE,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
     settings.out("destinations", "school_stops.json").write_text(json.dumps(record, indent=2))
     return record
+
+
+COUNT_RULE = "trips setting down (drop_off_type not 1) arriving in the window; boarding: picking up (pickup_type not 1) departing in it"
+
+
+def recount(settings: Settings) -> dict:
+    """Count the trips at the stops already listed again, from the feed,
+    without routing the walks again: for a change to how trips are counted."""
+    table = load(settings)
+    listed = settings.output_dir / "destinations" / "school_stops.json"
+    if table is None or not listed.exists():
+        raise SystemExit("No stops near schools yet: run `team schools stops` first.")
+    record = json.loads(listed.read_text())
+    day, start, end = school_window(settings)
+    with zipfile.ZipFile(settings.data("gtfs")) as feed:
+        stops = _read(feed, "stops.txt")
+        routes = _read(feed, "routes.txt")
+        boarding, group = stop_table(stops)
+        groups = set(table["stop"].astype(str))
+        wanted = {s for s, g in group.items() if str(g) in groups}
+        times = departures(feed, wanted, day, start, end)
+    by_group = _routes_by_group(times, routes, group)
+    served_groups = {group.get(s, s) for s in times.attrs.get("served", set())}
+    counted = [by_group.get(str(k), ([], 0, 0)) for k in table["stop"]]
+    table = table.assign(routes=[json.dumps(c[0], ensure_ascii=False) for c in counted],
+                         trips=[c[1] for c in counted], boarding=[c[2] for c in counted],
+                         served=[str(k) in served_groups for k in table["stop"]])[COLUMNS]
+    table.to_parquet(settings.out("destinations", "school_stops.parquet"), index=False)
+    record.update({"counts": COUNT_RULE, "recounted": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
+    listed.write_text(json.dumps(record, indent=2))
+    return {"stops": int(len(table)), "with_trips": int((table["trips"] > 0).sum())}
 
 
 def load(settings: Settings) -> pd.DataFrame | None:
@@ -318,7 +373,7 @@ def write(settings: Settings, folder: Path, dest_index: dict) -> dict | None:
             continue
         schools[str(dest_index[school])] = [
             {"s": position[r["stop"]], "walk": int(r["walk"]), "metres": int(r["metres"]),
-             "routes": json.loads(r["routes"]), "trips": int(r["trips"])}
+             "routes": json.loads(r["routes"]), "trips": int(r["trips"]), "board": int(r.get("boarding", 0) or 0)}
             for r in rows.to_dict("records")
         ]
     # Every school is listed, so the page can tell "no stop within a
@@ -333,6 +388,8 @@ def write(settings: Settings, folder: Path, dest_index: dict) -> dict | None:
         "window": record["window"],
         "max_walk_minutes": MAX_WALK_MINUTES,
         "gtfs": record["gtfs"],
+        # trips: setting down there, arriving in the window; board: picking up, departing in it.
+        "counts": "arrivals",
         # served: false for a stop no trip in the feed stops at, on any day.
         "stops": [{"id": r["stop"], "code": r["code"], "name": r["name"], "station": bool(r["station"]),
                    "lat": r["lat"], "lon": r["lon"], "served": bool(r["served"])} for r in shared.to_dict("records")],
@@ -340,7 +397,8 @@ def write(settings: Settings, folder: Path, dest_index: dict) -> dict | None:
     }
     _dump(folder / "schools" / "stops.json", body)
     return {"file": "schools/stops.json", "date": record["date"], "window": record["window"], "gtfs": record["gtfs"],
-            "max_walk_minutes": MAX_WALK_MINUTES, "schools_with_none": record["schools_with_none"]}
+            "max_walk_minutes": MAX_WALK_MINUTES, "schools_with_none": record["schools_with_none"],
+            "counts": record.get("counts", COUNT_RULE)}
 
 
 def write_csv(settings: Settings, folder: Path) -> Path | None:
@@ -357,12 +415,13 @@ def write_csv(settings: Settings, folder: Path) -> Path | None:
         rows.append({
             "moe": r["moe"], "school": names.get(r["moe"]), "stop_id": r["stop"], "stop_code": r["code"], "stop_name": r["name"],
             "station": bool(r["station"]), "mode": ";".join(modes), "walk_minutes": r["walk"], "straight_m": r["metres"],
-            "routes": " ".join(f"{x['route']} ({x['trips']})" for x in routes), "trips_7_9": r["trips"],
-            "served_any_day": bool(r["served"]),
+            "routes": " ".join(f"{x['route']} ({x['trips']})" for x in routes), "trips_arriving_7_9": r["trips"],
+            "trips_boarding_7_9": int(r.get("boarding", 0) or 0), "served_any_day": bool(r["served"]),
         })
     path = folder / f"team_{settings.naming['slug']}_school_stops.csv"
     pd.DataFrame(rows, columns=["moe", "school", "stop_id", "stop_code", "stop_name", "station", "mode", "walk_minutes",
-                                "straight_m", "routes", "trips_7_9", "served_any_day"]).to_csv(path, index=False)
+                                "straight_m", "routes", "trips_arriving_7_9", "trips_boarding_7_9",
+                                "served_any_day"]).to_csv(path, index=False)
     return path
 
 

@@ -77,6 +77,9 @@ def headline(summary: dict, cells_path: Path) -> dict:
         "everyday_all_share": round(all_three, 4) if all_three is not None else None,
         "jobs_pt_45_typical": round(jobs, -2) if jobs is not None else None,
         "jobs_pt_45_share": round(share, 4) if share is not None else None,
+        # Public transport, or walking where that is quicker (0.12.0): the
+        # opening view's jobs label says so.
+        "jobs_pt_or_walk": bool(meta.get("pt_or_walk")),
         "fare_kind": (meta.get("fares") or {}).get("kind"),
         "fare_zones": len((meta.get("fares") or {}).get("zones") or []),
         "routing_date": meta.get("routing_date"),
