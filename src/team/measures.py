@@ -73,13 +73,41 @@ def school_run_done(settings: Settings, tag: str) -> bool:
     return output.exists() and output.with_suffix(".json").exists()
 
 
+class PairsMismatch(SystemExit):
+    """The cached pairs do not reproduce a run's own summary."""
+
+
+def _service_counts(pairs: pd.DataFrame | None) -> pd.DataFrame:
+    """Counts within 10, 15, 20 and 30 minutes per origin and service, from pairs."""
+    from .pt_or_walk import counts
+
+    if pairs is None or pairs.empty:
+        return pd.DataFrame(columns=[f"n{m}" for m in COUNT_MINUTES])
+    return counts(pairs, ["origin", "service"], COUNT_MINUTES)
+
+
+def check_counts(summary: pd.DataFrame, from_pairs: pd.DataFrame, tag: str) -> None:
+    """Stop when a run's cached pairs do not give its own counts: the merge
+    with walking is worked out from the pairs, so they must agree first."""
+    run = summary.set_index(["origin", "service"])[[f"n{m}" for m in COUNT_MINUTES]].astype("int64")
+    got = from_pairs.reindex(run.index).fillna(0).astype("int64")
+    bad = int((run != got).any(axis=1).sum())
+    if bad:
+        raise PairsMismatch(f"{tag}: the cached pairs give other counts than the run in {bad} rows; route the run again.")
+
+
 def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
     """Minutes, counts and the nearest destination of each service by each mode.
 
     With school runs of their own, school services are left to
     `school_columns`. A time past the routing limit is dropped: R5 can return
     a minute or more over it, and every count and pair stops at the limit.
+
+    Public transport is the quicker of R5's trip and walking, pair by pair
+    (pt_or_walk.py): times, the destination named and every count. R5's own
+    times are kept as t_<service>_<mode>[_<window>]_r5.
     """
+    from . import pt_or_walk
     from .schools import school_service_ids
 
     skip = set(school_service_ids(settings)) if has_school_runs(settings) else set()
@@ -94,6 +122,28 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
     if not frames:
         raise SystemExit("No routing outputs found. Run `team route --all` first.")
     long = pd.concat(frames, ignore_index=True)
+    # Counts from the pairs, for public transport merged with walking.
+    transit_runs = any(pt_or_walk.is_transit(settings, m) and path.exists() for m, _, path in _service_runs(settings))
+    walked = transit_runs and "walk" in settings.modes and (settings.output_dir / "routing" / "services_walk.parquet").exists()
+    walk_pairs = load_pairs(settings, run_tag("services", "walk", None, False)) if walked else None
+    if walked and walk_pairs is None:
+        raise SystemExit("services_walk: no cached pairs; public transport cannot be merged with walking without them.")
+    if walk_pairs is not None:
+        walk_pairs = walk_pairs[~walk_pairs["service"].isin(skip)]
+    merged_counts: dict[tuple[str, str], pd.DataFrame] = {}
+    for mode_id, window, path in _service_runs(settings):
+        if not pt_or_walk.is_transit(settings, mode_id) or not path.exists() or walk_pairs is None:
+            continue
+        tag = run_tag("services", mode_id, window, True)
+        pairs = load_pairs(settings, tag)
+        if pairs is None:
+            raise SystemExit(f"{tag}: no cached pairs; public transport cannot be merged with walking without them.")
+        pairs = pairs[~pairs["service"].isin(skip)]
+        summary = long[(long["mode"] == mode_id) & (long["window"] == window) & ~long["service"].isin(skip)]
+        check_counts(summary, _service_counts(pairs), tag)
+        both = pt_or_walk.merge(pairs, walk_pairs, ["origin", "destination", "service"], limit_minutes,
+                                pt_or_walk.walk_factor(settings, mode_id))
+        merged_counts[(mode_id, window)] = _service_counts(both)
     columns: dict[str, pd.Series] = {}
     for service, spec in settings.services.items():
         if service in skip:
@@ -101,6 +151,10 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
         counted = count_column(float(spec["standard_minutes"]))
         rows = long[long["service"] == service]
         windows = service_windows(spec)
+        walk = rows[(rows["mode"] == "walk") & (rows["window"] == "")].set_index("origin")
+        walk_t = walk["minutes"].reindex(origins).astype("float32") if len(walk) else pd.Series(np.nan, index=origins)
+        walk_t = walk_t.where(walk_t <= limit_minutes)
+        walk_id = walk["nearest_id"].reindex(origins) if len(walk) else pd.Series(None, index=origins, dtype="object")
         for mode_id, mode in settings.modes.items():
             transit = mode["kind"] == "transit"
             for window in windows if transit else [""]:
@@ -110,14 +164,26 @@ def service_table(settings: Settings, origins: pd.Index) -> pd.DataFrame:
                 suffix = f"_{window}" if transit and window != windows[0] else ""
                 name = f"{service}_{mode_id}{suffix}"
                 minutes = by_origin["minutes"].reindex(origins).astype("float32")
-                columns[f"t_{name}"] = minutes.where(minutes <= limit_minutes)
-                columns[f"n_{name}"] = by_origin[counted].reindex(origins).fillna(0).astype("int32")
-                columns[f"id_{name}"] = by_origin["nearest_id"].reindex(origins).where(minutes <= limit_minutes)
+                minutes = minutes.where(minutes <= limit_minutes)
+                nearest = by_origin["nearest_id"].reindex(origins).where(minutes.notna())
+                steps = by_origin[[f"n{m}" for m in COUNT_MINUTES]].reindex(origins).fillna(0)
+                if transit and (mode_id, window) in merged_counts:
+                    columns[f"t_{name}_r5"] = minutes
+                    minutes, nearest = pt_or_walk.merge_nearest(minutes, nearest, walk_t, walk_id, limit_minutes,
+                                                                 pt_or_walk.walk_factor(settings, mode_id))
+                    got = merged_counts[(mode_id, window)]
+                    if service in got.index.get_level_values("service"):
+                        steps = got.xs(service, level="service").reindex(origins).fillna(0)
+                    else:
+                        steps = steps * 0
+                columns[f"t_{name}"] = minutes
+                columns[f"n_{name}"] = steps[counted].astype("int32")
+                columns[f"id_{name}"] = nearest
                 # Counts at every step, for how much choice a place has at
                 # whatever standard is chosen; the usual time only.
                 if not suffix and mode_id in settings.standard_modes:
                     for limit in COUNT_MINUTES:
-                        columns[f"n{limit}_{name}"] = by_origin[f"n{limit}"].reindex(origins).fillna(0).astype("int16")
+                        columns[f"n{limit}_{name}"] = steps[f"n{limit}"].astype("int16")
     return pd.DataFrame(columns, index=origins)
 
 
@@ -129,8 +195,12 @@ def school_columns(settings: Settings, origins: pd.Index, origin_xy: np.ndarray)
     Returns the columns and, for the export, each reach list in that order
     and the schools tied for nearest, keyed (service, mode key) where the
     mode key is the column suffix (pt, or pt_<window> for another window).
+
+    Public transport lists are merged with walking, school by school
+    (pt_or_walk.py), so they also hold schools reached only on foot; R5's
+    own nearest time is kept as t_<service>_<mode>_r5.
     """
-    from . import schools
+    from . import pt_or_walk, schools
 
     listed = schools.load_list(settings)
     state: dict = {"reach": {}, "ties": {}}
@@ -150,7 +220,7 @@ def school_columns(settings: Settings, origins: pd.Index, origin_xy: np.ndarray)
     for mode_id, mode in settings.modes.items():
         transit = mode["kind"] == "transit"
         for window in sorted({w for s in schools.school_service_ids(settings) for w in service_windows(settings.services[s])}) if transit else [None]:
-            pairs = schools.load_reach(settings, school_tag(settings, mode_id, window))
+            pairs = pt_or_walk.load_merged(settings, "schools", mode_id, window)
             if pairs is None:
                 continue
             ordered = schools.ordered_reach(pairs, origins, origin_xy, listed)
@@ -164,6 +234,11 @@ def school_columns(settings: Settings, origins: pd.Index, origin_xy: np.ndarray)
                 reach = ordered[ordered["service"] == service]
                 minutes, nearest, ties = schools.nearest_schools(reach, n)
                 columns[f"t_{name}"] = pd.Series(minutes, index=origins, dtype="float32")
+                if "r5" in reach:
+                    r5 = reach.groupby("cell")["r5"].min()
+                    values = np.full(n, np.nan, dtype="float32")
+                    values[r5.index.to_numpy()] = r5.to_numpy(dtype="float32")
+                    columns[f"t_{name}_r5"] = pd.Series(values, index=origins, dtype="float32")
                 limit = int(count_column(float(spec["standard_minutes"]))[1:])
                 columns[f"n_{name}"] = pd.Series(schools.counts_within(reach, n, limit), index=origins, dtype="int32")
                 columns[f"id_{name}"] = pd.Series(nearest, index=origins, dtype="object")
@@ -184,7 +259,13 @@ def _nztm_points(lon, lat) -> np.ndarray:
 
 
 def add_standards(table: pd.DataFrame, settings: Settings) -> pd.DataFrame:
-    """Best time without a car, whether it meets the standard, and how many ways do."""
+    """Best time without a car, whether it meets the standard, and how many ways do.
+
+    Ties go to the mode listed first in standard_modes (walking). Public
+    transport is the quicker of a bus or train and walking, so it counts as a
+    way of its own in options_ only where a bus or train is quicker than
+    walking; otherwise the same walk would count twice.
+    """
     for service, spec in settings.services.items():
         limit = float(spec["standard_minutes"])
         counting = [m for m in settings.standard_modes if f"t_{service}_{m}" in table]
@@ -195,7 +276,13 @@ def add_standards(table: pd.DataFrame, settings: Settings) -> pd.DataFrame:
         table[f"best_{service}"] = np.where(reachable, best, np.nan).astype("float32")
         table[f"via_{service}"] = np.where(reachable, np.array(counting)[filled.argmin(axis=1)], "")
         table[f"meets_{service}"] = best <= limit
-        table[f"options_{service}"] = (filled <= limit).sum(axis=1).astype("int8")
+        ways = filled <= limit
+        walk = table[f"t_{service}_walk"].to_numpy(dtype="float64") if f"t_{service}_walk" in table else None
+        if walk is not None:
+            for j, mode_id in enumerate(counting):
+                if settings.modes[mode_id]["kind"] == "transit":
+                    ways[:, j] &= ~(filled[:, j] >= walk)
+        table[f"options_{service}"] = ways.sum(axis=1).astype("int8")
     table["standards_met"] = sum(table[f"meets_{s}"].astype("int8") for s in settings.services)
     return table
 
@@ -255,7 +342,25 @@ def load_pairs(settings: Settings, tag: str) -> pd.DataFrame | None:
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 
 
+def check_jobs(run: pd.DataFrame, from_pairs: pd.Series, tag: str, limit: int) -> None:
+    """Stop when a run's cached job pairs do not give its own job counts
+    (floating-point sums aside)."""
+    expected = run.to_numpy(dtype="float64")
+    got = from_pairs.reindex(run.index).fillna(0.0).to_numpy(dtype="float64")
+    bad = int((np.abs(expected - got) > 0.01 + 1e-5 * np.abs(expected)).sum())
+    if bad:
+        raise PairsMismatch(f"{tag}: the cached pairs give other jobs within {limit} minutes than the run for {bad} origins.")
+
+
 def job_table(settings: Settings, origins: pd.Index, demand: pd.Series) -> pd.DataFrame:
+    """Jobs within each threshold by each mode, as counts, shares and the
+    competition-adjusted measure.
+
+    Public transport is the quicker of R5's trip and walking, job cell by job
+    cell (pt_or_walk.py); R5's own counts are kept as jobs<T>_<mode>[_<window>]_r5.
+    """
+    from . import pt_or_walk
+
     jobs = pd.read_parquet(settings.output_dir / "destinations" / "jobs.parquet").set_index("id")["jobs"]
     total = float(jobs.sum())
     columns: dict[str, pd.Series] = {}
@@ -271,17 +376,29 @@ def job_table(settings: Settings, origins: pd.Index, demand: pd.Series) -> pd.Da
                 continue
             key = f"{mode_id}_{window}" if transit and window != windows[0] else mode_id
             frame = pd.read_parquet(path).set_index("origin")
+            pairs = None
+            if transit or mode_id == "bike_low_stress":
+                pairs = pt_or_walk.load_merged(settings, "jobs", mode_id, window) if transit else load_pairs(settings, tag)
+            if transit and pairs is None:
+                raise SystemExit(f"{tag}: no cached pairs; public transport cannot be merged with walking without them.")
+            if transit and "r5" in pairs:
+                size = pairs["destination"].map(jobs).fillna(0.0)
             for limit in thresholds:
                 reached = frame[f"jobs_{limit}"].reindex(origins).fillna(0.0)
+                if transit and "r5" in pairs:
+                    r5 = pairs["r5"] <= limit
+                    check_jobs(frame[f"jobs_{limit}"], size[r5].groupby(pairs.loc[r5, "origin"]).sum(), tag, limit)
+                    columns[f"jobs{limit}_{key}_r5"] = reached.astype("float32")
+                    within = pairs["minutes"] <= limit
+                    reached = size[within].groupby(pairs.loc[within, "origin"]).sum().reindex(origins).fillna(0.0)
                 columns[f"jobs{limit}_{key}"] = reached.astype("float32")
                 columns[f"jobshare{limit}_{key}"] = (reached / total).astype("float32")
-            if mode_id in ("pt", "bike_low_stress"):
-                pairs = load_pairs(settings, tag)
-                if pairs is not None:
-                    if car_pairs is None and "car" in settings.modes:
-                        car_pairs = load_pairs(settings, run_tag("jobs", "car", None, False))
-                    pool = _catchment(pairs, car_pairs)
-                    for limit in thresholds:
-                        fair = competition_adjusted(pairs, jobs, demand, limit, pool)
-                        columns[f"jobsfair{limit}_{key}"] = fair.reindex(origins).fillna(0.0).astype("float32")
+            if mode_id in ("pt", "bike_low_stress") and pairs is not None:
+                if car_pairs is None and "car" in settings.modes:
+                    car_pairs = load_pairs(settings, run_tag("jobs", "car", None, False))
+                pairs = pairs[["origin", "destination", "minutes"]]
+                pool = _catchment(pairs, car_pairs)
+                for limit in thresholds:
+                    fair = competition_adjusted(pairs, jobs, demand, limit, pool)
+                    columns[f"jobsfair{limit}_{key}"] = fair.reindex(origins).fillna(0.0).astype("float32")
     return pd.DataFrame(columns, index=origins)
