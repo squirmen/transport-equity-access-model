@@ -189,8 +189,8 @@ minutes of each hexagon, not only the nearest, and for public transport the
 10th and 90th percentiles over the departure minutes as well as the median.
 When two schools are reached in the same minute, the one named is the nearer
 in a straight line, then the one with the lower Ministry number, and both are
-listed. A public transport time equal to the walking time is a walk: no bus or
-train gets there sooner.
+listed. A public transport time equal to the walking time means no bus or
+train gets there sooner than walking.
 
 **Errand rounds.** A single trip is not how most errands are run. A round
 starts at home, stops at a GP, a pharmacy and a supermarket, and comes home;

@@ -94,9 +94,12 @@ departure minute from 7:00 to 8:59.
   nearer in a straight line from the hexagon centre (to the whole metre), then
   the lower MoE number. Every tied school is listed.
 - **Walking inside a public transport trip.** R5 lets a public transport trip
-  walk up to 15 minutes to or from stops. A trip whose time equals the walking
-  time is a walk: no bus or train gets there sooner. A public transport time
-  can be slower than walking when the walk is over 15 minutes.
+  walk up to 15 minutes to or from stops, or all the way. When the public
+  transport time equals the walking time, no bus or train gets there sooner
+  than walking; the trip may be the walk itself. A public transport time can
+  be slower than walking, mostly where the walk is over 15 minutes (in
+  Auckland, 1,718 hexagons for secondary school; 80 of them have a walk of 15
+  minutes or less, and why R5 does not use the walk there is not yet checked).
 
 ### Checks
 
