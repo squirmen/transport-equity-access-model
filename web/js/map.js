@@ -169,6 +169,23 @@ export function createMap(container, { topRight = null } = {}) {
           'circle-stroke-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5, 1.5],
         },
       },
+      {
+        // Schools under a choice other than All: counted ones in the
+        // service's colour, the ones left out hollow, the one school picked
+        // larger and in navy (schools.js, app.js).
+        id: 'school-pins', type: 'circle', source: 'destinations', layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            10, ['case', ['boolean', ['feature-state', 'focus'], false], 6, ['boolean', ['feature-state', 'hover'], false], 5, 3],
+            15, ['case', ['boolean', ['feature-state', 'focus'], false], 11, ['boolean', ['feature-state', 'hover'], false], 10, 6.5]],
+          'circle-color': DESTINATION_OTHER,
+          'circle-stroke-color': ['case',
+            ['boolean', ['feature-state', 'hover'], false], '#0c0c48',
+            ['boolean', ['feature-state', 'out'], false], '#6b767c',
+            '#ffffff'],
+          'circle-stroke-width': ['case', ['boolean', ['feature-state', 'focus'], false], 2.5, 1.5],
+        },
+      },
       { id: 'cell-hover', type: 'line', source: 'hover', paint: { 'line-color': '#0c0c48', 'line-width': 1.5 } },
       // The picked hexagon: navy over a white halo, so it reads on blue and on orange.
       { id: 'cell-selected-halo', type: 'line', source: 'selected', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.95 } },
@@ -249,6 +266,8 @@ export function setOverlays(map, overlays, destinations) {
   for (const name of ['rail', 'ferry', 'frequent_bus', 'cycling', 'stops']) {
     if (overlays[name]) map.getSource(name).setData(overlays[name]);
   }
+  // New data for the pins: their counted or left-out marks go on again.
+  pinKey = null;
   map.getSource('destinations').setData({
     type: 'FeatureCollection',
     features: destinations.map((d, i) => ({
@@ -265,7 +284,87 @@ export function showDestinationsFor(map, service) {
   map.setPaintProperty('destinations', 'circle-color', DESTINATION_COLOURS[service] || DESTINATION_OTHER);
 }
 
-const POINT_LAYERS = ['destinations', 'ov-stops'];
+const POINT_LAYERS = ['school-pins', 'destinations', 'ov-stops'];
+
+// ---------------------------------------------------------------- schools
+
+let pinKey = null;
+let pinMarks = new Map();
+let schoolLabel = null;
+let labelOf = null;
+
+/** Show the schools of `spec.service` as pins, marking those `spec.counted`
+ *  leaves out and the one school `spec.focus` picked, or hide them with null.
+ *  `spec.key` changes whenever the marks would. */
+export function setSchoolPins(map, spec, destinations = []) {
+  if (!map.getLayer('school-pins')) return;
+  const focus = spec && spec.focus != null ? destinations[spec.focus] : null;
+  const label = focus && Number.isFinite(focus.lon) ? `${spec.focus}|${focus.name}` : null;
+  if (schoolLabel && label !== labelOf) {
+    schoolLabel.remove();
+    schoolLabel = null;
+    labelOf = null;
+  }
+  if (!spec) {
+    map.setLayoutProperty('school-pins', 'visibility', 'none');
+    return;
+  }
+  map.setFilter('school-pins', ['in', spec.service, ['get', 'services']]);
+  const colour = DESTINATION_COLOURS[spec.service] || DESTINATION_OTHER;
+  map.setPaintProperty('school-pins', 'circle-color', ['case',
+    ['boolean', ['feature-state', 'focus'], false], '#0c0c48',
+    ['boolean', ['feature-state', 'out'], false], '#ffffff',
+    colour]);
+  if (spec.key !== pinKey) {
+    const next = new Map();
+    destinations.forEach((d, i) => {
+      if (!d.services || !d.services.includes(spec.service)) return;
+      next.set(i, { out: Boolean(spec.counted && !spec.counted[i]), focus: i === spec.focus });
+    });
+    for (const [i, mark] of next) {
+      const before = pinMarks.get(i);
+      if (!before || before.out !== mark.out || before.focus !== mark.focus) map.setFeatureState({ source: 'destinations', id: i }, mark);
+    }
+    for (const i of pinMarks.keys()) if (!next.has(i)) map.setFeatureState({ source: 'destinations', id: i }, { out: false, focus: false });
+    pinMarks = next;
+    pinKey = spec.key;
+  }
+  map.setLayoutProperty('school-pins', 'visibility', 'visible');
+  if (label && !schoolLabel) {
+    const box = document.createElement('span');
+    box.className = 'map-tag is-school';
+    box.textContent = focus.name || '';
+    box.setAttribute('aria-hidden', 'true');
+    schoolLabel = new maplibregl.Marker({ element: box, anchor: 'left', offset: [12, 0] }).setLngLat([focus.lon, focus.lat]).addTo(map);
+    labelOf = label;
+  }
+}
+
+/** Outline one school's zone (a GeoJSON geometry), or none. */
+export function setSchoolZone(map, geometry) {
+  if (!map.getSource('selected')) return;
+  if (!map.getSource('school-zone')) {
+    if (!geometry) return;
+    map.addSource('school-zone', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'school-zone-halo', type: 'line', source: 'school-zone', paint: { 'line-color': '#ffffff', 'line-width': 5, 'line-opacity': 0.9 } }, 'cell-hover');
+    map.addLayer({ id: 'school-zone-line', type: 'line', source: 'school-zone', paint: { 'line-color': '#0c0c48', 'line-width': 2.2 } }, 'cell-hover');
+  }
+  map.getSource('school-zone').setData(geometry ? { type: 'Feature', properties: {}, geometry } : EMPTY);
+}
+
+/** The box around a GeoJSON geometry, as [west, south, east, north]. */
+export function boundsOf(geometry) {
+  let box = null;
+  const walk = (c) => {
+    if (typeof c[0] === 'number') {
+      box = box ? [Math.min(box[0], c[0]), Math.min(box[1], c[1]), Math.max(box[2], c[0]), Math.max(box[3], c[1])] : [c[0], c[1], c[0], c[1]];
+      return;
+    }
+    for (const part of c) walk(part);
+  };
+  if (geometry && geometry.coordinates) walk(geometry.coordinates);
+  return box;
+}
 
 /** The pin or stop under the pointer, if one is showing there. */
 function pointAt(map, point) {
@@ -302,7 +401,8 @@ export function onPoints(map, handler, { hover, leave } = {}) {
       // Stop the cell underneath from also being selected.
       event.originalEvent.stopPropagation();
       handler({
-        kind: layer === 'destinations' ? 'destination' : 'stop',
+        kind: layer === 'ov-stops' ? 'stop' : 'destination',
+        id: feature.id,
         properties: feature.properties || {},
         lngLat: event.lngLat,
       });
@@ -311,24 +411,25 @@ export function onPoints(map, handler, { hover, leave } = {}) {
       // Where a pin and a stop overlap, both layers fire; only the one drawn
       // on top answers, so the tooltip and the highlight agree.
       const top = pointAt(map, event.point);
+      const pin = layer !== 'ov-stops';
       if (top && top.layer.id !== layer) {
-        if (layer === 'destinations') unlight();
+        if (pin) unlight();
         return;
       }
       const feature = top || (event.features && event.features[0]);
       if (!feature || picking) return;
       map.getCanvas().style.cursor = 'pointer';
-      if (layer === 'destinations' && feature.id !== lit) {
+      if (pin && feature.id !== lit) {
         unlight();
         lit = feature.id;
         map.setFeatureState({ source: 'destinations', id: lit }, { hover: true });
       }
-      if (hover) hover({ kind: layer === 'destinations' ? 'destination' : 'stop', properties: feature.properties || {} }, event.point);
+      if (hover) hover({ kind: pin ? 'destination' : 'stop', id: feature.id, properties: feature.properties || {} }, event.point);
     });
     map.on('mouseleave', layer, () => {
       if (picking) return;
       map.getCanvas().style.cursor = '';
-      if (layer === 'destinations') unlight();
+      if (layer !== 'ov-stops') unlight();
       if (leave) leave();
     });
   }

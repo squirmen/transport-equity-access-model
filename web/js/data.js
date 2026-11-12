@@ -111,7 +111,12 @@ function prepare(raw) {
     // Public transport for someone walking at the slower pace, usual time only.
     tSlow: mapValues(c.ts, numeric),
     km: mapValues(c.km, numeric),
+    // The nearest destination by the fastest way (every build), and from
+    // 0.12 the nearest by each way and any tied with it, as indexes into
+    // destinations.json.
     nearest: c.nearest,
+    nearestMode: c.nearest_mode || null,
+    ties: c.ties || null,
     jobs: mapValues(c.jobs, (byLimit) => mapValues(byLimit, numeric)),
     fair: mapValues(c.fair, (byLimit) => mapValues(byLimit, numeric)),
     access: mapValues(c.access, (byKey) => mapValues(byKey, numeric)),
@@ -261,20 +266,53 @@ export function setWindow(data, wanted) {
  *  copies with rural hexagons at zero changes every figure at once. */
 export function setUrban(data, on) {
   if (!data.urban) return;
-  if (!on) {
+  data.urbanOn = Boolean(on);
+  applyCounted(data);
+}
+
+/** Count only the hexagons in `mask` (one school's zone), or every hexagon
+ *  again with null. Works with setUrban: both can be on at once. */
+export function setCellMask(data, mask) {
+  data.cellMask = mask || null;
+  applyCounted(data);
+}
+
+function applyCounted(data) {
+  const urban = data.urbanOn && data.urban;
+  const cells = data.cellMask;
+  if (!urban && !cells) {
     data.pop = data.everywhere.pop;
     data.weights = data.everywhere.weights;
     return;
   }
-  if (!data.urbanOnly) {
+  if (urban && !data.urbanOnly) {
     const mask = (w) => Float32Array.from(w, (v, i) => (data.urban[i] ? v : 0));
     data.urbanOnly = {
       pop: mask(data.everywhere.pop),
       weights: Object.fromEntries(Object.entries(data.everywhere.weights).map(([k, w]) => [k, mask(w)])),
     };
   }
-  data.pop = data.urbanOnly.pop;
-  data.weights = data.urbanOnly.weights;
+  const from = urban ? data.urbanOnly : data.everywhere;
+  if (!cells) {
+    data.pop = from.pop;
+    data.weights = from.weights;
+    return;
+  }
+  // One copy for each mask and urban setting, made once.
+  data.masked = data.masked || new WeakMap();
+  let byFrom = data.masked.get(cells);
+  if (!byFrom) {
+    byFrom = new Map();
+    data.masked.set(cells, byFrom);
+  }
+  if (!byFrom.has(from)) {
+    const cut = (w) => Float32Array.from(w, (v, i) => (cells[i] ? v : 0));
+    const pop = cut(from.pop);
+    byFrom.set(from, { pop, weights: Object.fromEntries(Object.entries(from.weights).map(([k, w]) => [k, k === 'everyone' ? pop : cut(w)])) });
+  }
+  const masked = byFrom.get(from);
+  data.pop = masked.pop;
+  data.weights = masked.weights;
 }
 
 /** How many of a service are within the standard: the count for the largest
@@ -347,6 +385,9 @@ export function pricedLayer(data, service, zones) {
  *  cycling cost nothing, so a budget never changes them.
  */
 export function times(data, service, mode, zones = null) {
+  // Girls and boys together have a best time of their own: the slower of
+  // each one's fastest way (schools.js).
+  if (mode === 'best' && zones == null && data.best?.[service]) return data.best[service];
   const byMode = data.t[service] || {};
   const forMode = (m) => {
     if (m !== 'pt' || zones == null) return byMode[m];
