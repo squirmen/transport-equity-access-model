@@ -625,7 +625,7 @@ export function renderNeedsZone(root, model) {
   const tab = model.needsZone === 'fixes' ? 'What would help' : 'Who misses out';
   const why = {
     build: 'Zones are not in this build yet, so it is off for one school.',
-    school: `${model.noZone || 'It has no home zone.'} So it is off for this school.`,
+    school: `${(model.noZone || 'It has no home zone.').replace(/\.$/, '')}, so it is off for this school.`,
     everyone: 'Tick Only those living in its zone, under the school, to turn it on.',
   }[model.zoneWhy || 'build'];
   // Set out as the tab's headline, so the key never covers it.
