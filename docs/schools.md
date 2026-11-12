@@ -162,10 +162,10 @@ departure minute from 7:00 to 8:59.
 | --- | --- |
 | All | every school in the directory that teaches the service's years: today's measure |
 | State | state schools taught in English: not integrated, private, charter, or a school where all students are taught in te reo Māori or a Pacific language. A school whose teaching language is not given is left out and counted as such. Home zones are not applied: a zoned school counts for everyone, in or out of its zone, and the line under the headline says so. |
-| In zone | not yet: needs the Ministry's zone file (below) |
+| In zone | state schools taught in English that must take a child living in the hexagon: those whose home zone holds the home, and those with no zone, which must take any student who applies (below) |
 | One school | that school alone; see below |
 
-Under State (and In zone, when it comes), a second row picks who is counted:
+Under State and In zone, a second row picks who is counted:
 
 - **Girls** counts co-ed and girls' schools; **Boys** counts co-ed and boys'
   schools.
@@ -176,50 +176,307 @@ Under State (and In zone, when it comes), a second row picks who is counted:
   quickest way. This is not the quickest of the per-mode times, which would
   make both use one way.
 
-The default stays All in 0.12.0, so every published figure and link keeps its
-meaning.
+The page's default choice is set in one place, `DEFAULT_SCHOOL_CHOICE` in
+`web/js/schools.js`, to In zone: the nearest state school a child can enrol
+at is the closest to the Ministry's own test. A link with `sch=all` keeps
+the 0.11 meaning.
 
-Every school figure weights hexagons by all their residents (Census 2023),
-of every age, not by school-age children; the line under every school
-headline says so.
+Every school figure counts children of the service's ages, not all residents
+(below, "Who is counted: school-age children"); early childhood counts
+children aged 0–4.
 
-### One school without its zone
+### One school
 
-Until zones are in, nobody can be said to be in or out of a school's
-catchment, and a share of everyone in the place would mostly count people
-who would never go there (Mt Albert Grammar School by public transport: 3%
-of Aucklanders, against 50% of the Albert-Eden Local Board area). So under
-One school:
+- **A school with a zone** (in force, or the only one in the Ministry's
+  file): the headline is the share of the children living in its zone who
+  are within the standard of it by the way shown. A hexagon a zone line
+  crosses counts the share of its children living in the zone. Who misses
+  out and What would help are for those children.
+- **A school without a zone** (no enrolment scheme, or a scheme with no
+  usable map): there is no catchment to give a share of, so the headline is
+  the number of children within the standard of it, and Who misses out and
+  What would help are off. For a local board, ward or suburb the share of its
+  children follows under the count, and the area stays when the school
+  changes.
 
-- the headline is the number of people who live within the standard of the
-  school by the way shown (Mt Albert Grammar School, public transport, 30
-  minutes: 57,003 people, shown as 57,000);
-- for a local board, ward or suburb, the share of its residents follows,
-  under the count;
-- the area picked or in the link stays when the school changes, so two
-  schools are compared for the same people;
-- Who misses out and What would help are off, with a line saying why.
+## Enrolment zones (In zone)
 
-## In zone (when the zone file is in)
+Code: [`src/team/zones.py`](../src/team/zones.py).
 
-The code is in place and tested on made-up zones; nothing is published yet.
+### The file
 
-- Source: the Ministry's enrolment scheme master file
-  (https://www.educationcounts.govt.nz/__data/assets/file/0003/108606/Enrolmentschememaster.zip,
-  CC BY 3.0 NZ), downloaded by hand. Its projection is read from the file; a
-  file with none is refused.
-- A zone counts when its effective date is on or before the directory date.
-  Later zones are listed, not applied.
-- A zone whose name gives year levels ("(Year 7-8)") counts only for the
-  service with those years.
-- A hexagon is in a zone when the zone covers at least half its area.
-  Hexagons a zone line crosses are flagged.
-- In zone counts state English-medium schools whose zone covers the hexagon,
-  plus state English-medium schools with no enrolment scheme, which must take
-  any student who applies (to confirm with the Ministry). Integrated schools
-  and kura are not in In zone: they enrol by their own rules.
-- Eagle Technology's copy of the zones was used only to check this during
-  development. Its terms are not open and nothing from it is published.
+The Ministry's enrolment scheme master file,
+https://www.educationcounts.govt.nz/__data/assets/file/0003/108606/Enrolmentschememaster.zip
+(CC BY 3.0 NZ), downloaded 12 November 2026 to
+`raw/nz/education/moe_enrolment_zones_2026-11-12/`. It is a MapInfo TAB,
+`ESmaster v02102026`, which its Readme dates "Version as at 02/10/2026":
+1,327 polygons for 1,291 schools, with each polygon's school number, name,
+approval date and effective date.
+
+- **Projection.** The TAB names an unnamed Transverse Mercator on NZGD2000
+  with the NZTM2000 parameters (central meridian 173°, scale 0.9996, false
+  easting 1,600,000, false northing 10,000,000), not the old NZ Map Grid.
+  pyproj's `equals` does not match it to EPSG:2193 (the names differ), so the
+  code accepts a file only when `to_epsg()` finds 2193, transforms a file on
+  NZMG, and refuses any other projection and a file with none.
+- **Geometry.** 151 polygons are invalid as stored (self-intersections, or
+  too few points); each is repaired with `make_valid` and keeps its polygonal
+  parts.
+- **Checked against Eagle Technology's copy**
+  (https://services.arcgis.com/XTtANUDT8Va4DLwI/ArcGIS/rest/services/NZ_School_Zone_boundaries/FeatureServer/0,
+  last edited 16 September 2026) with
+  [`scripts/check_zones_eagle.py`](../scripts/check_zones_eagle.py), school by
+  school, as 1 − intersection/union of each school's zones: median 0.11%, 90th
+  percentile 0.41%. 23 schools differ by more than 1%, and 21 of them are in
+  the Readme's list of new, amended or redrawn zones (Howick College's zone,
+  amended from 29 September 2026, is 279 km² in the Ministry's file and 68 km²
+  in Eagle's). Five schools are only in the Ministry's file, all new; four are
+  only in Eagle's, all schemes the Readme says were abandoned. So the
+  Ministry's file is the newer and agrees with Eagle's elsewhere. Eagle's
+  terms are not open: nothing from it is kept in the data root or published.
+
+### Who must take a child (the legal basis)
+
+From the Education and Training Act 2020, version as at 1 October 2026
+(https://www.legislation.govt.nz/act/public/2020/38/en/latest/, read on
+12 November 2026):
+
+- section 33(1): every domestic student aged 5 to 19 is entitled to free
+  enrolment at any State school, except as Part 3 provides;
+- sections 72 and 73: the Secretary must set up an enrolment scheme for a
+  State school that is or may become overcrowded, and the scheme must define
+  a home zone;
+- section 74(1): a person living in the home zone of a State school with a
+  scheme is entitled to enrol there; section 74(2): a person living outside
+  it may enrol only if offered a place by the scheme's procedure (a ballot,
+  with priorities set by Schedule 20, clause 2) or directed there by the
+  Secretary;
+- Schedule 20, clause 1(1): a home zone is defined by geographic boundaries
+  described so that a given address is either within or outside it.
+
+So a state school with no scheme must take any student who applies, and one
+with a scheme must take students living in its zone. Out-of-zone ballot
+places are not counted: a ballot place is not a place a family can count
+on. State integrated schools prefer children whose parents have a connection
+with the school's special character (Schedule 6, clause 26), and the boards
+of a Kura Kaupapa Māori and of a designated character school may refuse to
+enrol a student whose parents do not accept the school's character
+(sections 201(9) and 204(5)), so they are not in In zone.
+
+### Rules
+
+**Z1 Which zones apply on 12 November 2026** (`zones.REFERENCE_DATE`, the
+directory snapshot's date). A polygon's date is its effective date, or its
+approval date where it has none (Totara Grove School, Whangārei, and four
+schools outside the twenty places), or none (Paeroa College, outside the
+places). A polygon is in force when its date is on or before the reference
+date, or has no date (flagged `date_unknown`); a later one is upcoming. The
+directory, which the Ministry updates nightly, says whether a school has a
+scheme:
+
+| Directory | Polygons | Status | In zone counts the school for |
+| --- | --- | --- | --- |
+| scheme | some in force | `in_force` | children living in its zone |
+| scheme | only upcoming | `upcoming_used` | children living in the upcoming zone, labelled with its start date |
+| scheme | none | `no_map` | every child: the file holds no map of its zone |
+| no scheme | none, or only upcoming | `none` | every child (it must take any student) |
+| no scheme | some in force | `not_applied` | every child; the polygon is listed, not applied |
+
+An upcoming polygon of an `in_force` school is listed (`next.from`), not
+applied. The Ministry's file holds only the current or next version of a
+zone, so for a school whose amended zone starts in 2027 the zone in force
+today is not in the file; the upcoming one is used and the page says so.
+
+**Z2 Year levels.** A polygon's years are read from its name ("Zone B (yrs
+7-8)", "(Year 9-15)", "Y11-13"). The file has 64 polygons whose names give
+years; the pattern reads every one and finds years in no other name. A polygon applies to a service
+when it covers the school's entry year for that service: the later of the
+service's first year (primary 1, intermediate 7, secondary 9) and the first
+year the school teaches. So Balmoral School's Zone A (Years 1–6) is its
+primary zone and Zone B (Years 7–8) its intermediate zone; Middleton Grange
+School's secondary zone is its Years 9–10 zone, not its Years 11–13 one; and
+Rototuna Senior High School, which starts at Year 11, uses its Years 11–13
+zone. A polygon whose name gives no years applies to every service. A school
+whose polygons are partly by year and partly not, or none of whose year
+zones covers a service's entry year, is `unclear_years` and counted for
+every child unless `configs/schools/zone_years.csv` has a checked row for it.
+No school in the twenty places needs one.
+
+**Z3** A school's polygons for one service are joined (Whenuapai School's
+zone and its temporary extension).
+
+**Z4 In zone** counts, for a service and a student (girls, boys, or both as
+under State), the state schools taught in English that teach the service's
+years and take the student, and that are either counted for every child
+under Z1 or have a zone holding the home. Girls and boys together works as
+under State: a hexagon counts only if both a girl and a boy living there can
+reach such a school in time.
+
+### Where the residents live
+
+A hexagon has one travel time, from its centre, and its people are spread
+from census blocks by area. Where a zone line crosses a hexagon (its zone
+covers part of the hexagon's area), its residents are placed by LINZ address
+points (NZ Addresses, layer 105689, the public ArcGIS copy, fetched
+12 November 2026 by [`scripts/fetch_address_points.py`](../scripts/fetch_address_points.py)):
+
+- each current address point takes the census block it falls in, and carries
+  that block's residents divided by its number of points (a block of flats
+  has a point for each unit, so its flats carry most of its people);
+- a block with residents and no address point is spread evenly over its land
+  in the hexagon (points on a 10 m grid);
+- a hexagon whose points carry no residents is spread by area over its land
+  pieces, as the grid spreads people.
+
+A zone's share of a hexagon's residents is the weight of those points inside
+the zone over the weight of all of them; a zone covering the whole hexagon
+holds them all. The share is applied to the hexagon's own population and
+children, so totals stay the grid's. This assumes children live where
+residents do inside a hexagon, and gives non-residential addresses in a block
+a share of its residents (a shopping centre's many addresses each take a
+little).
+
+**The hexagon's In zone set.** Every point lies in some set of zones (the
+zones of zoned state schools taught in English for the service). The hexagon
+takes the set holding the most residents; on a tie, the set holding the
+hexagon's centre, then the smaller set, then the lower list of school
+numbers. Its times, the map, the card, areas and equity figures all use that
+set, as all residents of a hexagon share its centre's time. A hexagon whose
+residents live in more than one set is listed as split, and the line under
+the headline gives how many people live in split hexagons.
+
+**One school's zone.** The children living in a school's zone are the sum,
+over hexagons, of each hexagon's children times the share of its residents
+in that zone. This is exact under the shares, since the time to one school
+does not depend on which set the hexagon takes. `share` in zones.json covers
+every school with a zone in force or used, of any kind, so One school works
+for a zoned integrated school too; In zone itself counts state schools
+taught in English only.
+
+### What the rules give
+
+In the twenty places, with the 12 November 2026 directory (state schools
+taught in English only; before schools across a regional boundary are added):
+
+| Service | State, English | Zone in force | Only a later zone, used | Scheme, no map | No scheme | Map, no scheme |
+| --- | --- | --- | --- | --- | --- | --- |
+| Primary | 1,105 | 811 | 10 | 3 | 280 | 1 |
+| Intermediate | 664 | 447 | 8 | 0 | 209 | 0 |
+| Secondary | 203 | 143 | 1 | 0 | 59 | 0 |
+
+- **Only a later zone in the file** (used, and labelled with its start
+  date): Tangaroa College (secondary), Ormiston Junior College (intermediate)
+  and Western Heights School in Auckland, from 1 January 2027; Broadfield,
+  Te Kura o te Tauawa Halswell, Oaklands Te Kura o Ōwaka, Prebbleton, Wigram
+  and Te Manu Tukutuku South Hornby schools in Christchurch, from 1 January
+  2027; Shotover Primary, Arrowtown and Remarkables Primary schools in
+  Queenstown, from 28 January 2027. Two Christchurch integrated schools are
+  in the same position.
+- **Scheme, no map**: Fraser Crescent School, Te Kura o Hau Karetu and Oxford
+  Crescent School in Upper Hutt, counted for every child. Integrated schools
+  with a scheme and no map (Carmel College, Sacred Heart College and four
+  more in Auckland, and others) are not in In zone anyway.
+- **Map, no scheme**: West End Te Kura O Morere, New Plymouth, has a zone in
+  force since 10 October 2016 but no scheme in the directory; it is counted
+  for every child and the zone is listed. Queen Elizabeth College, Palmerston
+  North, has no scheme today and new zones from 1 January 2027, listed.
+- No school in the places has an unclear year level, and none needs a
+  `zone_years.csv` row.
+- **Address points**: 2,102,052 current points in the places' extents, of
+  which 1,918,732 fall in a census block with residents. In Auckland 9,802
+  hexagons are crossed by some zone line.
+- **Split hexagons.** Zones are small next to a hexagon for primary schools:
+  in Auckland 721,011 people (57,442 children aged 5–10) live in hexagons
+  whose residents are in more than one primary zone set, 442,498 (12,162 aged
+  11–12) for intermediate and 294,662 (18,664 aged 13–17) for secondary.
+  Of those children, 14,247 aged 5–10 (11% of Auckland's), 2,797 aged 11–12
+  (6%) and 3,993 aged 13–17 (4%) live outside the zone set their hexagon is
+  counted in (`meta.schools.zones`, `children_outside_set`): the error the
+  one-set rule makes, which One school's shares do not.
+- **St Lukes** (hexagon 89bb50021a3ffff, on the councillors' slide): wholly
+  in Mt Albert Grammar School's zone. For intermediate it is in Kowhai
+  Intermediate's zone and 18% of its area is in Balmoral School's Zone B,
+  but 69% of its residents live there: 111 of its 258 address points are in
+  a census block of 3 residents, and most of the points carrying residents
+  are in Zone B. It is counted in both zones.
+- **Mt Albert Grammar School's zone** (in force since 6 June 2018, 16.28
+  km²) holds 63,561 residents and 3,780 children aged 13–17, over 174
+  hexagons, 53 of them crossed by its line.
+
+## Who is counted: school-age children
+
+Code: [`src/team/ages.py`](../src/team/ages.py). Each school and early
+childhood figure counts the children of the service's ages; every other
+service, and the all-residents columns in the downloads, count everyone.
+
+| Service | Children counted | School years |
+| --- | --- | --- |
+| Early childhood | aged 0–4 | before school |
+| Primary | aged 5–10 | Years 1–6 |
+| Intermediate | aged 11–12 | Years 7–8 |
+| Secondary | aged 13–17 | Years 9–13 |
+
+**Sources.** The finest open 2023 Census age data are five-year bands by SA1
+(Stats NZ, 2023 Census totals by topic for individuals by SA1, and the same
+by SA2; CC BY 4.0; fetched 12 November 2026). Single years of age for 2023
+are in Aotearoa Data Explorer (`CEN23_POP_001`, by SA2), but its data API
+needs a subscription key, which needs registering, so it is not used; the
+2018 Census has single years by 2018 SA2 in an open file (Data8277).
+
+**Rule.**
+
+1. Each 2023 SA1 gives its usual residents and its 0–4, 5–9, 10–14 and 15–19
+   bands. A suppressed band is the SA1's residents times its SA2's share in
+   that band, or the national share where the SA2's band is suppressed too.
+2. Each SA1 takes the 2018 SA2 its representative point falls in (2023 and
+   2018 SA2s differ), and from that SA2's 2018 single years the share of the
+   10–14 band at each age 10 to 14 and of the 15–19 band at ages 15, 16 and
+   17. A band with fewer than 30 people in that SA2, or a confidential year,
+   takes the national 2018 shape
+   ([`scripts/fetch_census_ages.py`](../scripts/fetch_census_ages.py)).
+3. Groups: 0–4 = the 0–4 band; 5–10 = the 5–9 band and the age-10 share of
+   10–14; 11–12 = the age-11 and 12 shares of 10–14; 13–17 = the age-13 and
+   14 shares of 10–14 and the age-15 to 17 shares of 15–19.
+4. Each SA1's children are spread over hexagons as its residents are (water
+   blocks dropped, each land block split by its area in each hexagon), and a
+   hexagon's age shares are applied to its population on the grid. These are
+   the same numbers everywhere except 46 Auckland hexagons (20 of them
+   counted) whose grid values were kept from an earlier build.
+
+**Why single years.** An even split of the bands would be badly wrong where
+students fill the 15–19 band. Campus North, Dunedin, had 1,623 people aged
+15–19 in 2023; its 2018 shape puts 9% of them at 15 to 17, so it counts 149
+aged 13–17, where an even split would count 979.
+
+**Assumptions.** Ages are on census day, 7 March 2023, and stand for school
+years: some 13-year-olds are in Year 8 and some 17-year-olds have left
+school. Inside a hexagon children live where residents do. Group shares
+(Māori, Pacific, low income and so on) are for all ages in the census block.
+
+**Checks.** Every place, built from the round-1 routing:
+
+- Residents spread by area equal the grid's population in every hexagon
+  except the 46 Auckland ones above.
+- Suppressed bands filled from the SA2 share: 426 SA1 band cells in
+  Auckland (438 people), 175 in Christchurch (148), 137 in Wellington (122),
+  and fewer elsewhere; from the national share: 35 in Auckland, 8 each in
+  Christchurch and Wellington, and a handful elsewhere.
+- For the SA2s wholly inside each place (88% of Whakatāne's residents, 94% to
+  100% elsewhere), the groups summed from SA1s match the same groups from
+  the 2023 SA2 table within 1%, or within three standard deviations of Stats
+  NZ's random rounding to base 3 in the cells summed, for every group in
+  every place (`tests/test_ages.py`).
+- Across the twenty places TEAM counts 238,236 children aged 0–4, 315,781
+  aged 5–10, 110,551 aged 11–12 and 267,120 aged 13–17 in the hexagons it
+  routes from. An even split of the bands would give 273,509 aged 13–17:
+  more in the university cities (Dunedin 2,739, Auckland 2,324,
+  Christchurch 1,564, Wellington 1,510, Hamilton 478, Palmerston North 317),
+  fewer in most other places (Tauranga 635 fewer).
+- `cells.json` gives children to two decimals. Many hexagons hold a small
+  fraction of a child, and to one decimal they round to nothing: that drops
+  about 0.2% of a place's children, mostly far from schools, and would put
+  Wellington's intermediate figure (all schools, any way) at 85.4% rather
+  than 84.5%.
 
 ## What the site reads
 
@@ -237,7 +494,8 @@ Modes are walk, bike_low_stress, bike, pt and car.
 
 A school's entry adds `moe`, `kind`, `medium`, `language`, `sex`
 (`{service: co-ed | girls | boys | null}`), `years` ([from, to]), `roll`,
-`roll_date`, `scheme`, `zone_from` (null until zones are in), `routed_to`
+`roll_date`, `scheme`, `zone` (`{status, from, next: {from} | null}`, as in
+zones.json), `zone_from` (the same `from`, kept for older pages), `routed_to`
 ("point" or the number of checked entrances) and `point` (directory or
 corrected). Schools are keyed `moe:<School_Id>` in every build file, so the
 MoE number is the link to a school across rebuilds (`sch=one:69`).
@@ -272,34 +530,61 @@ school by public transport, 0.85 MB.
 `meta.schools` gives the directory file and its dates, the counts behind the
 "Counting ..." line for each service (`services`), how many schools are routed
 to a point or to entrances, whether the place's timetable has school buses,
-and each file's size. The page reads it through `readSchoolsMeta` in
+and each file's size. `meta.schools.choices` lists the choices on offer
+(`zone` only when zones are built) and `meta.schools.zones` gives the zone
+file, the reference date, the counts by status for each service, the
+upcoming zones, and the people and children in split hexagons. `meta.ages`
+gives the age groups, which group each service counts, the rule, the sources
+and the totals and checks below. The page reads it through `readSchoolsMeta` in
 `web/js/schools.js`: the directory date is `dates.directory`, the roll date is
 the date most schools' rolls are at, the reach lists on offer are the names in
 `files`, and `buses` is `in_timetable` or `none_found`.
 
-### `schools/zones.json` (not written yet)
+### `schools/zones.json` and `schools/zone_outlines_<service>.json`
 
-The page offers In zone only when `meta.schools.zones` is set (the zone
-file's date). It then reads `schools/zones.json`:
+Read when In zone or One school is chosen. Cell `i`'s entries are positions
+`o[i]` to `o[i+1] - 1`; destinations are indices into destinations.json.
 
 ```text
-{format: 1, date,
- schools: {"<destination index>": {moe, from, outline: GeoJSON geometry}},
- in:  {service: {o: [n + 1 offsets], d: [destination index]}},   zone covers at least half the hexagon
- cut: {service: {o, d}}}                                          zone line crosses the hexagon
+{format: 2,
+ source: {file, version, downloaded, sha256, licence, url},
+ reference_date: "2026-11-12", rule,
+ schools: {"<dest>": {moe, status, from, next: {from} | null, polygons: {service: [PolyID]},
+                      date_unknown (when true), map_from (not_applied only)}},
+ in:    {service: {o, d}},        the hexagon's In zone set: zoned state schools taught in English
+ share: {service: {o, d, w}},     every zoned school (any kind) holding residents of the cell, w to 3 dp
+ split: {service: [cell]}}        residents in more than one set
 ```
+
+Every school in the place is in `schools`. Schools counted for every child
+(statuses `none`, `no_map`, `not_applied`, `unclear_years`) are not in `in` or
+`share`; the page counts them from their status.
+
+`zone_outlines_<service>.json`, format 1: `{format: 1, service, simplified_m:
+5, schools: {"<dest>": GeoJSON geometry}}`, each zoned school's zone for the
+service, simplified by 5 m in NZTM keeping its shape's topology, in WGS84 to
+5 decimals. Loaded for One school.
+
+`cells.json` `ages`: `{"0_4": [...], "5_10": [...], "11_12": [...], "13_17":
+[...]}`, children per hexagon to one decimal.
 
 ### Downloads
 
-`team_<place>_schools.csv`: every school counted, with the fields above and
-its map point.
+`team_<place>_schools.csv`: every school counted, with the fields above, its
+map point and its zone (`zone_status`, `zone_from`, `zone_next_from`).
+`team_<place>_school_zones.csv`: for each hexagon, service and zone holding
+any of its residents, the share of its residents in the zone
+(`residents_share`) and whether the zone is in the hexagon's In zone set
+(`in_zone_set`). `team_<place>_h3.csv` and `.gpkg` add `age_0_4`,
+`age_5_10`, `age_11_12` and `age_13_17` beside `population`.
 
 ## The page
 
 The Schools row sits under Getting to for the three school services: All,
-State, In zone (once zones are in) and One school, with Girls and boys, Girls
-or Boys under State. A link without `sch` means All. `web/js/schools.js`
-works every choice out from the reach lists and puts its times in place of
+State, In zone and One school, with Girls and boys, Girls or Boys under State
+and In zone. A link without `sch` opens the default choice (above), and
+`sch=all` opens All. `web/js/schools.js` works every choice out from the
+reach lists (and, for In zone, zones.json) and puts its times in place of
 All's, so the map, headlines, areas and card all follow it. It follows the
 build's rules exactly:
 

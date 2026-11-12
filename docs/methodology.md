@@ -61,6 +61,31 @@ blocks over the hexagons in proportion to area. Cells with fewer than 0.75
 residents are dropped; they are slivers of water, parkland or motorway reserve
 created by the area weighting.
 
+**Children by school age.** School and early childhood figures count the
+children of the ages each one serves: 0–4 for early childhood, 5–10 for
+primary (Years 1–6), 11–12 for intermediate (Years 7–8) and 13–17 for
+secondary (Years 9–13). The finest open 2023 data are five-year bands by SA1,
+so each SA1's 10–14 and 15–19 bands are split into single years by the 2018
+Census shape of the SA2 around it, and spread onto hexagons as its residents
+are. A suppressed band takes its SA2's share of residents. An even split of
+the bands would count several times too many 13–17-year-olds where students
+fill the 15–19 band: Campus North, Dunedin, had 1,623 people aged 15–19 in
+2023; its 2018 shape puts 9% of them at 15 to 17, so it counts 149 aged
+13–17, where an even split would count 979. Ages are on census day, 7 March 2023, and
+stand for school years; some 13-year-olds are in Year 8 and some 17-year-olds
+have left school. Every other service, and every all-residents column in the
+downloads, still counts everyone. [`schools.md`](schools.md) has the rule
+and the checks against Stats NZ's totals.
+
+**Where residents live inside a hexagon.** A hexagon has one travel time,
+from its centre, and its people are spread by area. Where an enrolment zone
+line crosses a hexagon, its residents are placed by LINZ address points: each
+point carries its census block's residents divided by the block's points
+(a block of flats has a point for each unit). The hexagon is counted in the
+zones most of its residents live in, and each zone's share of its residents
+is kept for One school. This assumes children live where residents do, and
+gives non-residential addresses inside a block a share of its residents.
+
 **Characteristics.** Each hexagon takes the values of the SA1 block its centre
 falls in (or the nearest block within 500 m, for coastal cells):
 
@@ -599,9 +624,10 @@ first. A local study is still needed to design one.
 
 - It uses the nearest service. GP enrolment, opening hours and store size are
   not modelled, so the nearest service may not be one a person can use. For
-  schools the site can count state schools only, or one school, but school
-  zones are not in yet, and the nearest school may be full, single-sex,
-  integrated or private.
+  schools the site can count state schools only, the state schools that must
+  take a child living in each hexagon (In zone, from the Ministry's enrolment
+  zones), or one school. Places a school offers outside its zone by ballot,
+  and the rules integrated schools and kura enrol by, are not modelled.
 - School trips start at the hexagon centre and end at the Ministry's map point
   for the school, not the gate students use, and leave at any minute from 7
   to 9am rather than to arrive by the bell. Auckland's open timetable has no

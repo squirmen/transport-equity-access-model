@@ -25,7 +25,7 @@ import pandas as pd
 from . import __version__
 from .config import Settings
 from .diagnosis import REASONS
-from . import equity, gravity, routing
+from . import ages, equity, gravity, routing, zones
 from .equity import GROUPS, QUINTILE_LABELS
 
 WEB_MODES = ["walk", "bike_low_stress", "bike", "pt", "car"]
@@ -62,7 +62,7 @@ def _clean(value):
 # a second.
 CORE_CELL_KEYS = (
     "h3", "place", "pop", "nzdep", "nocar", "kids", "older", "groups", "drive", "inc",
-    "freq", "t", "tw", "nearest", "nearest_mode", "ties", "urban", "zone", "vil", "areas",
+    "freq", "t", "tw", "nearest", "nearest_mode", "ties", "urban", "zone", "vil", "areas", "ages",
 )
 
 
@@ -155,8 +155,8 @@ def destination_list(destinations: pd.DataFrame, schools: pd.DataFrame | None = 
     """Destinations for the site, one entry per place, in id order.
 
     A school's entry also says what it is (see docs/schools.md): moe, kind,
-    medium, language, sex by service, years, roll, roll_date, scheme,
-    zone_from and routed_to.
+    medium, language, sex by service, years, roll, roll_date, scheme, zone
+    (status and dates), zone_from and routed_to.
     """
     grouped = destinations.groupby("id", sort=True)
     about = schools.set_index("school") if schools is not None and not schools.empty else None
@@ -179,6 +179,11 @@ def school_entry(record: pd.Series, services: list[str]) -> dict:
     def clean(value):
         return None if value is None or (isinstance(value, float) and not np.isfinite(value)) else value
 
+    status = record.get("zone_status")
+    zone = None
+    if isinstance(status, str):
+        nxt = clean(record.get("zone_next_from"))
+        zone = {"status": status, "from": clean(record.get("zone_from")), "next": {"from": nxt} if isinstance(nxt, str) else None}
     return {
         "moe": int(record["moe"]),
         "kind": clean(record["kind"]),
@@ -189,7 +194,9 @@ def school_entry(record: pd.Series, services: list[str]) -> dict:
         "roll": int(record["roll"]) if pd.notna(record["roll"]) else None,
         "roll_date": clean(record["roll_date"]),
         "scheme": bool(record["scheme"]),
-        "zone_from": None,
+        "zone": zone,
+        # Kept for older pages: the date of the zone In zone uses.
+        "zone_from": zone["from"] if zone else None,
         "routed_to": int(record["entrances"]) if int(record["entrances"]) > 0 else "point",
         "point": record["point"],
     }
@@ -312,6 +319,9 @@ def cell_payload(settings: Settings, table: pd.DataFrame, place_index: dict, des
         "cost": cost_payload(settings, table),
         "costw": cost_payload(settings, table, by_window=True),
         "zone": [str(v) if isinstance(v, str) else None for v in table["costzone"]] if "costzone" in table else None,
+        # Children by school age group (docs/schools.md, "Who is counted"), the
+        # weights for school and early childhood figures.
+        "ages": ages.payload(table),
     }
 
 
@@ -533,6 +543,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
     data = settings.output_dir / "site" / "data"
     places, place_index = place_list(table)
     listed = school_data.load_list(settings) if school_state and school_state.get("reach") else None
+    zone_state = zones.build(settings, table, listed)  # enrolment zones: statuses, shares, majority sets
+    if listed is not None:
+        listed = zones.annotate(listed, zone_state)
     dests, dest_index = destination_list(destinations, listed)
     core, more = split_cells(cell_payload(settings, table, place_index, dest_index, school_state))
     # The card's nearest-by-mode for schools is sent first, about a tenth of
@@ -622,9 +635,11 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         "totals": {"cells": int(len(table)), "population": round(float(table["population"].sum()))},
         "destinations": destinations.groupby("service").size().to_dict(),
     }
+    meta["ages"] = ages.meta(settings, table)  # children by school age group
     if listed is not None:
         meta["schools"] = school_data.meta_block(settings, listed)
         meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table), listed)
+        meta["schools"]["zones"] = zones.write(settings, data, zone_state, dest_index, len(table), table)  # zones.json, outlines
     _dump(
         data / "summary.json",
         {"meta": meta, **summary, "areas": {key: _area_records(frame) for key, frame in areas.items()}},
@@ -635,6 +650,9 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
 FIELD_NOTES = {
     "h3": "H3 resolution 9 cell id (about 0.1 km²).",
     "population": "Usual residents, 2023 Census, spread from SA1 blocks by area.",
+    "age_": "Children of these ages, 2023 Census five-year bands by SA1 split into single years by the 2018 Census "
+            "shape of the surrounding SA2, spread onto hexagons as population is.",
+    "zone_": "Enrolment zone status from the Ministry's zone file, as in force on 12 November 2026 (docs/schools.md).",
     "t_": "Minutes to the nearest destination of this type by this mode, whole minutes rounded down (blank: none within 60 minutes). "
           "Public transport is in the service's usual window; a column ending in a window name "
           "(am_peak, interpeak, saturday) is the same trip in that window.",
@@ -711,6 +729,7 @@ def write_downloads(settings: Settings, table: pd.DataFrame) -> Path:
         path = folder / f"team_{slug}_schools.csv"
         listed.drop(columns=["entrances"]).rename(columns={"school": "id"}).to_csv(path, index=False)
         extra.append(path)
+        extra += zones.write_downloads(folder, settings)  # zone columns, and the hexagon zone shares
     sums = []
     for path in sorted(folder.glob(f"team_{slug}_h3.*")) + extra + [folder / "fields.csv"]:
         sums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
@@ -723,6 +742,7 @@ DOWNLOAD_NOTES = {
     "{slug}_h3.gpkg": "Every field for every populated hexagon, with the hexagon shapes (GeoPackage, for GIS).",
     "{slug}_h3.csv": "The same fields without shapes.",
     "{slug}_schools.csv": "Every school counted, with its kind, teaching language, who it takes, years, roll and map point.",
+    "{slug}_school_zones.csv": "Each hexagon's share of residents in each school's zone, and the zones In zone counts it in.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }

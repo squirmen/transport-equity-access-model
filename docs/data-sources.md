@@ -10,10 +10,15 @@ Check each provider's current terms before redistributing their data.
 | GTFS timetable, feed of 1 September 2026 | Auckland Transport | public transport routing and stop frequencies | Auckland Transport open data terms | `raw/auckland/gtfs/at_gtfs_2026-09-01.zip` |
 | Cycling network | Auckland Transport | distance to low-stress cycle facilities; map overlay | Auckland Transport open data terms | `raw/auckland/cycling/at_cycling_network.geojson` |
 | Directory of schools, all of New Zealand, fetched 12 November 2026 (rolls at 1 October 2026) | Ministry of Education (Education Counts), data.govt.nz resource `4b292323-9fcc-41f8-814b-3c7b19cf14b3` | school destinations, what each school is, and rolls; every place reads this one file | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `raw/nz/education/moe_schools_directory_2026-11-12.csv` |
-| School enrolment zones (not yet used) | Ministry of Education, [enrolment scheme master file](https://www.educationcounts.govt.nz/__data/assets/file/0003/108606/Enrolmentschememaster.zip) | In zone, once downloaded by hand | [CC BY 3.0 NZ](https://creativecommons.org/licenses/by/3.0/nz/) | to come |
+| School enrolment zones, enrolment scheme master file version of 2 October 2026, downloaded 12 November 2026 | Ministry of Education, [Education Counts](https://www.educationcounts.govt.nz/__data/assets/file/0003/108606/Enrolmentschememaster.zip) (MapInfo TAB, NZTM2000) | the In zone choice and One school's zone (docs/schools.md) | [CC BY 3.0 NZ](https://creativecommons.org/licenses/by/3.0/nz/) | `raw/nz/education/moe_enrolment_zones_2026-11-12/Enrolmentschememaster.zip` |
+| School enrolment zones, Eagle Technology's copy (check only) | [Eagle Technology on ArcGIS Online](https://services.arcgis.com/XTtANUDT8Va4DLwI/ArcGIS/rest/services/NZ_School_Zone_boundaries/FeatureServer/0) | checking the Ministry's file (`scripts/check_zones_eagle.py`); nothing from it is kept or published | not open | scratch only |
+| NZ Addresses, current address points, fetched 12 November 2026 | LINZ, [layer 105689](https://data.linz.govt.nz/layer/105689-nz-addresses/), from the [public ArcGIS copy](https://services.arcgis.com/xdsHIIxuCWByZiCB/arcgis/rest/services/LINZ_NZ_Addresses/FeatureServer/0) (data last edited 2 November 2026) | where residents live inside a hexagon a zone line crosses (`scripts/fetch_address_points.py`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `raw/nz/addresses/linz_nz_addresses_2026-11-12/<place>.parquet` |
 | NZ Facilities (review only) | LINZ, [layer 105588](https://data.linz.govt.nz/layer/105588-nz-facilities/) | checking school map points against their grounds; changes nothing by itself | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | passed to `scripts/school_points_review.py` |
 | 2023 Census: SA1 boundaries and population | Stats NZ | population grid; census geography | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `raw/auckland/census/statsnz_census_sa1_2023_auckland.geojson` |
 | 2023 Census: age by SA1 | Stats NZ | children and people aged 65 and over | CC BY 4.0 | `raw/auckland/census/statsnz_census_individual_part1_age_sa1_2023.json` |
+| 2023 Census: five-year age bands by SA1 and by SA2, all of New Zealand, fetched 12 November 2026 | Stats NZ, 2023 Census totals by topic for individuals ([SA1](https://services2.arcgis.com/vKb0s8tBIA3bdocZ/arcgis/rest/services/2023_Census_totals_by_topic_for_individuals_by_SA1/FeatureServer/1), [SA2](https://services2.arcgis.com/vKb0s8tBIA3bdocZ/arcgis/rest/services/2023_Census_totals_by_topic_for_individuals_by_SA2/FeatureServer/1)) | children by school age, the weights for school and early childhood figures (SA2: filling suppressed SA1 bands, and checking totals) | CC BY 4.0 | `raw/nz/census/statsnz_census2023_age_2026-11-12/` |
+| 2018 Census: age by single year by SA2 (Data8277) | Stats NZ, [large CSV](https://www3.stats.govt.nz/2018census/Age-sex-by-ethnic-group-grouped-total-responses-census-usually-resident-population-counts-2006-2013-2018-Censuses-RC-TA-SA2-DHB.zip) | the shape of single years inside the 10–14 and 15–19 bands | CC BY 4.0 | `raw/nz/census/statsnz_census2018_age_sex_ethnic_sa2_2026-11-12/` |
+| Statistical Area 2, 2018 boundaries | Stats NZ, [2018 Census SA2 layer](https://services2.arcgis.com/vKb0s8tBIA3bdocZ/arcgis/rest/services/2018_Census_usually_resident_population_and_age_groups_by_Statistical_Area_2/FeatureServer/0) | placing each 2023 SA1 in a 2018 SA2 for that shape | CC BY 4.0 | `raw/nz/census/statsnz_sa2_2018_2026-11-12.gpkg` |
 | 2023 Census: households by SA1 | Stats NZ | households without a car; household income | CC BY 4.0 | `raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json` |
 | 2023 Census: main means of travel to work by SA2 | Stats NZ | share of workers who drove to work | CC BY 4.0 | `processed/auckland/census/sa2_commute_car_share.csv` |
 | Business demography, employee counts by SA2, 2024 | Stats NZ | jobs | CC BY 4.0 | `processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet` (column `dest_jobs`) |
@@ -22,7 +27,7 @@ Check each provider's current terms before redistributing their data.
 
 ## Prepared inputs
 
-Two inputs are prepared from the sources above before TEAM runs:
+Three inputs are prepared from the sources above before TEAM runs:
 
 - **Population grid** (`processed/auckland/grid/auckland_h3_r9_population.parquet`):
   H3 resolution 9 cells covering the council area, with 2023 Census usual
@@ -30,6 +35,12 @@ Two inputs are prepared from the sources above before TEAM runs:
 - **Jobs grid** (`processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet`):
   the same cells with business demography employee counts spread from SA2s by
   area.
+- **Single-year age shape** (`processed/nz/census/age_shape_sa2_2018.parquet`,
+  `scripts/fetch_census_ages.py`): for every 2023 SA1 in the twenty places,
+  the share of its 10–14 band at each age 10 to 14 and of its 15–19 band at
+  ages 15, 16 and 17, from the 2018 single years of the 2018 SA2 its
+  representative point falls in (the national shape where that band holds
+  fewer than 30 people or a year is confidential).
 
 ## Basemaps
 

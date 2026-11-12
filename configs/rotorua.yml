@@ -24,6 +24,13 @@ data:
   grid: processed/rotorua/grid/rotorua_h3_r9_population.parquet
   jobs_grid: processed/rotorua/grid/rotorua_h3_r9_v2_opportunities.parquet
   schools: raw/nz/education/moe_schools_directory_2026-11-12.csv
+  # Enrolment zones (docs/schools.md) and the address points that place residents inside a hexagon.
+  zones: raw/nz/education/moe_enrolment_zones_2026-11-12/Enrolmentschememaster.zip
+  addresses: raw/nz/addresses/linz_nz_addresses_2026-11-12/rotorua.parquet
+  # Children by age (docs/schools.md, "Who is counted"): 2023 bands by SA1 and SA2, split by the 2018 shape.
+  census_ages: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa1.json
+  census_ages_sa2: raw/nz/census/statsnz_census2023_age_2026-11-12/statsnz_census2023_age_5yr_sa2.json
+  census_age_shape: processed/nz/census/age_shape_sa2_2018.parquet
   ece: raw/rotorua/education/educationcounts_ece_rotorua.json
   census_sa1: raw/rotorua/census/statsnz_census_sa1_2023_rotorua.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json

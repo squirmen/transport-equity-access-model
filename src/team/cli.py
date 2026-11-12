@@ -4,6 +4,8 @@
     team destinations --only schools   rebuild only the schools from the directory snapshot
     team schools split                 move an existing build to separate school runs
     team schools check                 what the directory gives each school service
+    team zones check                   enrolment zone statuses and the schools to look at (reports only)
+    team ages check                    children by age group against Stats NZ's totals (reports only)
     team route --all                   run every routing job (resumable)
     team route --all --shard 1/3       route every third batch, to split work across processes
     team route services walk           run one job
@@ -78,6 +80,30 @@ def cmd_schools(args: argparse.Namespace) -> int:
     for service in schools.school_service_ids(settings):
         print(service, json.dumps(schools.counting_line(table, service)))
     return 1 if missing else 0
+
+
+def cmd_zones(args: argparse.Namespace) -> int:
+    import json
+
+    from . import zones
+
+    settings = _settings(args)
+    if not zones.available(settings):
+        raise SystemExit("No zone file configured (data.zones).")
+    print(json.dumps(zones.check(settings), indent=2, default=str, ensure_ascii=False))
+    return 0
+
+
+def cmd_ages(args: argparse.Namespace) -> int:
+    import json
+
+    from . import ages, routing
+
+    settings = _settings(args)
+    if not ages.available(settings):
+        raise SystemExit("No census age files configured (data.census_ages, census_ages_sa2, census_age_shape).")
+    print(json.dumps(ages.check(settings, routing.load_origins(settings)), indent=2, ensure_ascii=False))
+    return 0
 
 
 def cmd_route(args: argparse.Namespace) -> int:
@@ -157,6 +183,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("schools", help="school directory checks and the move to separate school runs")
     p.add_argument("action", choices=["check", "split"])
     p.set_defaults(func=cmd_schools)
+
+    p = sub.add_parser("zones", help="enrolment zone checks (reports only)")
+    p.add_argument("action", choices=["check"])
+    p.set_defaults(func=cmd_zones)
+
+    p = sub.add_parser("ages", help="children by age group: totals against Stats NZ (reports only)")
+    p.add_argument("action", choices=["check"])
+    p.set_defaults(func=cmd_ages)
 
     p = sub.add_parser("route", help="run R5 routing")
     p.add_argument("dataset", nargs="?", choices=["services", "jobs", "schools"])

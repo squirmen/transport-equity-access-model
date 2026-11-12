@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from . import chains, context, diagnosis, equity, export, fares, gravity, measures, people, routing
+from . import ages, chains, context, diagnosis, equity, export, fares, gravity, measures, people, routing
 from .config import Settings
 
 log = logging.getLogger("team.build")
@@ -42,6 +42,7 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, di
     table = table.join(people.build(settings, origins))
     table["urban"] = people.urban_flag(table)
     table = table.join(people.villages(settings, table))
+    table = table.join(ages.build(settings, origins))  # children by school age group
     log.info("network context")
     table = table.join(context.build(settings, origins))
 

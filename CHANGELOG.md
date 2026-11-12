@@ -100,6 +100,39 @@ After a review of the MAGS case (12 November 2026), before release:
 - **Docs.** Why public transport can be slower than a 15-minute walk, and
   that schools over a regional boundary are not counted.
 
+Zones and school-age children (12 November 2026):
+
+- **In zone.** A new school choice: the state schools taught in English that
+  must take a child living in the hexagon, under the Education and Training
+  Act 2020 (sections 33 and 74): those whose home zone holds the home, and
+  those with no zone. Zones come from the Ministry's enrolment scheme file of
+  2 October 2026 (`raw/nz/education/moe_enrolment_zones_2026-11-12/`), as in
+  force on 12 November 2026. A year-level zone applies from the school's
+  entry year for the service (Balmoral School's Zone B is its intermediate
+  zone). Where the file holds only a zone that starts later (Tangaroa
+  College, Ormiston Junior College, Western Heights School, six Christchurch
+  primaries, Shotover, Arrowtown and Remarkables), that zone is used and
+  labelled. Checked against Eagle Technology's copy, which is not published.
+- **Zones by where people live.** Where a zone line crosses a hexagon, its
+  residents are placed by LINZ address points (each carries its census
+  block's residents shared equally), and the hexagon is counted in the zones
+  most of its residents live in. One school with a zone gets the share of
+  the children living in its zone who can reach it, and Who misses out and
+  What would help for them; MAGS's zone holds about 63,600 residents and
+  3,780 children aged 13–17.
+- **Children, not everyone.** School and early childhood figures count
+  children of the service's ages (0–4, 5–10, 11–12, 13–17), from the 2023
+  Census five-year bands by SA1 split into single years by the 2018 Census
+  shape of the surrounding SA2. An even split would count several times too
+  many secondary-age children in student areas (Campus North, Dunedin: 149
+  rather than 979). Other services and the all-residents columns are as before.
+- **Files.** `schools/zones.json` (format 2), `schools/zone_outlines_<service>.json`,
+  `cells.json` `ages`, `summary.json` `meta.ages` and `meta.schools.zones`;
+  downloads `team_<place>_school_zones.csv`, zone columns in
+  `team_<place>_schools.csv` and age columns in `team_<place>_h3`. New
+  commands `team zones check` and `team ages check`; new scripts
+  `fetch_address_points.py`, `fetch_census_ages.py` and `check_zones_eagle.py`.
+
 What changed in the published figures, from the 0.11.0 site to the 0.12.0
 build: the share of people within each school standard (all hexagons), before
 and after, and how many hexagons have a new time. One figure means no change

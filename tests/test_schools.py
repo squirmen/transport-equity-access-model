@@ -360,66 +360,7 @@ def test_destination_ids_stay_the_same_when_others_come_and_go(tmp_path):
     assert stable_ids(table, previous).tolist() == ["0", "2", "3"]
 
 
-# ---------------------------------------------------------------------------
-# Zones (synthetic, until the Ministry's file is in)
-
-
-def zone_fixture(tmp_path: Path):
-    import geopandas as gpd
-    import h3
-    from shapely.geometry import Polygon, box
-
-    centre = h3.latlng_to_cell(-36.8847, 174.7253, 9)
-    cells = pd.Index([centre, *[c for c in h3.grid_ring(centre, 1)]])
-    hexes = gpd.GeoSeries([Polygon([(lng, lat) for lat, lng in h3.cell_to_boundary(c)]) for c in cells], crs=4326).to_crs(2193)
-    x0, y0, x1, y1 = hexes.iloc[0].bounds
-    # Zone A covers the centre hexagon and the left half of the map; Zone B is for Years 7-8 only;
-    # Zone C does not take effect until 2027.
-    a = box(x0 - 2000, y0 - 2000, (x0 + x1) / 2 + 400, y1 + 2000)
-    zones = gpd.GeoDataFrame({
-        "School_ID": [69, 1300, 1301],
-        "School_name": ["Mt Albert Grammar School", "Balmoral School (Year 7-8)", "Tangaroa College"],
-        "Approval_date": ["2019-06-01", "2020-01-01", "2026-08-01"],
-        "Effective_date": ["2020-01-01", "2021-01-01", "2027-01-01"],
-    }, geometry=[a, box(x0 - 50, y0 - 50, x1 + 50, y1 + 50), box(x0 - 50, y0 - 50, x1 + 50, y1 + 50)], crs=2193)
-    path = tmp_path / "zones.gpkg"
-    zones.to_file(path, driver="GPKG")
-    return path, cells
-
-
-def test_zones_in_effect_on_the_snapshot_date_and_year_levels(tmp_path):
-    path, cells = zone_fixture(tmp_path)
-    current, later = schools.read_zones(path, dt.date(2026, 11, 12))
-    assert sorted(current["moe"].tolist()) == [69, 1300] and later["moe"].tolist() == [1301]
-    assert current.set_index("moe").loc[1300, ["years_from", "years_to"]].tolist() == [7, 8]
-    assert pd.isna(current.set_index("moe").loc[69, "years_from"])
-
-
-def test_a_hexagon_is_in_a_zone_when_the_zone_covers_half_of_it(tmp_path):
-    path, cells = zone_fixture(tmp_path)
-    current, _ = schools.read_zones(path, dt.date(2026, 11, 12))
-    cover = schools.zone_cover(current, cells)
-    mags = cover[cover["zone"] == current.index[current["moe"] == 69][0]].set_index("cell")
-    assert mags.loc[0, "inside"] and mags.loc[0, "share"] > 0.5 and not mags.loc[0, "cut"]
-    assert (mags["share"].between(0, 1)).all()
-    listed = pd.DataFrame([
-        {"school": "moe:69", "moe": 69, "kind": "state", "medium": "english", "scheme": True,
-         "services": "secondary_school", "sex_secondary_school": "co-ed", "sex_intermediate_school": None},
-        {"school": "moe:1300", "moe": 1300, "kind": "state", "medium": "english", "scheme": True,
-         "services": "intermediate_school", "sex_secondary_school": None, "sex_intermediate_school": "co-ed"},
-        {"school": "moe:50", "moe": 50, "kind": "state", "medium": "english", "scheme": False,
-         "services": "secondary_school", "sex_secondary_school": "co-ed", "sex_intermediate_school": None},
-        {"school": "moe:70", "moe": 70, "kind": "integrated", "medium": "english", "scheme": False,
-         "services": "secondary_school", "sex_secondary_school": "girls", "sex_intermediate_school": None},
-    ])
-    sets, cut, missing = schools.in_zone_sets(listed, current, cover, "secondary_school", len(cells))
-    # The centre hexagon is in MAGS's zone; a school with no scheme takes anyone; an integrated school is never "in zone".
-    assert sets[0] == {"moe:69", "moe:50"}
-    assert all("moe:70" not in s for s in sets)
-    assert all("moe:1300" not in s for s in sets)  # a Years 7-8 zone is not a secondary zone
-    assert cut.any() and missing == []
-    inter, _, _ = schools.in_zone_sets(listed, current, cover, "intermediate_school", len(cells))
-    assert "moe:1300" in inter[0]
+# Zones: tests/test_zones.py.
 
 
 # ---------------------------------------------------------------------------

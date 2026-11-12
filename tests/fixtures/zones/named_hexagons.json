@@ -1,0 +1,277 @@
+{
+ "note": "Recorded from the v2-geo build of 12 November 2026 (round-1 routing, 12 November 2026 directory). set: MoE numbers of the hexagon's In zone set; share: each zoned school's share of the hexagon's residents.",
+ "hexagons": {
+  "auckland/89bb50021a3ffff/primary_school": {
+   "set": [
+    1265
+   ],
+   "share": {
+    "1265": 0.979,
+    "1282": 0.011,
+    "1381": 0.309
+   },
+   "split": true
+  },
+  "auckland/89bb50021a3ffff/intermediate_school": {
+   "set": [
+    1219,
+    1337
+   ],
+   "share": {
+    "1219": 0.691,
+    "1337": 1.0
+   },
+   "split": true
+  },
+  "auckland/89bb50021a3ffff/secondary_school": {
+   "set": [
+    69
+   ],
+   "share": {
+    "69": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb50021b7ffff/primary_school": {
+   "set": [
+    1265
+   ],
+   "share": {
+    "1265": 0.975,
+    "1282": 0.025,
+    "1412": 0.025
+   },
+   "split": true
+  },
+  "auckland/89bb50021b7ffff/intermediate_school": {
+   "set": [
+    1337
+   ],
+   "share": {
+    "1337": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb50021b7ffff/secondary_school": {
+   "set": [
+    69
+   ],
+   "share": {
+    "69": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb50021a7ffff/primary_school": {
+   "set": [
+    1282,
+    1381
+   ],
+   "share": {
+    "1282": 0.628,
+    "1381": 1.0
+   },
+   "split": true
+  },
+  "auckland/89bb50021a7ffff/intermediate_school": {
+   "set": [
+    1337
+   ],
+   "share": {
+    "1337": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb50021a7ffff/secondary_school": {
+   "set": [
+    69
+   ],
+   "share": {
+    "69": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb5002183ffff/primary_school": {
+   "set": [
+    1265
+   ],
+   "share": {
+    "1265": 1.0
+   },
+   "split": false
+  },
+  "auckland/89bb5002183ffff/intermediate_school": {
+   "set": [
+    1219,
+    1337
+   ],
+   "share": {
+    "1219": 1.0,
+    "1337": 0.772
+   },
+   "split": true
+  },
+  "auckland/89bb5002183ffff/secondary_school": {
+   "set": [
+    69
+   ],
+   "share": {
+    "53": 0.372,
+    "69": 1.0
+   },
+   "split": true
+  },
+  "auckland/89bb50020abffff/primary_school": {
+   "set": [
+    1535
+   ],
+   "share": {
+    "1261": 0.212,
+    "1367": 0.335,
+    "1535": 0.669
+   },
+   "split": true
+  },
+  "auckland/89bb50020abffff/intermediate_school": {
+   "set": [
+    1211
+   ],
+   "share": {
+    "1211": 1.0,
+    "61": 0.097
+   },
+   "split": false
+  },
+  "auckland/89bb50020abffff/secondary_school": {
+   "set": [
+    53,
+    69
+   ],
+   "share": {
+    "53": 0.907,
+    "54": 0.097,
+    "61": 0.097,
+    "64": 0.318,
+    "69": 1.0
+   },
+   "split": true
+  },
+  "wellington/89bb2955a3bffff/primary_school": {
+   "set": [
+    2826
+   ],
+   "share": {
+    "2826": 0.614,
+    "3037": 0.338,
+    "3040": 0.048
+   },
+   "split": true
+  },
+  "wellington/89bb2955a3bffff/intermediate_school": {
+   "set": [
+    2826
+   ],
+   "share": {
+    "265": 1.0,
+    "2826": 0.614,
+    "3037": 0.338,
+    "3040": 0.048,
+    "4158": 1.0
+   },
+   "split": true
+  },
+  "wellington/89bb2955a3bffff/secondary_school": {
+   "set": [
+    272,
+    273,
+    275
+   ],
+   "share": {
+    "265": 1.0,
+    "272": 0.672,
+    "273": 1.0,
+    "274": 0.484,
+    "275": 1.0,
+    "4158": 1.0
+   },
+   "split": true
+  },
+  "wellington/89bb295594fffff/primary_school": {
+   "set": [
+    2874
+   ],
+   "share": {
+    "2874": 1.0
+   },
+   "split": false
+  },
+  "wellington/89bb295594fffff/intermediate_school": {
+   "set": [
+    2874
+   ],
+   "share": {
+    "265": 1.0,
+    "2874": 1.0,
+    "4158": 1.0
+   },
+   "split": false
+  },
+  "wellington/89bb295594fffff/secondary_school": {
+   "set": [
+    272,
+    273,
+    275
+   ],
+   "share": {
+    "265": 1.0,
+    "272": 1.0,
+    "273": 1.0,
+    "275": 1.0,
+    "4158": 1.0
+   },
+   "split": false
+  },
+  "blenheim/89bb29ba32fffff/primary_school": {
+   "set": [
+    2811
+   ],
+   "share": {
+    "2811": 1.0
+   },
+   "split": false
+  },
+  "blenheim/89bb29ba32fffff/intermediate_school": {
+   "set": [
+    2812
+   ],
+   "share": {
+    "2812": 1.0
+   },
+   "split": false
+  },
+  "blenheim/89bb29ba323ffff/primary_school": {
+   "set": [
+    3071
+   ],
+   "share": {
+    "2811": 0.421,
+    "3071": 0.579
+   },
+   "split": true
+  },
+  "blenheim/89bb29ba323ffff/intermediate_school": {
+   "set": [
+    2812
+   ],
+   "share": {
+    "2812": 1.0
+   },
+   "split": false
+  }
+ },
+ "mags": {
+  "residents": 63560.8,
+  "children_13_17": 3780.5,
+  "hexagons": 174,
+  "crossed": 53
+ }
+}

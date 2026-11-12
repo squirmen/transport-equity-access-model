@@ -1,0 +1,69 @@
+moe,polygon_id,name,years_from,years_to
+2,20000001,Taipa Area School (Year 1-6),1,6
+2,20000002,Taipa Area School (Year 7-8),7,8
+2,20000003,Taipa Area School (Year 9-15),9,15
+108,108001,Onewhero Area School (Years 7-13),7,13
+108,108002,Onewhero Area School (Years 1-6),1,6
+109,109001,Coromandel Area School Y1-8,1,8
+109,109002,Coromandel Area School Y9-13,9,13
+125,125001,Raglan Area School Y1-8,1,8
+125,125002,Raglan Area School Y9-13,9,13
+201,201001,Queen Elizabeth College (Year 7-8),7,8
+201,201002,Queen Elizabeth College (Year 9-13),9,13
+212,212001,Tolaga Bay Area School (Primary Zone),,
+212,212002,Tolaga Bay Area School (Secondary Zone),,
+287,287001,Queen Charlotte College (Year 9-15),9,15
+287,287002,Queen Charlotte College (Year 7-8),7,8
+306,306001,South Westland Area School (Yr 1-6 zone),1,6
+306,306002,South Westland Area School (Yr 7-8 zone),7,8
+306,306003,South Westland Area School (Yr 9-15 zone),9,15
+308,308001,Amuri Area School (Year 1-6),1,6
+308,308002,Amuri Area School (Year 7-8),7,8
+308,308003,Amuri Area School (Year 9-15),9,15
+311,311001,Hurunui College (Year 1-8),1,8
+311,311002,Hurunui College (Year 9-13),9,13
+335,335001,Middleton Grange School (Year 1-8),1,8
+335,335002,Middleton Grange School (Year 9-10),9,10
+335,335003,Middleton Grange School (Year 11-13),11,13
+337,337001,Te Aratai College (Year 7&8),7,8
+337,337002,Te Aratai College (Year 9-15),9,15
+338,338001,Hornby High School Years 7-8,7,8
+338,338002,Hornby High School Years 9-15,9,15
+339,339001,Hillmorton High School (Year 7-8),7,8
+339,339002,Hillmorton High School (Year 9-13),9,13
+348,348001,Mount Hutt College (Year 9-15),9,15
+348,348002,Mount Hutt College (Year 7-8),7,8
+352,352001,Geraldine High School (Year 7&8),7,8
+352,352002,Geraldine High School (Year 9-15),9,15
+354,354,Opihi College (Year 9-15),9,15
+354,354001,Opihi College Years 7-8,7,8
+428,428001,Whangamata Area School (Year 1-8),1,8
+428,428002,Whangamata Area School (Year 9-13),9,13
+452,452001,Southern Cross Campus (Yrs 7-8),7,8
+452,452002,Southern Cross Campus (Yrs 9-15),9,15
+452,452003,Southern Cross Campus (Yrs 1-6),1,6
+615,615,Rototuna Senior High School (Y11-13),11,13
+704,704001,Haeata Community College (Year 1-8),1,8
+704,704002,Haeata Community College (Year 9-15),9,15
+708,708001,Rototuna Junior High School (Y7-8),7,8
+708,708002,Rototuna Junior High School (Y9-10),9,10
+1043,1043001,Matarau School (years 7-8),7,8
+1043,1043002,Matarau School (years 1-6),1,6
+1066,1066001,Oruaiti School (Year 1-6),1,6
+1066,1066002,Oruaiti School (Year 7&8),7,8
+1071,1071001,Oturu School (Year 1-6),1,6
+1071,1071002,Oturu School (Year 7&8),7,8
+1219,1219001,Balmoral School (Auckland) Zone B (yrs 7-8),7,8
+1219,1219002,Balmoral School (Auckland) Zone A (yrs 1-6),1,6
+1572,1572,Whenuapai School,,
+1572,1572002,Whenuapai School (Temp Extension),,
+1763,1763001,Karangahake School (Yr 1-6),1,6
+1763,1763002,Karangahake School (Yr 7-8),7,8
+1856,1856001,Ohinewai School (yr 1-6),1,6
+1856,1856002,Ohinewai School (Yr 7-8),7,8
+1942,1942001,St Andrews Middle School (Y7-8),7,8
+1942,1942002,St Andrews Middle School (Y9-10),9,10
+2096,2096001,Crawshaw School (Y1-6),1,6
+2096,2096002,Crawshaw School (Y7-8),7,8
+3281,3281001,Ashburton Borough School (Y1-6),1,6
+3281,3281002,Ashburton Borough School (Y7&8),7,8
