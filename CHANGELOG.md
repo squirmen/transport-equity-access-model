@@ -81,8 +81,9 @@ After a review of the MAGS case (12 November 2026), before release:
   few school-time trips on public routes (747, 989, 997), which are counted.
 - **Where the times end.** The One school card and the CSV say a time goes to
   the Ministry's map point (the pin), not the nearest gate, with the pin's
-  straight-line distance. MAGS's point is inside its 19.5 ha grounds and R5
-  places it on the Alberton Avenue drive. Three candidate entrances are
+  straight-line distance. MAGS's point is inside its 19.5 ha grounds, and
+  every walk to it takes within a minute of the walk to the Alberton Avenue
+  drive on the west side. Three candidate entrances are
   listed in `configs/schools/entrances.csv`, not checked and not used. A
   check run to them (r5py 1.1.3, TEAM's settings, 3,884 hexagons within 15
   km; it gives exactly the published minutes to the point for every one of

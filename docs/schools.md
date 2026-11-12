@@ -66,12 +66,13 @@ filled. In 0.12.0 no row is checked: every school is routed to its
 directory point, as before.
 
 A directory point can sit deep inside a large site. Mt Albert Grammar
-School's (174.72535, -36.88471) is inside its 19.5 ha grounds (OpenStreetMap
-way 24530357, about 660 m by 740 m), and R5 places it on the drive off
-Alberton Avenue, on the west side. From the hexagons east and south of the
-school the walk goes round the site to that drive: from the St Lukes hexagon
-on the councillors' slide (89bb50021a3ffff), 80 m from the grounds, it is 15
-minutes. `entrances.csv` lists three candidate entrances for the school, none
+School's (174.72535, -36.88471) is 59 m inside its 19.5 ha grounds
+(OpenStreetMap way 24530357, about 660 m by 740 m). R5 places it 23 m away,
+on a path inside the grounds, and every walk to it takes within a minute of
+the walk to the drive off Alberton Avenue on the west side, so in effect
+every trip ends there. From the hexagons east and south of the school the
+walk goes round the site: from the St Lukes hexagon on the councillors'
+slide (89bb50021a3ffff), 80 m from the grounds, it is 15 minutes. `entrances.csv` lists three candidate entrances for the school, none
 checked: the Alberton Avenue drive, a footpath on the north-east side
 (OpenStreetMap way 260845395) and a gate on the south-east side (node
 266732026, tagged locked, for customers, open 7:00 to 9:30 on weekdays). They
