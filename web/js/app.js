@@ -5182,7 +5182,7 @@ function describePoint(info) {
       icon,
       title: dest.name || 'Unnamed school',
       lines,
-      hint: info.picked ? 'The school picked' : dest.moe != null ? `${click} to show only this school` : null,
+      hint: info.picked ? `${click} to zoom to it or find another school` : dest.moe != null ? `${click} to show only this school` : null,
       actions,
     };
   }
