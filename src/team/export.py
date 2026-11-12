@@ -822,7 +822,8 @@ DOWNLOAD_NOTES = {
     "{slug}_h3.csv": "The same fields without shapes.",
     "{slug}_schools.csv": "Every school counted, with its kind, teaching language, who it takes, years, roll and map point.",
     "{slug}_school_zones.csv": "Each hexagon's share of residents in each school's zone, and the zones In zone counts it in.",
-    "{slug}_school_stops.csv": "Stops and stations within a 15-minute walk of each school, with the routes and trips arriving there from 7am to 9am.",
+    "{slug}_school_stops.csv": "Stops and stations within a 15-minute walk of each school, and its nearest train or ferry stations "
+                               "within a 30-minute walk (far_station), with the routes and trips arriving there from 7am to 9am.",
     "fields.csv": "What each field means.",
     "SHA256SUMS.txt": "Checksums, to confirm a download is complete.",
 }

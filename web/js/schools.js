@@ -1608,10 +1608,12 @@ export function ptCsvLine(when, ptOrWalk) {
 // ---------------------------------------------------------------- stops near a school
 //
 // schools/stops.json, format 1 (docs/schools.md "Stops near a school"):
-// {format, date, window: [start, end], max_walk_minutes, gtfs, stops: [{id,
-// code, name, station, lat, lon}], schools: {"<dest index>": [{s, walk,
-// metres, routes: [{route, mode, headsigns, trips}], trips}]}}. Loaded only
-// under One school.
+// {format, date, window: [start, end], max_walk_minutes, far_walk_minutes,
+// far_most, gtfs, stops: [{id, code, name, station, lat, lon, served, mode}],
+// schools: {"<dest index>": [{s, walk, metres, routes: [{route, mode,
+// headsigns, trips}], trips, board, far}]}}. `far` marks one of the school's
+// nearest train or ferry stations beyond max_walk_minutes (from the 0.12.0
+// review; a file without it has none). Loaded only under One school.
 
 /** The stops file as the page uses it, or null when it is not one it reads. */
 export function decodeStops(json) {
@@ -1623,6 +1625,8 @@ export function decodeStops(json) {
     counts: typeof json.counts === 'string' ? json.counts : null,
     window,
     maxWalk: Number.isFinite(json.max_walk_minutes) ? json.max_walk_minutes : 15,
+    farWalk: Number.isFinite(json.far_walk_minutes) ? json.far_walk_minutes : null,
+    farMost: Number.isFinite(json.far_most) ? json.far_most : null,
     gtfs: typeof json.gtfs === 'string' ? json.gtfs : null,
     stops: json.stops,
     schools: json.schools,
@@ -1637,6 +1641,52 @@ export function stopsAt(stops, d) {
   if (!Array.isArray(rows)) return null;
   return rows.filter((row) => row && stops.stops[row.s])
     .sort((a, b) => a.walk - b.walk || (a.metres ?? 0) - (b.metres ?? 0));
+}
+
+/** Whether a row is one of the school's nearest train or ferry stations
+ *  beyond the walk the list is for. A file from before these has no `far`,
+ *  and every row is within the walk. */
+export function isFarStop(row, stops) {
+  return Boolean(row && (row.far === true || (stops && Number(row.walk) > stops.maxWalk)));
+}
+
+/** School d's rows split: { near: within the walk, far: the stations beyond
+ *  it }, quickest walk first, or null where the file does not cover it. */
+export function stopsSplit(stops, d) {
+  const rows = stopsAt(stops, d);
+  if (!rows) return null;
+  return { near: rows.filter((row) => !isFarStop(row, stops)), far: rows.filter((row) => isFarStop(row, stops)) };
+}
+
+/** A station's mode, "train" or "ferry": the file's, or else its routes'. */
+function stationMode(row, stops) {
+  const stop = stops.stops[row.s] || {};
+  if (stop.mode === 'train' || stop.mode === 'ferry') return stop.mode;
+  const modes = (row.routes || []).map((r) => r.mode);
+  return modes.includes('ferry') && !modes.includes('train') ? 'ferry' : 'train';
+}
+
+/** "train station", "ferry stops", "train stations and ferry stops". */
+export function stationNoun(rows, stops) {
+  const modes = new Set(rows.map((row) => stationMode(row, stops)));
+  const one = rows.length === 1;
+  if (modes.has('train') && modes.has('ferry')) return 'train stations and ferry stops';
+  if (modes.has('ferry')) return one ? 'ferry stop' : 'ferry stops';
+  return one ? 'train station' : 'train stations';
+}
+
+/** The line above the far stations: "Nearest train stations, beyond a 15-minute walk". */
+export function farStopsHeading(rows, stops) {
+  return `Nearest ${stationNoun(rows, stops)}, beyond a ${stops.maxWalk}-minute walk`;
+}
+
+/** The section's folded summary: "32 within 15 min", with the far stations
+ *  after it: "32 within 15 min · 2 train stations within 30 min". */
+export function stopsSummary(split, stops) {
+  const near = split.near.length ? `${split.near.length} within ${stops.maxWalk} min` : 'none';
+  if (!split.far.length) return near;
+  const within = stops.farWalk ? ` within ${stops.farWalk} min` : '';
+  return `${split.near.length ? near : `none within ${stops.maxWalk} min`} · ${split.far.length} ${stationNoun(split.far, stops)}${within}`;
 }
 
 const clockOf = (text) => {
@@ -1719,14 +1769,21 @@ export function stopsCsvLines(stops, d) {
   const day = when.replace(/^between .* on /, '');
   const verb = stops.counts === 'arrivals' ? 'arriving' : 'stopping';
   const out = [`Stops within a ${stops.maxWalk}-minute walk of the school's map point (walking minutes on the street network, rounded down; trips ${verb} ${stopHours(stops, { ascii: true })}${day ? ` on ${day}` : ''}${stops.gtfs ? `, ${stops.gtfs}` : ''}):`];
-  if (!rows.length) out.push(`No stop within a ${stops.maxWalk}-minute walk.`);
-  for (const row of rows) {
+  const near = rows.filter((row) => !isFarStop(row, stops));
+  const far = rows.filter((row) => isFarStop(row, stops));
+  const line = (row) => {
     const stop = stops.stops[row.s];
     const modes = [...new Set((row.routes || []).map((r) => r.mode).filter(Boolean))];
     const byRoute = (row.routes || []).map((r) => `${r.route} ${r.trips}`).join(', ');
     const none = stop.served === false ? ' (none on any day in the timetable)' : '';
     const what = modes.join('/') || (stop.served === false ? 'no service' : 'no trips in window');
-    out.push(`stop ${stop.code || stop.id} ${stopTitle(stop)}: ${what}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'} ${verb}${byRoute ? ` (${byRoute})` : ''}${none}`);
+    return `stop ${stop.code || stop.id} ${stopTitle(stop)}: ${what}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'} ${verb}${byRoute ? ` (${byRoute})` : ''}${none}`;
+  };
+  if (!near.length) out.push(`No stop within a ${stops.maxWalk}-minute walk.`);
+  out.push(...near.map(line));
+  if (far.length) {
+    const most = stops.farWalk ? ` (up to ${stops.farMost || 3} within a ${stops.farWalk}-minute walk)` : '';
+    out.push(`${farStopsHeading(far, stops)}${most}:`, ...far.map(line));
   }
   return out;
 }

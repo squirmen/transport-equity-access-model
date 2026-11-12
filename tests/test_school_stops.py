@@ -90,6 +90,74 @@ def test_only_trips_running_on_the_day_and_in_the_window_count(tmp_path):
     assert trips_s == 2 and routes_s[0]["mode"] == "train" and routes_s[0]["headsigns"] == ["Britomart", "Swanson"]
 
 
+def test_stations_are_stop_groups_a_train_or_ferry_stops_at(tmp_path):
+    """A parent station with a train at its platforms, a wharf with no
+    station, and bus stops: only the first two are stations."""
+    path = tmp_path / "stations.zip"
+    files = {
+        "stops.txt": "stop_id,stop_code,stop_name,stop_lat,stop_lon,location_type,parent_station\n"
+                     "S,119,Baldwin Ave Train Station,-36.8806,174.7149,1,\n"
+                     "P1,9301,Baldwin Ave Train Station 1,-36.8805,174.7148,0,S\n"
+                     "P2,9302,Baldwin Ave Train Station 2,-36.8807,174.7150,0,S\n"
+                     "W,9600,Devonport Ferry Terminal,-36.8333,174.7958,0,\n"
+                     "B,1427,Mount Albert Grammar School,-36.88468,174.72428,0,\n",
+        "routes.txt": "route_id,route_short_name,route_long_name,route_type\nWEST,WEST,Western Line,2\nDEV,DEV,,4\nR22N,22N,,3\n",
+        "trips.txt": "route_id,service_id,trip_id,trip_headsign\nWEST,SUNDAY,t1,Swanson\nDEV,WEEKDAY,t2,Devonport\nR22N,WEEKDAY,t3,City\n",
+        "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                          "t1,10:00:00,10:00:00,P2,1\nt2,07:30:00,07:30:00,W,2\nt3,07:10:00,07:10:00,B,1\n",
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    with zipfile.ZipFile(path) as archive:
+        stops = school_stops._read(archive, "stops.txt")
+        routes = school_stops._read(archive, "routes.txt")
+        _, group = school_stops.stop_table(stops)
+        # A train on any day makes a station, here only on Sundays.
+        assert school_stops.station_groups(archive, routes, group) == {"S": "train", "W": "ferry"}
+
+
+def walks(rows):
+    import pandas as pd
+
+    return pd.DataFrame(rows, columns=["school", "group", "travel_time", "metres"])
+
+
+def test_each_school_keeps_its_nearest_stations_within_30_minutes_up_to_3():
+    stations = {"BALDWIN": "train", "MTALBERT": "train", "MORNINGSIDE": "train", "KINGSLAND": "train", "AVONDALE": "train",
+                "WHARF": "ferry"}
+    near = walks([
+        # MAGS: its stops within 15 minutes, no station among them.
+        ("moe:69", "1427", 1, 95), ("moe:69", "8816", 7, 501),
+        # A school with a station within the walk.
+        ("moe:62", "GRAFTON", 5, 300),
+    ])
+    stations["GRAFTON"] = "train"
+    further = walks([
+        ("moe:69", "BALDWIN", 16, 891), ("moe:69", "MTALBERT", 17, 999), ("moe:69", "MORNINGSIDE", 21, 1392),
+        ("moe:69", "KINGSLAND", 25, 1700), ("moe:69", "AVONDALE", 30, 2100),
+        ("moe:62", "GRAFTON", 5, 300), ("moe:62", "MTALBERT", 18, 1300), ("moe:62", "BALDWIN", 31, 2400),
+        # A school whose only station within 30 minutes is within 15.
+        ("moe:101", "PAPAKURA", 10, 700),
+        # Bus stops in the walks are not stations.
+        ("moe:7", "BUS", 20, 900),
+    ])
+    stations["PAPAKURA"] = "train"
+    nearest = school_stops.nearest_stations(further, stations)
+    assert list(nearest.loc[nearest["school"] == "moe:69", "group"]) == ["BALDWIN", "MTALBERT", "MORNINGSIDE"]
+    far = school_stops.far_stations(near, further, stations)
+    by_school = far.groupby("school")["group"].apply(list).to_dict()
+    # MAGS: Baldwin Ave and Mt Albert (16 and 17 minutes) and Morningside; Kingsland and Avondale are 4th and 5th.
+    assert by_school["moe:69"] == ["BALDWIN", "MTALBERT", "MORNINGSIDE"]
+    assert list(far.loc[far["school"] == "moe:69", "travel_time"]) == [16, 17, 21]
+    # Grafton, within the walk, is not added again or marked far; Mt Albert
+    # is; Baldwin Ave, over 30 minutes, is not.
+    assert by_school["moe:62"] == ["MTALBERT"]
+    # A school with its only station within the walk is unchanged.
+    assert "moe:101" not in by_school
+    assert "moe:7" not in by_school
+
+
 def test_route_types_name_the_mode():
     assert [school_stops.route_mode(v) for v in (3, "2", 4, 700, 1000, 109, None)] == ["bus", "train", "ferry", "bus", "ferry", "train", "other"]
 
@@ -122,6 +190,23 @@ def test_mags_stops():
     baldwin = [body["stops"][r["s"]] for r in listed if "Baldwin Ave" in body["stops"][r["s"]]["name"]]
     # Baldwin Ave's platforms come under the station, once.
     assert len(baldwin) <= 1 and all(s["station"] for s in baldwin)
+    # 32 stops within a 15-minute walk, then the nearest train stations
+    # beyond it: Baldwin Ave (stop 119) and Mt Albert (120), the two its
+    # students use, by their walks on the street network.
+    within = [r for r in listed if not r.get("far")]
+    far = [r for r in listed if r.get("far")]
+    assert len(within) == 32 and all(r["walk"] <= 15 for r in within)
+    assert listed == within + far
+    stations = {body["stops"][r["s"]]["code"]: r for r in far}
+    assert list(stations)[:2] == ["119", "120"] and len(far) <= 3
+    assert body["stops"][stations["119"]["s"]]["name"] == "Baldwin Ave Train Station"
+    assert body["stops"][stations["120"]["s"]]["name"] == "Mt Albert Train Station"
+    assert (stations["119"]["walk"], stations["120"]["walk"]) == (16, 17)
+    assert 850 <= stations["119"]["metres"] <= 950 and 950 <= stations["120"]["metres"] <= 1050
+    for code in ("119", "120"):
+        stop = body["stops"][stations[code]["s"]]
+        assert stop["station"] and stop["mode"] == "train" and stop["served"]
+        assert stations[code]["trips"] > 0 and {r["mode"] for r in stations[code]["routes"]} == {"train"}
 
 
 @needs_site
@@ -157,8 +242,31 @@ def test_every_school_has_a_stop_list(place):
     listed = {int(k) for k in body["schools"]}
     # Every school has a list; an empty one means no stop within the walk.
     assert listed == school_index
-    assert sum(1 for rows in body["schools"].values() if not rows) == meta["schools"]["stops"]["schools_with_none"]
+    # None within the walk: an empty list, or far stations only.
+    assert sum(1 for rows in body["schools"].values() if not [r for r in rows if not r.get("far")]) == meta["schools"]["stops"]["schools_with_none"]
+    assert sum(1 for rows in body["schools"].values() if any(r.get("far") for r in rows)) == meta["schools"]["stops"]["schools_with_far"]
+    assert body["max_walk_minutes"] == 15 and body["far_walk_minutes"] == 30 and body["far_most"] == 3
     for rows in body["schools"].values():
-        assert all(r["walk"] <= body["max_walk_minutes"] == 15 for r in rows)
+        within = [r for r in rows if not r.get("far")]
+        far = [r for r in rows if r.get("far")]
+        assert all(r["walk"] <= 15 for r in within)
+        # The far ones: train or ferry stations, over 15 minutes and up to 30,
+        # after the rest, and with the stations within the walk no more than 3.
+        assert all(15 < r["walk"] <= 30 and body["stops"][r["s"]].get("mode") in ("train", "ferry") for r in far)
+        assert rows == within + far and [r["walk"] for r in far] == sorted(r["walk"] for r in far)
+        if far:
+            assert sum(1 for r in within if body["stops"][r["s"]].get("mode")) + len(far) <= 3
         # A trip runs on one route, so the routes' trips add up to the stop's.
         assert all(r["trips"] == sum(x["trips"] for x in r["routes"]) for r in rows)
+
+
+@needs_site
+def test_a_school_with_its_only_station_within_the_walk_is_unchanged():
+    body, dests = stops_of("auckland")
+    # Papakura High School: Papakura Train Station is a 10-minute walk, and
+    # no other station is within 30 minutes.
+    school = next(i for i, d in enumerate(dests) if d.get("moe") == 101)
+    rows = body["schools"][str(school)]
+    stations = [r for r in rows if body["stops"][r["s"]].get("mode")]
+    assert [(body["stops"][r["s"]]["name"], r["walk"], r.get("far", False)) for r in stations] == [("Papakura Train Station", 10, False)]
+    assert not any(r.get("far") for r in rows)

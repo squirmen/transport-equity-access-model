@@ -365,6 +365,32 @@ minutes) and Ferndale House on New North Road (8226 and 8229, routes 22N,
 are each called St Lukes in Auckland Transport's feed (stops 11838, 11512
 and 11287, 12 to 14 minutes); the list gives each its number.
 
+### Train and ferry stations further out
+
+The 15-minute list left out both train stations Mt Albert Grammar School's
+students use, so each school's nearest train or ferry stations are listed
+too. A station is a stop group (a parent station and its platforms, or a stop
+with no parent) that any train or ferry in the feed stops at, on any day
+(`route_type` 1, 2 or 4, or their extended codes). Every station platform within
+2,600 m of a school in a straight line is routed on foot to it as above, up
+to 30 minutes (r5py `max_time` 31). The school's nearest stations within a
+30-minute walk are kept, up to 3, nearest first: at least the nearest, and
+any others within 30 minutes. Those over 15 minutes are added after the
+other stops, marked `far`, with their routes and trips arriving 7–9am
+counted as for any stop; a station within 15 minutes is in the list already
+and stays as it was. The 15-minute list itself does not change: rebuilt with
+the rule, every place's stops within 15 minutes are the same, row for row.
+
+Mt Albert Grammar School gains Baldwin Ave Train Station (stop 119, 16
+minutes, 891 m in a straight line), Mt Albert Train Station (stop 120, 17
+minutes, 999 m) and Morningside Train Station (stop 104, 21 minutes), each
+with 23 trains arriving between 7 and 9am. In the 20 places, 315 schools gain
+a station: Auckland 199, Wellington 105, Hamilton 8 (Te Huia's stations, with
+no train arriving between 7 and 9am) and Queenstown 3 (ferry stops). 182 of
+them had no train or ferry station within 15 minutes; the other 133 have one
+and gain the next nearest. A station no train or ferry reaches between 7 and
+9am is still listed, with no trips.
+
 ### Checks
 
 - Before any point changed, the school runs gave exactly the minutes the
@@ -864,18 +890,26 @@ a secondary school that stops at Year 10, and 15–17 is 13_17 less 13_14.
 Loaded only under One school.
 
 ```text
-{format: 1, date: "2026-09-15", window: ["07:00", "08:59"], max_walk_minutes: 15, gtfs: "<file>",
+{format: 1, date: "2026-09-15", window: ["07:00", "08:59"], max_walk_minutes: 15,
+ far_walk_minutes: 30, far_most: 3, gtfs: "<file>",
  counts: "arrivals",                                   trips set down there, arriving in the window
- stops: [{id, code, name, station, lat, lon, served}],  one table for the place; station: platforms grouped
+ stops: [{id, code, name, station, lat, lon, served, mode}],  one table for the place; station: platforms grouped;
+                                                       mode: "train" or "ferry" for a station, else left out
  schools: {"<destination index>": [{s: stop position, walk: minutes, metres: straight line,
-                                     routes: [{route, mode, headsigns: [...], trips}], trips, board}]}}
+                                     routes: [{route, mode, headsigns: [...], trips}], trips, board, far}]}}
 ```
 
 Every school has an entry; a school with no stop within a 15-minute walk has
-an empty list. `served` is false for a stop no trip in the feed stops at, on
-any day (Mount Albert Grammar School's stop 1427, perhaps kept for school
-buses the open timetable leaves out). `meta.schools.stops` gives the file,
-date, window, feed and how many schools have none.
+an empty list, or its far stations only. A school's rows are its stops within
+the walk, quickest first, then its far stations (`far: true`, left out
+otherwise), nearest first. `served` is false for a stop no trip in the feed
+stops at, on any day (Mount Albert Grammar School's stop 1427, perhaps kept
+for school buses the open timetable leaves out). `meta.schools.stops` gives
+the file, date, window, feed, how many schools have no stop within the walk
+(`schools_with_none`) and how many have a far station (`schools_with_far`),
+with `far_walk_minutes` and `far_most`. Files from before the far stations
+have none of these fields; the page reads them as before. The format stays 1:
+the fields are added, and no 0.12.0 page has been published without them.
 
 ### Downloads
 
@@ -887,8 +921,10 @@ any of its residents, the share of its residents in the zone
 (`residents_share`) and whether the zone is in the hexagon's In zone set
 (`in_zone_set`). `team_<place>_school_stops.csv`: `moe, school, stop_id,
 stop_code, stop_name, station, mode, walk_minutes, straight_m, routes,
-trips_arriving_7_9, trips_boarding_7_9, served_any_day`, one row per school
-and stop. `team_<place>_h3.csv` and `.gpkg` add `age_0_4`, `age_5_10`,
+trips_arriving_7_9, trips_boarding_7_9, served_any_day, far_station`, one row
+per school and stop; `far_station` is true for a train or ferry station
+beyond a 15-minute walk, one of the school's nearest within 30.
+`team_<place>_h3.csv` and `.gpkg` add `age_0_4`, `age_5_10`,
 `age_11_12`, `age_13_17` and `age_13_14`, R5's own public transport times
 (columns ending `_r5`) and the jobs and fares on foot (`_z0`), all at the end
 of the file so the 0.11 columns stay together. Read columns by name: the
@@ -929,6 +965,16 @@ build's rules exactly:
   lists take walking where it is quicker (above), so a girl in central
   Blenheim is 22 minutes from Marlborough Girls' College by public transport,
   on foot; R5 alone gave over 60. The list's `r5` says so, for the card.
+- **Stops near the school.** Under One school, the section lists the stops
+  within a 15-minute walk, then the far stations under "Nearest train
+  stations, beyond a 15-minute walk" (ferry stops named as such), each with
+  its walk and trips arriving 7–9am. Its folded summary reads "32 within
+  15 min · 3 train stations within 30 min". On the map each stop is a tag
+  with its minutes, stations filled navy. Tags get their minutes in turn,
+  stations first and then the other stops quickest first, and a tag that
+  would overlap one already drawn, or the school's name, shows as a dot
+  until the map is zoomed in far enough (`stopLabelPlan` in `web/js/map.js`,
+  worked out again as the map zooms).
 
 ## Figures for testing the site
 

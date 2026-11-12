@@ -61,7 +61,14 @@ School (MAGS), and public transport that takes the walk where it is quicker.
 - **Stops near a school.** Under One school: every stop and station within a
   15-minute walk of the school's point, with its stop number, walk, routes
   and the trips arriving from 7 to 9am on the routing day. School buses that
-  end at the school's stop count (Wellington's 402 at Tawa College).
+  end at the school's stop count (Wellington's 402 at Tawa College). After
+  them, under "Nearest train stations, beyond a 15-minute walk", the
+  school's nearest train or ferry stations up to a 30-minute walk, up to 3
+  in all: Mt Albert Grammar School gains Baldwin Ave (16 min) and Mt Albert
+  (17 min), the stations its students use, and Morningside (21 min). 315
+  schools in the 20 places gain one (Auckland 199, Wellington 105, Hamilton 8,
+  Queenstown 3). On the map, stations are filled navy and a stop whose
+  minutes would overlap another's shows as a dot until zoomed in.
 
 ### Data and method
 
@@ -110,7 +117,8 @@ School (MAGS), and public transport that takes the walk where it is quicker.
   `schools/stops.json`; `cells.json` `nearest_mode`, `ties`, `ptr` and
   `ages`; `summary.json` `meta.schools`, `meta.ages`, `meta.pt_or_walk`,
   `meta.formats`; downloads `team_<place>_schools.csv`,
-  `team_<place>_school_zones.csv`, `team_<place>_school_stops.csv`.
+  `team_<place>_school_zones.csv`, `team_<place>_school_stops.csv` (its last
+  column, `far_station`, marks the far stations).
 - `team_<place>_h3.csv`: the 0.11.0 columns keep their names, but school
   columns now come after tertiary, so read columns by name. `t_*_pt`,
   `jobs*_pt` and `costaccess_*` now hold public transport or walking. The

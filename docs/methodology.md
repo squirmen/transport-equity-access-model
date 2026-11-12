@@ -158,7 +158,12 @@ the Alberton Avenue drive that Google Maps routes to).
 listed with the routes and the trips that set down there arriving from 7 to
 9am on the routing day, from the place's timetable. At the school end
 students get off, so a school bus that ends at the school's own stop counts.
-This says what is near the school, not which stop the quickest trip uses.
+After them come the school's nearest train or ferry stations beyond the
+15-minute walk: of its nearest stations within a 30-minute walk, up to 3,
+those over 15 minutes, with their walks and trips counted the same way.
+Mt Albert Grammar School's are Baldwin Ave and Mt Albert train stations (16
+and 17 minutes), which its students use, and Morningside (21). This says
+what is near the school, not which stop the quickest trip uses.
 
 **Secondary school in two stages.** A Year 7–10 (or 1–10) school stops at
 Year 10 and a Year 11–15 school starts at Year 11 (Auckland and Hamilton

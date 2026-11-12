@@ -813,13 +813,20 @@ function oneSchool(model, set) {
   return parts;
 }
 
-/** Stops near the school (One school): { intro, rows: [text], none, summary }. */
+/** Stops near the school (One school): { intro, rows: [text], none, summary,
+ *  far: { heading, rows: [text] } or null }. */
 function stopsSection(stops) {
-  const list = el('ul', 'stop-list');
-  for (const text of stops.rows) list.append(el('li', null, text));
+  const listOf = (rows) => {
+    const list = el('ul', 'stop-list');
+    for (const text of rows) list.append(el('li', null, text));
+    return list;
+  };
+  const far = stops.far && stops.far.rows.length ? [el('p', 'stop-far-head', stops.far.heading), listOf(stops.far.rows)] : [];
+  if (far.length) far[1].classList.add('is-far');
   return fold('school-stops', 'Stops near the school', stops.summary, [
     el('p', 'note', stops.intro),
-    stops.rows.length ? list : el('p', 'note', stops.none),
+    stops.rows.length ? listOf(stops.rows) : el('p', 'note', stops.none),
+    ...far,
   ]);
 }
 

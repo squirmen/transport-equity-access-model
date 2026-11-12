@@ -38,7 +38,8 @@ import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './sc
 import {
   ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops, decodeZones,
   DEFAULT_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, listAnswers, noZoneSentence, ptCsvLine, readChoice, readSchoolsMeta,
-  REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, stopLine, stopsAt, stopsCsvLines, stopsIntro, tagOf, windowWords,
+  REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, farStopsHeading, isFarStop, stopLine, stopsAt, stopsCsvLines, stopsIntro,
+  stopsSplit, stopsSummary, tagOf, windowWords,
   zoneDates, zoneEntry, zoneShares,
 } from './schools.js';
 
@@ -1069,16 +1070,18 @@ function schoolCard() {
 }
 
 /** Stops near the school, for the One school panel: null where the build
- *  has no stops, or none for this school. */
+ *  has no stops, or none for this school. The school's nearest train or
+ *  ferry stations beyond the walk come after, under a line of their own. */
 function stopsModel(d) {
   const stops = schoolStops();
-  const rows = stops ? stopsAt(stops, d) : null;
-  if (!rows) return null;
+  const split = stops ? stopsSplit(stops, d) : null;
+  if (!split) return null;
   return {
     intro: stopsIntro(stops),
-    rows: rows.map((row) => stopLine(row, stops)),
+    rows: split.near.map((row) => stopLine(row, stops)),
     none: `No stop within a ${stops.maxWalk}-minute walk.`,
-    summary: rows.length ? `${rows.length} within ${stops.maxWalk} min` : 'none',
+    summary: stopsSummary(split, stops),
+    far: split.far.length ? { heading: farStopsHeading(split.far, stops), rows: split.far.map((row) => stopLine(row, stops)) } : null,
   };
 }
 
@@ -1157,7 +1160,8 @@ function renderSchoolMap() {
   try {
     setSchoolPins(map, spec, data.destinations);
     setSchoolZone(map, outline);
-    setSchoolStops(map, near ? near.map((row) => ({ ...stops.stops[row.s], walk: row.walk })) : null, d >= 0 ? `${service}|${d}` : null);
+    setSchoolStops(map, near ? near.map((row) => ({ ...stops.stops[row.s], walk: row.walk, metres: row.metres, far: isFarStop(row, stops) })) : null,
+      d >= 0 ? `${service}|${d}` : null);
   } catch (error) {
     console.warn('School pins are not ready yet.', error);
   }
@@ -3269,7 +3273,11 @@ function keyNow(catchment) {
       if (schoolCells()?.any) out.onMap.push({ swatch: 'line', colour: '#0c0c48', label: 'Its zone' });
       if (data.cellShare) out.onMap.push({ swatch: 'square', colour: OUTSIDE_ZONE, label: 'Outside its zone, not counted' });
       const stops = schoolStops();
-      if (stops && stopsAt(stops, schoolIndex())?.length) out.onMap.push({ swatch: 'stop', colour: '#ffffff', label: `Stops within a ${stops.maxWalk}-minute walk, with the minutes` });
+      const listed = stops ? stopsAt(stops, schoolIndex()) : null;
+      if (listed && listed.some((row) => !isFarStop(row, stops))) {
+        out.onMap.push({ swatch: 'stop', colour: '#ffffff', label: `Stops within a ${stops.maxWalk}-minute walk, with the minutes; a dot where numbers would overlap` });
+      }
+      if (listed && listed.some((row) => stops.stops[row.s]?.mode)) out.onMap.push({ swatch: 'station', colour: '#0c0c48', label: 'Train or ferry station, with the minutes' });
       out.onMap.push({ swatch: 'ring', colour: '#6b767c', label: 'Other schools' });
     } else if (choice) {
       out.onMap.push({ swatch: 'dot', colour, label: 'School counted' }, { swatch: 'ring', colour: '#6b767c', label: 'Not counted' });

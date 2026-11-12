@@ -443,9 +443,19 @@ button.k-row:hover { background: var(--wash); }
 .map-tag.is-route { border-radius: 4px; }
 /* Stops near the school under One school: the walking minutes to it. */
 .map-tag.is-school-stop { min-width: 18px; padding: 0 4px; border: 1.5px solid var(--navy); border-radius: 4px; background: #fff; color: var(--navy); font-size: 10px; line-height: 14px; text-align: center; box-shadow: none; }
+/* Train and ferry stations, and a tag whose minutes would overlap another's: a dot. */
+.map-tag.is-school-stop.is-station { background: var(--navy); color: #fff; box-shadow: 0 0 0 1.5px #fff; }
+.map-tag.is-school-stop.is-dot { width: 8px; min-width: 0; height: 8px; padding: 0; border-width: 1.5px; border-radius: 50%; font-size: 0; line-height: 0; }
+/* Minutes over dots, and the school's name over both. */
+.maplibregl-marker.is-school-stop { z-index: 1; }
+.maplibregl-marker.is-school-stop.is-dot { z-index: 0; }
+.maplibregl-marker.is-school { z-index: 2; }
 .key-stop { width: 14px; height: 12px; border: 1.5px solid var(--navy, #0c0c48); border-radius: 3px; background: #fff; }
+.key-station { width: 14px; height: 12px; border: 1.5px solid var(--navy, #0c0c48); border-radius: 3px; background: var(--navy, #0c0c48); }
 .stop-list { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-xs); line-height: 1.45; }
 .stop-list li + li { margin-top: 3px; }
+.stop-far-head { margin: 4px 0 0; color: var(--ink); font-size: var(--fs-xs); font-weight: 600; }
+.stop-list.is-far { margin-top: 0; }
 .end-head .map-tag { margin: 0; }
 /* The Trip tab. */
 .place-trip .mate-table th { font-weight: 600; }

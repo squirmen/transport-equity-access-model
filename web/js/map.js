@@ -354,25 +354,97 @@ export function setSchoolZone(map, geometry) {
 
 let stopMarkers = [];
 let stopsKey = null;
+let stopsRelabel = null;
+let stopsFrame = 0;
+
+/** A stop's walking minutes as a map tag: about how wide it is drawn. */
+const STOP_TAG_HEIGHT = 17;
+const stopTagWidth = (text) => Math.max(18, 11 + 6.2 * String(text).length);
+
+/** Which stop tags to draw with their minutes, so none overlap: each item
+ *  { x, y, w, h } (its centre on screen and its size) in order of priority,
+ *  and boxes already taken ({ left, top, right, bottom }, the school's name).
+ *  Returns the set of items labelled; the rest show as dots. */
+export function stopLabelPlan(items, taken = [], gap = 2) {
+  const boxes = taken.map((b) => ({ ...b }));
+  const shown = new Set();
+  items.forEach((item, i) => {
+    const box = { left: item.x - item.w / 2 - gap, top: item.y - item.h / 2 - gap, right: item.x + item.w / 2 + gap, bottom: item.y + item.h / 2 + gap };
+    if (boxes.some((b) => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)) return;
+    boxes.push(box);
+    shown.add(i);
+  });
+  return shown;
+}
+
+/** The order stop tags get their minutes in: train and ferry stations first,
+ *  then the other stops, each quickest walk first. */
+export function stopLabelOrder(stops) {
+  return stops.map((stop, i) => i).sort((a, b) => {
+    const x = stops[a];
+    const y = stops[b];
+    return (y.mode ? 1 : 0) - (x.mode ? 1 : 0) || x.walk - y.walk || (x.metres ?? 0) - (y.metres ?? 0) || a - b;
+  });
+}
+
+/** Give each stop tag its minutes where they fit, and a dot where they would
+ *  cover a tag drawn before it or the school's name. */
+function layoutStopTags(map) {
+  stopsFrame = 0;
+  if (!stopMarkers.length) return;
+  const frame = map.getContainer().getBoundingClientRect();
+  const taken = [];
+  const name = schoolLabel ? schoolLabel.getElement().getBoundingClientRect() : null;
+  if (name && name.width) taken.push({ left: name.left - frame.left, top: name.top - frame.top, right: name.right - frame.left, bottom: name.bottom - frame.top });
+  const items = stopMarkers.map((tag) => {
+    const at = map.project(tag.lngLat);
+    return { x: at.x, y: at.y, w: stopTagWidth(tag.text), h: STOP_TAG_HEIGHT };
+  });
+  const shown = stopLabelPlan(items, taken);
+  stopMarkers.forEach((tag, i) => {
+    const dot = !shown.has(i);
+    tag.element.classList.toggle('is-dot', dot);
+    tag.element.textContent = dot ? '' : tag.text;
+  });
+}
 
 /** The stops near one school (One school), each a small marker with its
- *  walking minutes to the school, or none with null. `key` changes with the
- *  school. */
+ *  walking minutes to the school, or none with null. Stations and the
+ *  nearest stops keep their minutes; a tag that would overlap one of them
+ *  shows as a dot, until the map is zoomed in far enough to fit it. `key`
+ *  changes with the school. */
 export function setSchoolStops(map, stops, key) {
   const next = stops && stops.length ? key : null;
   if (next === stopsKey) return;
-  for (const marker of stopMarkers) marker.remove();
+  for (const tag of stopMarkers) tag.marker.remove();
   stopMarkers = [];
   stopsKey = next;
+  if (stopsRelabel) {
+    map.off('zoom', stopsRelabel);
+    map.off('resize', stopsRelabel);
+    stopsRelabel = null;
+  }
   if (!next) return;
-  for (const stop of stops) {
+  for (const i of stopLabelOrder(stops)) {
+    const stop = stops[i];
     if (!Number.isFinite(stop.lon) || !Number.isFinite(stop.lat)) continue;
     const box = document.createElement('span');
-    box.className = 'map-tag is-school-stop';
+    box.className = `map-tag is-school-stop${stop.mode ? ' is-station' : ''}${stop.far ? ' is-far' : ''}`;
     box.textContent = String(stop.walk);
     box.setAttribute('aria-hidden', 'true');
-    stopMarkers.push(new maplibregl.Marker({ element: box }).setLngLat([stop.lon, stop.lat]).addTo(map));
+    const lngLat = [stop.lon, stop.lat];
+    stopMarkers.push({ marker: new maplibregl.Marker({ element: box }).setLngLat(lngLat).addTo(map), element: box, lngLat, text: String(stop.walk) });
   }
+  // Stations and nearer stops drawn last, so they stay on top, and the
+  // school's name over them all.
+  for (const tag of [...stopMarkers].reverse()) tag.element.parentNode?.appendChild(tag.element);
+  if (schoolLabel) schoolLabel.getElement().parentNode?.appendChild(schoolLabel.getElement());
+  stopsRelabel = () => {
+    if (!stopsFrame) stopsFrame = requestAnimationFrame(() => layoutStopTags(map));
+  };
+  map.on('zoom', stopsRelabel);
+  map.on('resize', stopsRelabel);
+  layoutStopTags(map);
 }
 
 /** The box around a GeoJSON geometry, as [west, south, east, north]. */

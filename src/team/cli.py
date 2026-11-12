@@ -9,7 +9,8 @@
     team schools reroute               route only the schools that changed, then check a sample
     team schools relabel               a school that gains a service keeps its minutes: no routing
     team schools verify                route a sample of origins to every school and compare
-    team schools stops                 stops within a 15-minute walk of each school, with morning trips
+    team schools stops                 stops within a 15-minute walk of each school, and its nearest train or
+                                       ferry stations within 30, with morning trips
     team schools stops --recount       count the trips at those stops again, without routing the walks
     team schools audit-points          each school's map point against its grounds and the streets
     team route --all                   run every routing job (resumable)

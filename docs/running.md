@@ -148,7 +148,10 @@ PYTHONPATH=src python scripts/school_points_audit.py --data-root DATA --out-root
 `schools stops` writes `destinations/school_stops.parquet` and
 `school_snap.json`, which the build turns into `data/schools/stops.json` and
 the stops CSV; run it before `team build`, and `audit-points` after it so
-the audit has R5's link distances. `schools stops --recount` counts the
+the audit has R5's link distances. It routes the stops within 1,300 m of a
+school and, for each school's nearest train or ferry stations, those within
+2,600 m (about two minutes for Auckland, under a minute elsewhere, with the
+network cached). `schools stops --recount` counts the
 trips at the stops already listed again from the feed, without routing the
 walks (about 20 seconds for Wellington, a few minutes for Auckland). [`schools.md`](schools.md) has the rules.
 

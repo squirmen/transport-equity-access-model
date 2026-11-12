@@ -15,9 +15,12 @@ page on the synthetic fixture (tests/fixtures/make_web_fixture.py). The scenes:
 - the same link with sch=all: All, and TKKM o Nga Maungarongo 9 min on foot;
 - One school, Mt Albert Grammar School, from 89bb50021b7ffff: the zone
   headline (a share of the children living in its zone), the zone outlined
-  on the map, the stops near the school listed and marked, and the card's
-  15 min on foot with R5's 26 by bus or train; Who misses out is on;
-- One school, Marist College (no home zone): a count, and Who misses out off;
+  on the map, the stops near the school listed and marked, with Baldwin Ave
+  and Mt Albert train stations (16 and 17 minutes) under their own line and
+  no two stop tags with minutes overlapping, and the card's 15 min on foot
+  with R5's 26 by bus or train; Who misses out is on;
+- One school, Marist College (no home zone, a girls' school): a count of
+  girls, and Who misses out off;
 - Wellington, In zone, girls, at 89bb295594fffff;
 - Blenheim, State, secondary, at 89bb29ba32fffff: public transport is the
   22-minute walk, where R5 had none within the hour;
@@ -81,6 +84,22 @@ def panel(page: Page) -> dict:
     })""")
 
 
+def stop_tags(page: Page) -> dict:
+    """The stop tags on the map: how many show their minutes, how many are
+    stations, and any two with minutes that overlap."""
+    return page.evaluate("""() => {
+      const shown = [...document.querySelectorAll('.map-tag.is-school-stop:not(.is-dot)')];
+      const boxes = shown.map((e) => e.getBoundingClientRect());
+      const overlaps = [];
+      for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i]; const b = boxes[j];
+        if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) overlaps.push([shown[i].textContent, shown[j].textContent]);
+      }
+      return { all: document.querySelectorAll('.map-tag.is-school-stop').length, labelled: shown.length,
+               stations: document.querySelectorAll('.map-tag.is-school-stop.is-station').length, overlaps };
+    }""")
+
+
 def tooltip_at(page: Page, cell: str) -> list[str]:
     """The map's tooltip over a hexagon, a line a part."""
     at = page.evaluate(f"""() => {{
@@ -142,6 +161,19 @@ def desktop(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
     page.wait_for_timeout(300)
     stops = page.evaluate("() => document.querySelector('#school-field .stop-list')?.innerText || ''")
     check(problems, f"{engine} MAGS stops", "Mount Albert Grammar School (stop 1427) · 1 min walk" in stops, stops[:300])
+    far = page.evaluate("""() => ({
+      head: document.querySelector('#school-field .stop-far-head')?.textContent || '',
+      rows: [...document.querySelectorAll('#school-field .stop-list.is-far li')].map((li) => li.textContent),
+      summary: document.querySelector("#school-field details[data-fold='school-stops'] .fold-sum")?.textContent || '',
+    })""")
+    check(problems, f"{engine} MAGS stations", far["head"] == "Nearest train stations, beyond a 15-minute walk", far["head"])
+    check(problems, f"{engine} MAGS stations", far["rows"][:2] == [
+        "Baldwin Ave Train Station (stop 119) · 16 min walk · 23 trips arriving 7–9am · E-W",
+        "Mt Albert Train Station (stop 120) · 17 min walk · 23 trips arriving 7–9am · E-W"], str(far["rows"]))
+    check(problems, f"{engine} MAGS stations", far["summary"].startswith("32 within 15 min · ") and "train stations within 30 min" in far["summary"], far["summary"])
+    tags = stop_tags(page)
+    check(problems, f"{engine} MAGS stop tags", tags["labelled"] >= 5 and tags["stations"] >= 2, str(tags))
+    check(problems, f"{engine} MAGS stop tags", not tags["overlaps"], f"tags overlap: {tags['overlaps'][:5]}")
     page.screenshot(path=str(out / f"{engine}-4-mags-stops.png"))
     seen = go(page, base, "auckland", "s=secondary_school&v=people&m=best&sch=one:69")
     check(problems, f"{engine} MAGS people", "can't reach it within 30 minutes" in seen["hero"] and "Mt Albert Grammar School's zone" in seen["hero"], seen["hero"])
@@ -151,7 +183,7 @@ def desktop(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
 
     # One school with no home zone.
     seen = go(page, base, "auckland", f"s=secondary_school&m=pt&sch=one:70&o={SLIDE}")
-    check(problems, f"{engine} Marist", "children aged 13–17 live within 30 minutes of Marist College" in seen["hero"] and "no catchment" in seen["hero"], seen["hero"])
+    check(problems, f"{engine} Marist", "girls aged 13–17 live within 30 minutes of Marist College" in seen["hero"] and "no catchment" in seen["hero"], seen["hero"])
     seen = go(page, base, "auckland", "s=secondary_school&v=people&m=best&sch=one:70")
     check(problems, f"{engine} Marist people", "home zone" in seen["view"] and "can't reach" not in seen["view"], seen["view"][:300])
     page.screenshot(path=str(out / f"{engine}-6-marist-people.png"))
