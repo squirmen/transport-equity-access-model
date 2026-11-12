@@ -16,9 +16,9 @@ checksum.
 The current copy was fetched on 12 November 2026: 2,578 schools, 50 fields,
 rolls at 1 October 2026 (68 schools have no roll). Each place keeps the
 schools of the regional councils named under `schools.regions` in its config,
-then those within about 8 km of the place, as before. Every config names only
-the place's own region, so a school over a regional boundary is not counted,
-however near: in Auckland, Pukeoware School (Waikato) is 160 m from an
+then those within about 8 km of the place, as before. Each config names only
+the regions the place lies in (Nelson names Nelson and Tasman), so a school
+over a regional boundary is not counted, however near: in Auckland, Pukeoware School (Waikato) is 160 m from an
 Auckland hexagon, and about 2,000 rural Aucklanders have their nearest
 secondary school, in a straight line, outside the region. Schools marked
 "Proposed" are left out until they open.

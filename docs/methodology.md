@@ -103,8 +103,8 @@ taken from the whole extract, which reaches beyond the council boundary, so
 people near the edge are not cut off from services across it. Early
 childhood services and GPs come from national or regional lists and are kept
 within about 8 km of the area. Schools come from the national directory, cut
-to the place's own regional council and then to about 8 km of the area, so a
-school in a neighbouring region is not counted, however near. Jobs cover the
+to the regional councils the place lies in and then to about 8 km of the
+area, so a school in a neighbouring region is not counted, however near. Jobs cover the
 area's own statistical areas.
 Every place reads one dated copy of the school directory, and each school
 carries its kind (state, integrated, private, charter), teaching language, who
