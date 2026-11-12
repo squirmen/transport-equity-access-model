@@ -2,3 +2,6 @@
 # and its time is the fastest of them. A row is used only when checked_by and checked_on are filled.
 # moe: School_Id. entrance: a short name. lon, lat: WGS84, on the public side of the gate. hours: when it is open on school days.
 moe,name,entrance,lon,lat,hours,source,checked_by,checked_on,notes
+69,Mt Albert Grammar School,Alberton Ave drive (candidate),174.72441,-36.88477,,where R5 places the directory point (r5py 1.1.3 snap),,,"Candidate, not checked. Times to the directory point already end here."
+69,Mt Albert Grammar School,North-east footpath (candidate),174.7278339,-36.8835693,,"OpenStreetMap way 260845395 (highway=footway, foot=yes), first node; extract of 4 May 2026",,,"Candidate, not checked: confirm with the school that students may use it on school mornings."
+69,Mt Albert Grammar School,South-east gate (candidate),174.7272736,-36.8868612,"Mo-Fr 07:00-09:30, 14:30-17:00 (OpenStreetMap, to confirm)","OpenStreetMap node 266732026 (barrier=gate, locked=yes, access=customers); extract of 4 May 2026",,,"Candidate, not checked: tagged locked and for customers; confirm with the school which gates are open to students on school mornings."

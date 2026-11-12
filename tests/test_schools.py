@@ -288,6 +288,27 @@ def test_only_checked_entrances_are_used_and_the_fastest_counts(tmp_path):
     assert "b" not in out.index  # past the 60-minute limit
 
 
+def test_the_repo_entrance_candidates_for_mags_are_not_used_until_checked():
+    # MAGS's map point sits inside a 19.5 ha site; the candidates on its east
+    # side are listed for a person to confirm with the school, and change
+    # nothing until checked_by and checked_on are filled.
+    import csv
+    path = schools.REPO_CONFIGS / "entrances.csv"
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(line for line in handle if not line.lstrip().startswith("#")))
+    mags = [r for r in rows if r["moe"] == "69"]
+    assert len(mags) == 3
+    for row in rows:
+        assert row["source"].strip(), row
+        assert 166 < float(row["lon"]) < 179 and -48 < float(row["lat"]) < -34, row
+        assert bool(row["checked_by"].strip()) == bool(row["checked_on"].strip()), "checked_by and checked_on go together"
+    assert 69 not in schools.checked_entrances()
+    table = pd.DataFrame([{"school": MAGS, "moe": 69, "name": "Mt Albert Grammar School", "roll": 3635.0, "lon": 174.725349,
+                           "lat": -36.884707, "point": "directory", "services": "secondary_school"}])
+    points = schools.routing_points(table)
+    assert points[["id", "point"]].values.tolist() == [[MAGS, "directory"]]
+
+
 def test_with_no_entrances_a_school_is_routed_to_its_map_point(tmp_path):
     table = pd.DataFrame([{"school": MAGS, "moe": 69, "name": "MAGS", "roll": 3635.0, "lon": 174.725349, "lat": -36.884707,
                            "point": "directory", "services": "secondary_school"}])

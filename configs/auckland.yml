@@ -98,7 +98,7 @@ pairs:
 schools:
   regions: [Auckland Region]
   buses: none_found        # school buses in the timetable: in_timetable or none_found
-  bus_note: "Auckland Transport's open timetable has no school bus services."
+  bus_note: "Auckland Transport's dedicated school buses are not in its open timetable, so they are not counted; a few public routes run school-time trips, and those are."
 
 services:
   supermarket:
