@@ -256,7 +256,8 @@ the grounds and not out in a field, the school's own map pin, a point at the
 main entrance or drop-off read off the aerial image, or 10 m in from the
 edge as rule D5-1 does, from the directory point or from the address point.
 A point stays where LINZ's grounds are an old site, a postal address or
-another part of a shared campus. Each row in `points.csv` gives its sources,
+another part of a shared campus, or where the point is at the school's
+street address inside its OpenStreetMap grounds. Each row in `points.csv` gives its sources,
 the directory point and the metres moved, with `checked_by` "0.12.1 review"
 and `checked_on` 13 November 2026, for Tim Welch to confirm. The evidence
 (aerial images with both sources' grounds drawn, website copies, the address
