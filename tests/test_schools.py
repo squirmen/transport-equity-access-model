@@ -116,8 +116,10 @@ def test_every_school_type_is_counted_or_excluded_on_purpose(tmp_path):
 
 @pytest.mark.skipif(not SNAPSHOT.exists(), reason="needs the directory snapshot in the data root")
 @pytest.mark.parametrize("place", sorted(p.stem for p in (REPO / "configs").glob("*.yml")))
-def test_every_place_counts_or_excludes_every_type_in_its_directory(place):
-    settings = config.load(REPO / "configs" / f"{place}.yml", DATA_ROOT, Path(os.environ.get("TMPDIR", "/tmp")) / "team-test-out")
+def test_every_place_counts_or_excludes_every_type_in_its_directory(place, tmp_path_factory):
+    # A cache of its own: the street check filters the street file into the cache.
+    scratch = tmp_path_factory.mktemp(place)
+    settings = config.load(REPO / "configs" / f"{place}.yml", DATA_ROOT, scratch / "out", scratch / "cache")
     assert "Yr 7-10" not in json.dumps(settings.services)
     assert schools.unknown_types(settings, schools.place_directory(settings)) == []
 
