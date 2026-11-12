@@ -67,6 +67,12 @@ minutes off.
   a closer look: they may be placed on a piece of street cut off from the
   rest. Their rows have only `m` (`use` is null).
 
+**Not public transport or walking.** From 0.12.0 TEAM's public transport
+times are the quicker of R5's trip and walking all the way
+([`methodology.md`](methodology.md), section 3). The pairs here are R5's own
+paths, with their stops and routes, and are not changed: a pair's public
+transport time can still be longer than its walk.
+
 R5 does not say whether a stop or vehicle can be used by a given person.
 Auckland Transport publishes no stop access data, so the site says "no
 information" for it.

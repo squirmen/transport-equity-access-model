@@ -271,9 +271,10 @@ def test_auckland_secondary_share_by_public_transport():
     pop = np.array([p or 0.0 for p in cells["pop"]])
     t = np.array([np.nan if v is None else v for v in cells["t"]["secondary_school"]["pt"]], dtype="float64")
     share = pop[t <= 30].sum() / pop.sum()
-    # 84.49% in the spec's preview from round 1's cells, before schools over the
-    # regional boundary came in; 84.53% with them.
-    assert share == pytest.approx(0.8453, abs=0.0001)
+    # 79.82% as R5 routes it; 84.49% taking walking where it is quicker, as the
+    # round-2 spec's preview from round 1's cells (schools over the regional
+    # boundary change it by less than 0.01 points).
+    assert share == pytest.approx(0.8449, abs=0.0001)
     assert meta["formats"]["school_reach"] == 2 and meta["pt_or_walk"]["r5_columns"] == "_r5"
 
 

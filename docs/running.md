@@ -89,12 +89,68 @@ one place must not start together on a network r5py has not cached yet: they
 write the same cache file and fail. Route one shard first, or one process a
 place.
 
-Review sheets for school map points and entrances, for a person to check:
+#### Re-routing only the schools that changed
+
+When the school list changes (a new directory, the regional boundary rule, a
+moved point), route only the schools that changed, so every other school's
+minutes stay exactly as they were:
+
+```sh
+team --config CONFIG --data-root DATA --out OUT destinations --only schools   # keeps the old points as schools_previous.parquet
+team --config CONFIG --data-root DATA --out OUT schools reroute --reason "why" --backup BACKUP
+team --config CONFIG --data-root DATA --out OUT plan                          # nothing to do
+python scripts/check_school_runs.py --config CONFIG --data-root DATA --out OUT --before BACKUP
+```
+
+`schools reroute` compares `destinations/schools.parquet` with
+`schools_previous.parquet`. For each school run it copies the run's batches and
+pairs to `BACKUP/<run>` first, routes every origin to the added and moved
+schools only, in the run's own batches and settings, drops the old rows of
+those and of removed schools, and writes the run and its manifest again with
+the new membership and a `rerouted` record. R5's cost is mostly per origin,
+so this takes about as long as routing the run in full. It then routes 300
+sampled origins to every school in a fresh process (`team schools verify`) and
+compares them with the cached pairs, minute for minute; the result is kept in
+the run's manifest (`verified`). `check_school_runs.py --before` compares
+every other school before and after.
+
+Long runs can be split: `schools reroute --prepare` makes the copies, then
+`--shard I/N` in N processes, then a last run without `--shard` combines them
+and checks the sample. For Auckland's 43 added schools this took just under
+two hours in two processes, nearly all of it by car, on a machine running
+another build. The other ten places took from under a minute, where schools were only
+removed, to 25 minutes (Wellington, eight schools).
+
+#### Stops near schools and the map point check
+
+```sh
+team --config CONFIG --data-root DATA --out OUT schools stops          # r5py: walks from stops to each school
+team --config CONFIG --data-root DATA --out OUT schools audit-points   # each map point against its grounds
+python scripts/fetch_school_grounds.py --to DATA/raw/nz/education/linz_nz_facilities_<date>.gpkg
+PYTHONPATH=src python scripts/school_points_audit.py --data-root DATA --out-root OUTS --to REPORTS \
+    [--write-points] configs/*.yml                                     # every place; rule D5-1 into points.csv
+```
+
+`schools stops` writes `destinations/school_stops.parquet` and
+`school_snap.json`, which the build turns into `data/schools/stops.json` and
+the stops CSV; run it before `team build`, and `audit-points` after it so
+the audit has R5's link distances. [`schools.md`](schools.md) has the rules.
+
+Review sheets for school entrances, for a person to check:
 
 ```sh
 python scripts/school_points_review.py --config CONFIG --data-root DATA --out OUT \
     --facilities nz_facilities.gpkg --gates gates.parquet --to REVIEW_DIR
 ```
+
+#### Public transport, or walking
+
+The build merges every public transport run with walking pair by pair from
+the cached pairs (`~/.cache/team/<place>/pairs`), so the cache must hold the
+walk and public transport pairs of every run; a build stops if a run's pairs
+do not give its own summary. `scripts/pt_or_walk_report.py` compares R5's
+figures (the `_r5` columns) with the merged ones for every service, window
+and place.
 
 To time a run before committing to it, route the first few origins:
 

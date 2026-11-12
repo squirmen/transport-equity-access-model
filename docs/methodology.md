@@ -102,10 +102,11 @@ building, is kept once when the two lie within 40 m. OpenStreetMap services are
 taken from the whole extract, which reaches beyond the council boundary, so
 people near the edge are not cut off from services across it. Early
 childhood services and GPs come from national or regional lists and are kept
-within about 8 km of the area. Schools come from the national directory, cut
-to the regional councils the place lies in and then to about 8 km of the
-area, so a school in a neighbouring region is not counted, however near. Jobs cover the
-area's own statistical areas.
+within about 8 km of the area. Schools come from the national directory:
+every open school within about 8 km of the area, from any region, that the
+place's street file reaches (a street within 1 km of its map point), so a
+school just over a regional boundary is counted. Jobs cover the area's own
+statistical areas.
 Every place reads one dated copy of the school directory, and each school
 carries its kind (state, integrated, private, charter), teaching language, who
 it takes at each service's years, roll and enrolment scheme;
@@ -130,7 +131,7 @@ transport and walking from timetable and network data in a similar way.
 | Walking at a slower pace | 3.6 km/h (1 m/s), about the pace of people in their eighties (Bohannon & Williams Andrews, 2011); used for errand rounds, for public transport at a slower pace, and as its own way of travelling on the Access view (walking times scaled by 4.8/3.6) |
 | Low-stress cycling | 15 km/h, on streets at traffic stress level 2 or below, slowed on slopes |
 | Cycling on any bikeable street | 15 km/h, traffic stress level 3 or below |
-| Public transport | walking up to 15 minutes to and from stops; median time over every departure minute in the window, including waiting |
+| Public transport | the quicker of a bus, train or ferry trip (walking up to 15 minutes to and from stops; median time over every departure minute in the window, including waiting) and walking all the way |
 | Car | uncongested driving; for reference only |
 
 **Time windows.** Public transport is timed in three windows: the weekday
@@ -173,14 +174,27 @@ which R5 uses in place of its own rating (`scripts/span_lts.py`); a way takes
 the stress covering most of its length. Streets SPAN does not rate, mostly
 footpaths and driveways, keep R5's rating.
 
-**Public transport.** A public transport trip can be a walk the whole way when
-the walk takes 15 minutes or less, the limit set for walking to and from stops.
-Longer walks count only under walking, so a service 15 to 20 minutes away on
-foot can show a longer public transport time than walking time. Walking times
-are rounded down, so a walk shown as 15 minutes may be just over the limit and
-not count as a public transport trip. The median over
-the window reflects the timetable a person would meet if they left at a random
-minute, which is how frequency enters the measure.
+**Public transport, or walking where that is quicker.** R5 lets a public
+transport trip walk up to 15 minutes to and from stops, and drops a walk all
+the way once it passes that limit. On its own it can therefore show public
+transport slower than walking: next to Mt Albert Grammar School a 15-minute
+walk comes out as 26 minutes by public transport, and in central Blenheim a
+22-minute walk as no public transport time at all. From 0.12.0 every public
+transport time is the quicker of R5's trip and walking all the way, worked
+out destination by destination before anything is counted
+([`src/team/pt_or_walk.py`](../src/team/pt_or_walk.py)). This holds for
+every service and window, for jobs, for the competition-adjusted job measure,
+for the gravity scores and for fares. At the slower walking pace the walk is
+the walking time scaled by 4.8/3.6 and rounded down. A trip where walking is
+at least as quick is a walk: it has no fare and uses no bus or train. For
+every departure minute the trip is the quicker of the bus at that minute and
+the walk, which does not depend on the clock, so the 10th and 90th
+percentiles of a school trip become the lower of R5's and the walk. R5's own
+times are kept in the downloads as columns ending `_r5`. The cell-to-cell
+trips behind `?mate=1` keep R5's paths and are not changed
+([`pairs.md`](pairs.md)). The median over the window reflects the timetable a
+person would meet if they left at a random minute, which is how frequency
+enters the measure.
 
 For each hexagon and service, TEAM keeps the minutes to the nearest destination
 by each mode, which destination that was, how many destinations are within 10,
@@ -390,7 +404,10 @@ joined directly where empty land such as the Remutaka Range leaves no path. Off-
 SuperGold's free hours, follow the time of day being shown.
 
 A fare budget turns into the number of zones a traveller can afford, and a
-public transport trip counts only when it stays inside them. The budget covers
+bus or train trip counts only when it stays inside them. A trip on foot needs
+no fare: where walking is at least as quick it counts at every budget, from
+none (`z0`), and where a bus is quicker but costs more than the budget the
+traveller can still walk, at the walking time. The budget covers
 a return trip unless set to one way, because the transfer window joins the
 legs of one journey and not a trip out and back.
 
@@ -461,7 +478,9 @@ Three checks sit behind each Access figure. **Every time of day:** the share
 who meet the standard in every window a service is timed in, not only the one
 on screen. **More than one way:** the share who could get there in time by two
 or more of walking, low-stress cycling and public transport; someone with only
-one way is one route or service change from missing out. **As the standard
+one way is one route or service change from missing out. Public transport
+counts as a way of its own only where a bus or train is quicker than walking,
+so a walk is not counted twice. **As the standard
 moves:** the share meeting the standard at every standard from 5 to 60
 minutes, for everyone and for the most and least deprived fifths of areas, so
 a result that depends on the exact standard chosen shows it.

@@ -100,6 +100,63 @@ After a review of the MAGS case (12 November 2026), before release:
 - **Docs.** Why public transport can be slower than a 15-minute walk, and
   that schools over a regional boundary are not counted.
 
+Round 2 (12 November 2026), before release:
+
+- **Public transport, or walking where that is quicker.** R5 drops a walk all
+  the way once it passes the 15 minutes a trip may walk to and from stops, so
+  public transport could show slower than walking: 26 minutes next to MAGS
+  for a 15-minute walk. Every public transport time is now the quicker of
+  R5's trip and walking, destination by destination, for every service and
+  window, for jobs, the competition-adjusted job measure, the gravity scores
+  and fares (a walk has no fare; budgets gain a zero-zone step, `z0`).
+  Public transport counts in "more than one way" only where a bus or train
+  is quicker than walking. R5's own times stay in the downloads (`_r5`
+  columns), in `cells.json` (`ptr`) and in the school lists (`r5`). In
+  Auckland the share within each standard by public transport rises by 0.4
+  to 9.3 points (secondary school 79.8% to 84.5%, supermarket off-peak 58.8%
+  to 67.2%); in small towns public transport becomes mostly walking
+  (Blenheim secondary school 36.4% to 81.4%).
+  Best and Who misses out do not change. The cell-to-cell trips behind
+  `?mate=1` are R5's paths and are not changed.
+- **Schools across a regional boundary.** A place keeps every open school
+  within about 8 km of it, from any region, that its street file reaches.
+  60 schools come in: Auckland 43 (Waikato and Northland, among them
+  Pukeoware School, 160 m from an Auckland hexagon), Wellington 7, Rotorua 4,
+  Nelson 3, Tauranga 3. 13 schools in 9 places that round 1 counted are left
+  out because the street file stops short of them; none had a time on foot,
+  by bike or by public transport. `schools.regions` is gone from the configs.
+- **School map points.** Every point is checked against LINZ NZ Facilities
+  and OpenStreetMap school grounds and the street network
+  (`scripts/school_points_audit.py`). Rule D5-1 moves a point only when it
+  is more than 100 m outside its own grounds and both sources agree where the
+  grounds are: Te Aute College (263 m), Te Kura aa Iwi o Ngaati Kauwhata
+  (602 m) and Porirua Montessori Primary School (219 m). 106 others are
+  listed for a person to check, among them Twin Oaks Classical School, whose
+  point is 4.5 km from its grounds but which has no OpenStreetMap grounds to
+  confirm where they are. Mt Albert Grammar School keeps
+  the Ministry's point: Google Maps routes trips to its Alberton Avenue
+  entrance, where the point is.
+- **Stops near a school.** For each school, the stops and stations within a
+  15-minute walk of its point on the street network, with the routes and
+  trips stopping there from 7am to 9am on the routing day
+  (`schools/stops.json`, `team_<place>_school_stops.csv`). In Auckland 507
+  of 594 schools have a stop with a morning trip within a 15-minute walk. The
+  stop named for Mt Albert Grammar School, a minute's walk from its point,
+  has no trip in Auckland Transport's open timetable on any day (it may be
+  for the school buses that timetable leaves out); the nearest stops with
+  morning trips are 7 and 8 minutes' walk away, on Owairaka Avenue (route 66)
+  and New North Road (22N, 22R, OUT, 209).
+- **Re-routing only what changed.** `team schools reroute` routes added and
+  moved schools only, in the runs' own batches, and leaves every other
+  school's minutes as they were; it ends by routing 300 hexagons again in a
+  fresh process and comparing every pair. Every reroute matched.
+- **Leftovers.** Te Wharekura o Tāmaki ki te Tonga, with no teaching language
+  in the directory, is taken as Māori-medium from its peak body (Ngā Kura ā
+  Iwi o Aotearoa); State was already leaving it out, so no figure changes.
+  The Christchurch batch that once routed differently was routed again six
+  times and gave today's minutes each time; the first routing followed two
+  processes failing on r5py's shared cache.
+
 What changed in the published figures, from the 0.11.0 site to the 0.12.0
 build: the share of people within each school standard (all hexagons), before
 and after, and how many hexagons have a new time. One figure means no change
