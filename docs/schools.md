@@ -705,8 +705,10 @@ are slower than `m` or missing (null), so the card can say "By bus or train:
 
 By car nearly every school is within 60 minutes, so the car files are short
 lists (`complete: false`): for each cell, only the nearest school under All,
-State, State girls and State boys, and the schools tied with each. They answer
-those choices exactly; One school is not shown by car. The full car lists
+State, State girls and State boys and, where zones are in, In zone girls and
+In zone boys (each cell by its In zone set), and the schools tied with each.
+`holds` lists the choices a short list answers (`["all", "state", "zone"]`).
+They answer those choices exactly; One school is not shown by car. The full car lists
 would be 9 MB brotli for Auckland; the short ones are 0.06 MB each.
 
 Auckland's eighteen files come to 4.5 MB brotli; the largest is primary
@@ -766,9 +768,11 @@ Loaded only under One school.
                                      routes: [{route, mode, headsigns: [...], trips}], trips}]}}
 ```
 
-A school with no stop within a 15-minute walk has no entry;
-`meta.schools.stops` gives the file, date, window, feed and how many schools
-have none.
+Every school has an entry; a school with no stop within a 15-minute walk has
+an empty list. `served` is false for a stop no trip in the feed stops at, on
+any day (Mount Albert Grammar School's stop 1427, perhaps kept for school
+buses the open timetable leaves out). `meta.schools.stops` gives the file,
+date, window, feed and how many schools have none.
 
 ### Downloads
 

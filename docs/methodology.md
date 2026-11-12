@@ -462,10 +462,13 @@ caps, which lower the cost of travelling that often, are not applied.
 
 The site uses the burden two ways. Its map shows the fare for the cheapest bus
 trip that reaches the nearest destination inside the standard, as a share of a
-day's income. It is counted whether or not the traveller could walk or cycle
-instead, because plenty of people cannot. Its panel compares the average
-burden in the most and least deprived fifths of areas, for everyone with a bus
-there in time. And a fare budget can be set as a share of a day's
+day's income. It is counted whether or not the traveller could cycle instead,
+because plenty of people cannot. From 0.12.0 public transport includes walking
+where that is quicker, and a walk has no fare: where walking all the way gets
+there inside the standard, the map shows no fare. Its panel compares the
+average burden in the most and least deprived fifths of areas, for everyone
+who needs a bus there in time; homes where the trip is a walk are left out of
+the averages rather than counted as nothing. And a fare budget can be set as a share of a day's
 income instead of in dollars, which gives every area its own budget, so the
 same share buys fewer zones where incomes are lower; every access and equity
 figure then follows. This follows Guzman and Oviedo (2018), who judged a

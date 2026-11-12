@@ -960,8 +960,9 @@ export function renderBurden(root, model, set) {
           + 'public transport reaches almost no jobs within 45 minutes are shown apart, and homes outside the fare zones are '
           + 'left out. The fare follows the traveller and payment set under Settings.'
         : "Burden is the fare for the cheapest public transport trip that reaches the nearest one inside the standard, "
-          + "divided by a day's income where the traveller lives. It counts whether or not the traveller could walk "
-          + 'instead, but a trip short enough to be a walk the whole way needs no fare and is left out. The fare follows '
+          + "divided by a day's income where the traveller lives. It counts whether or not the traveller could cycle "
+          + 'instead. Where walking all the way gets there inside the standard, no fare is needed: the map shows no fare '
+          + 'and the averages leave the home out. The fare follows '
           + 'the traveller, payment and time set under Settings; children and people 65 and over are priced at their own '
           + 'concession where the network has one.',
       "Income is the 2023 Census median household income of the area, divided by the square root of its average "

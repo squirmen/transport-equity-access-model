@@ -620,13 +620,13 @@ test('stops near the school: the section, the rows and the CSV lines', () => {
     + 'Buses and trains stopping between 7am and 9am on Tuesday 15 September 2026.');
   const rows = stopsAt(stops, MAGS).map((row) => stopLine(row, stops));
   assert.deepEqual(rows, [
-    'Mount Albert Grammar School (stop 1427) · 1 min walk · no trips 7–9am in the timetable used',
+    'Mount Albert Grammar School (stop 1427) · 1 min walk · no trips on any day in the timetable used',
     'St Lukes · 7 min walk · 14 trips 7–9am · OUT, 22N',
     'Baldwin Ave Train Station · 12 min walk · 12 trips 7–9am · WEST',
   ]);
   assert.deepEqual(stopsCsvLines(stops, MAGS), [
     "Stops within a 15-minute walk of the school's map point (walking minutes on the street network, rounded down; trips stopping 7am-9am on Tuesday 15 September 2026, at_gtfs_2026-09-01.zip):",
-    'stop 1427 Mount Albert Grammar School: no service, 1 min walk, 0 trips',
+    'stop 1427 Mount Albert Grammar School: no service, 1 min walk, 0 trips (none on any day in the timetable)',
     'stop 8861 St Lukes: bus, 7 min walk, 14 trips (OUT 10, 22N 4)',
     'stop 9300 Baldwin Ave Train Station: train, 12 min walk, 12 trips (WEST 12)',
   ]);

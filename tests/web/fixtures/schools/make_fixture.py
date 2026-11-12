@@ -138,12 +138,16 @@ ZONE_SHARE = [{2: 1.0}, {4: 0.6, 2: 0.4}, {}, {2: 0.7}, {3: 1.0}, {2: 1.0}]
 ZONE_SET = [[2], [4], [], [2], [3], [2]]
 SPLIT = [1, 3]
 OUTLINE = {"type": "Polygon", "coordinates": [[[174.72, -36.89], [174.74, -36.89], [174.74, -36.875], [174.72, -36.875], [174.72, -36.89]]]}
-# Stops near MAGS: stop 1427 is real (95 m, no trips 7-9am in AT's open
-# timetable); the rest are made up.
+# Stops near MAGS: stop 1427 is real (95 m, no trip on any day in AT's open
+# timetable); the rest are made up. As the build writes them: a station's
+# platforms are grouped under the station (station true, its name), and
+# served is false for a stop no trip in the feed stops at.
 STOPS = [
-    {"id": "1427-e66ab0d8", "code": "1427", "name": "Mount Albert Grammar School", "station": None, "lat": -36.8853, "lon": 174.7247},
-    {"id": "8861-6db54877", "code": "8861", "name": "Stop A St Lukes", "station": "St Lukes", "lat": -36.88165, "lon": 174.7327},
-    {"id": "9300-aaaa", "code": "9300", "name": "Baldwin Ave Train Station 1", "station": "Baldwin Ave Train Station", "lat": -36.8805, "lon": 174.7138},
+    {"id": "1427-e66ab0d8", "code": "1427", "name": "Mount Albert Grammar School", "station": False, "lat": -36.8853, "lon": 174.7247,
+     "served": False},
+    {"id": "8861-6db54877", "code": "8861", "name": "St Lukes", "station": True, "lat": -36.88165, "lon": 174.7327, "served": True},
+    {"id": "9300-aaaa", "code": "9300", "name": "Baldwin Ave Train Station", "station": True, "lat": -36.8805, "lon": 174.7138,
+     "served": True},
 ]
 MAGS_STOPS = [
     {"s": 0, "walk": 1, "metres": 95, "routes": [], "trips": 0},

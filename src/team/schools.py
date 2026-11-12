@@ -881,8 +881,6 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
     student ('girls' or 'boys') keeps the schools whose sex for the service
     is co-ed or theirs. 'one:<moe>' is that school alone.
     """
-    from .zones import EVERYONE
-
     if choice == "zone" and zones is None:
         raise ValueError("the In zone choice needs zones.json")
     statuses = (zones or {}).get("schools", {})
@@ -896,8 +894,11 @@ def published_counts(dests: list[dict], service: str, choice: str, student: str 
             continue
         if choice in ("state", "zone") and not (d.get("kind") == "state" and d.get("medium") == "english"):
             continue
-        if choice == "zone" and (statuses.get(str(i)) or {}).get("status") not in EVERYONE:
-            continue
+        if choice == "zone":
+            entry = statuses.get(str(i)) or {}
+            status = entry.get("status") or (d.get("zone") or {}).get("status") or ("no_map" if d.get("scheme") else "none")
+            if not zone_counts_everyone(status, entry.get("polygons"), service):
+                continue
         if student in ("girls", "boys") and not takes((d.get("sex") or {}).get(service), student):
             continue
         out.add(i)
@@ -1049,10 +1050,22 @@ def share_within(minutes: np.ndarray, weights: np.ndarray, limit: float) -> tupl
 SHORT_LIST_MODES = ("car",)
 
 
-def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str) -> pd.DataFrame:
+def zone_counts_everyone(status: str | None, polygons: dict | None, service: str) -> bool:
+    """Whether In zone counts a state school taught in English for every
+    home, by its zone status: no scheme, no usable map, a zone the directory
+    does not apply, unclear years, or (never so far) a zone for other years
+    only. The page's rule (web/js/schools.js) is the same."""
+    from .zones import EVERYONE, ZONED
+
+    return status in EVERYONE or (status in ZONED and isinstance(polygons, dict) and not polygons.get(service))
+
+
+def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str, zone_state: dict | None = None) -> pd.DataFrame:
     """The first school in each cell's list for All, State, State girls and
-    State boys (and every school tied with it), in the same order. Exact for
-    those choices; One school is not available from it."""
+    State boys (and every school tied with it), in the same order; with
+    `zone_state` (zones.build), also for In zone girls and In zone boys, each
+    cell by its In zone set. Exact for those choices; One school is not
+    available from it."""
     about = listed.set_index("school")
     groups = {
         "all": pd.Series(True, index=about.index),
@@ -1061,11 +1074,31 @@ def short_list(reach: pd.DataFrame, listed: pd.DataFrame, service: str) -> pd.Da
     for student in ("girls", "boys"):
         groups[f"state_{student}"] = groups["state"] & about[f"sex_{service}"].apply(lambda s: takes(s, student))
     keep = np.zeros(len(reach), dtype=bool)
-    for mask in groups.values():
-        member = reach["destination"].map(mask).fillna(False).to_numpy(dtype=bool)
+
+    def nearest(member: np.ndarray) -> None:
         rows = reach[member]
         if rows.empty:
-            continue
+            return
         best = rows.groupby("cell")["minutes"].transform("min")
         keep[np.flatnonzero(member)[(rows["minutes"] == best).to_numpy()]] = True
+
+    for mask in groups.values():
+        nearest(reach["destination"].map(mask).fillna(False).to_numpy(dtype=bool))
+    block = (zone_state or {}).get("services", {}).get(service)
+    if block is not None:
+        status = zone_state["status"].set_index("school")
+        everyone = pd.Series([zone_counts_everyone(status.at[s, "status"] if s in status.index else None,
+                                                   status.at[s, "polygons"] if s in status.index else None, service)
+                              for s in about.index], index=about.index)
+        codes = {s: k for k, s in enumerate(about.index)}
+        size = len(codes) + 1
+        dest_code = reach["destination"].map(codes).fillna(-1).to_numpy(dtype="int64")
+        pair = reach["cell"].to_numpy(dtype="int64") * size + dest_code
+        in_set = np.array([cell * size + codes[s] for cell, members in enumerate(block["sets"])
+                           for s in members if s in codes], dtype="int64")
+        in_here = np.isin(pair, in_set)
+        for student in ("girls", "boys"):
+            base = reach["destination"].map(groups[f"state_{student}"]).fillna(False).to_numpy(dtype=bool)
+            open_to_all = reach["destination"].map(everyone).fillna(False).to_numpy(dtype=bool)
+            nearest(base & (open_to_all | in_here))
     return reach[keep]

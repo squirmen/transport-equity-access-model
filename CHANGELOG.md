@@ -189,6 +189,25 @@ Round 2 (12 November 2026), before release:
   times and gave today's minutes each time; the first routing followed two
   processes failing on r5py's shared cache.
 
+Round 2, putting the three parts together (12 November 2026):
+
+- **Car times under In zone.** The car short lists also keep each hexagon's
+  nearest In zone school for girls and for boys (`holds: ["all", "state",
+  "zone"]`), so the default choice has car times on the card, as All and
+  State do. One school still has none by car.
+- **Stops near a school.** Every school has an entry in `schools/stops.json`;
+  an empty list means no stop within a 15-minute walk, and the page says so.
+  A station's platforms are read as the build writes them (`station: true`
+  and the station's name). A stop no trip in the timetable stops at, on any
+  day, says so ("no trips on any day in the timetable used"), as Mt Albert
+  Grammar School's own stop does.
+- **Fare burden.** The panel and the methods say what is counted: where
+  walking all the way gets there inside the standard, no fare is needed, the
+  map shows no fare and the averages leave the home out.
+- **Golden files.** `scripts/school_golden.py` writes In zone (girls and boys
+  together, girls, boys), One school by the children living in its zone, and
+  children as the weights, for the parity tests in all 20 places.
+
 What changed in the published figures, from the 0.11.0 site to the 0.12.0
 build: the share of people within each school standard (all hexagons), before
 and after, and how many hexagons have a new time. One figure means no change

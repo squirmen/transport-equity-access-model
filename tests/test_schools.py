@@ -493,3 +493,28 @@ def test_a_car_short_list_keeps_the_nearest_school_under_each_choice():
     # State boys: the two co-ed state schools tie at 6.
     assert kept["destination"].tolist() == ["moe:5", "moe:1", "moe:2", "moe:3", "moe:4"]
     assert schools.short_list(reach.iloc[[0, 1, 3]], listed, "secondary_school")["destination"].tolist() == ["moe:5", "moe:1", "moe:3"]
+
+
+def test_a_car_short_list_keeps_the_nearest_in_zone_school_for_each_student():
+    listed = pd.DataFrame([
+        {"school": "moe:1", "kind": "state", "medium": "english", "sex_secondary_school": "co-ed"},
+        {"school": "moe:2", "kind": "state", "medium": "english", "sex_secondary_school": "girls"},
+        {"school": "moe:3", "kind": "state", "medium": "english", "sex_secondary_school": "co-ed"},
+        {"school": "moe:4", "kind": "state", "medium": "english", "sex_secondary_school": "co-ed"},
+    ])
+    status = pd.DataFrame([
+        {"school": "moe:1", "status": "in_force", "polygons": {"secondary_school": [11]}},
+        {"school": "moe:2", "status": "in_force", "polygons": {"secondary_school": [12]}},
+        {"school": "moe:3", "status": "in_force", "polygons": {"secondary_school": [13]}},
+        {"school": "moe:4", "status": "none", "polygons": {}},
+    ])
+    # Cell 0 is in the zones of 2 and 3; cell 1 in none.
+    zone_state = {"status": status, "services": {"secondary_school": {"sets": [("moe:2", "moe:3"), tuple()]}}}
+    reach = pd.DataFrame({"cell": [0, 0, 0, 0, 1, 1], "destination": ["moe:1", "moe:2", "moe:3", "moe:4", "moe:1", "moe:4"],
+                          "minutes": [3, 5, 7, 9, 3, 8]})
+    plain = schools.short_list(reach, listed, "secondary_school")
+    kept = schools.short_list(reach, listed, "secondary_school", zone_state)
+    # Without zones: moe:1 is nearest under every choice. With them, cell 0 keeps the girls' in-zone
+    # school (5), the boys' (moe:3, 7); cell 1 keeps moe:4, open to anyone.
+    assert plain["destination"].tolist() == ["moe:1", "moe:1"]
+    assert kept["destination"].tolist() == ["moe:1", "moe:2", "moe:3", "moe:1", "moe:4"]

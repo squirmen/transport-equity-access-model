@@ -321,6 +321,12 @@ def write(settings: Settings, folder: Path, dest_index: dict) -> dict | None:
              "routes": json.loads(r["routes"]), "trips": int(r["trips"])}
             for r in rows.to_dict("records")
         ]
+    # Every school is listed, so the page can tell "no stop within a
+    # 15-minute walk" (an empty list) from a school it has no stops for.
+    for school, d in dest_index.items():
+        if str(school).startswith("moe:") and str(d) not in schools:
+            schools[str(d)] = []
+    schools = dict(sorted(schools.items(), key=lambda kv: int(kv[0])))
     body = {
         "format": FORMATS["school_stops"],
         "date": record["date"],

@@ -824,25 +824,28 @@
     "id": "1427-e66ab0d8",
     "code": "1427",
     "name": "Mount Albert Grammar School",
-    "station": null,
+    "station": false,
     "lat": -36.8853,
-    "lon": 174.7247
+    "lon": 174.7247,
+    "served": false
    },
    {
     "id": "8861-6db54877",
     "code": "8861",
-    "name": "Stop A St Lukes",
-    "station": "St Lukes",
+    "name": "St Lukes",
+    "station": true,
     "lat": -36.88165,
-    "lon": 174.7327
+    "lon": 174.7327,
+    "served": true
    },
    {
     "id": "9300-aaaa",
     "code": "9300",
-    "name": "Baldwin Ave Train Station 1",
-    "station": "Baldwin Ave Train Station",
+    "name": "Baldwin Ave Train Station",
+    "station": true,
     "lat": -36.8805,
-    "lon": 174.7138
+    "lon": 174.7138,
+    "served": true
    }
   ],
   "schools": {

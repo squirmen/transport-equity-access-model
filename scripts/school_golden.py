@@ -20,6 +20,15 @@ none within 60 minutes), so a test can tell a walk from a bus.
 For the hexagons given with --cell it also writes every time and the schools
 named (MoE numbers, ties after the first, in the reach list's order).
 
+Figures count children of each service's ages (cells.json `ages`,
+meta.ages.services), as the page does, and the file says so (`weights`). The
+choices are all, state:<student>, zone:<student> (In zone, from
+schools/zones.json) and, for each --one school, one:<moe> (the children living
+in its zone, each hexagon by its share of residents in it, where it has a zone
+for the service; everyone where it has none) and one:<moe>:everyone. A car
+short list answers All and State, and In zone where it says it holds it; One
+school never.
+
     PYTHONPATH=src python scripts/school_golden.py --site SITE/data/auckland \\
         --out tests/fixtures/schools/golden_auckland.json --one 69 70 --cell 89bb50021a3ffff
 
@@ -64,17 +73,40 @@ def main() -> int:
     services = [s for s in meta["schools"]["services"]]
     nearest_mode = {**more.get("nearest_mode", {}), **cells.get("nearest_mode", {})}
     problems: list[str] = []
+    formats = meta.get("formats", {})
+    zones = None
+    zones_path = args.site / "schools" / "zones.json"
+    if zones_path.exists() and "zone" in meta["schools"].get("choices", []):
+        zones = load(zones_path)
+        if zones.get("format") != formats.get("zones"):
+            problems.append(f"zones.json is format {zones.get('format')}, meta.formats says {formats.get('zones')}")
+            zones = None
+    age_services = (meta.get("ages") or {}).get("services") or {}
+    ages = cells.get("ages") or {}
+    children = bool(ages) and all(age_services.get(s) in ages for s in services)
     out = {"place": meta["naming"].get("slug"), "version": meta["version"], "built": meta["built"],
            "directory": meta["schools"]["directory"]["file"], "people": round(float(pop.sum()), 1),
            "urban_people": round(float((pop * urban).sum()), 1), "standards": {}, "figures": {}, "cells": {}, "named": {},
-           "r5": {}, "formats": meta.get("formats", {}), "checks": {}}
+           "r5": {}, "formats": formats, "weights": "children" if children else "residents",
+           "zones": {"reference_date": zones.get("reference_date"), "source": zones.get("source")} if zones else None,
+           "one_zone": {}, "checks": {}}
 
     def as_array(values):
         return np.array([np.nan if v is None else v for v in values], dtype="float64")
 
+    def zoned(d: int, service: str) -> bool:
+        """The page's isZoned: a zone that applies to the service's years."""
+        if zones is None:
+            return False
+        entry = zones["schools"].get(str(d)) or {}
+        status = entry.get("status") or (dests[d].get("zone") or {}).get("status") or ("no_map" if dests[d].get("scheme") else "none")
+        return status in ("in_force", "upcoming_used") and not schools.zone_counts_everyone(status, entry.get("polygons"), service)
+
     for service in services:
         standard = float(meta["services"][service]["standard_minutes"])
         out["standards"][service] = standard
+        weights = as_array(ages[age_services[service]]) if children else pop
+        weights = np.nan_to_num(weights)
         reaches = {}
         for mode in schools.GOLDEN_MODES:
             path = args.site / "schools" / f"{service}_{mode}.json"
@@ -116,26 +148,53 @@ def main() -> int:
                                 f"{over} over {limit} min, {bad_ties} ties with other minutes")
         out["checks"][service] = {"cells_by_mode": checked, "problems": [p for p in problems if p.startswith(service)]}
 
-        choices = [("all", None), ("state", "both"), ("state", "girls"), ("state", "boys")]
-        choices += [(f"one:{m}", None) for m in args.one if any(d.get("moe") == m and service in d["services"] for d in dests)]
-        for choice, student in choices:
+        choices = [("all", None, None), ("state", "both", None), ("state", "girls", None), ("state", "boys", None)]
+        if zones is not None:
+            choices += [("zone", "both", None), ("zone", "girls", None), ("zone", "boys", None)]
+        for m in args.one:
+            d = next((k for k, x in enumerate(dests) if x.get("moe") == m and service in x["services"]), None)
+            if d is None:
+                continue
+            choices.append((f"one:{m}", None, "zone"))
+            choices.append((f"one:{m}", None, "everyone"))
+        for choice, student, who in choices:
             key = choice if student is None else f"{choice}:{student}"
-            # A short list (car) answers All and State only.
-            usable = reaches if not choice.startswith("one:") else {m: r for m, r in reaches.items() if r.get("complete", True)}
-            times = schools.choice_times(usable, dests, service, choice, student, standard_modes)
+            if who == "everyone":
+                key = f"{choice}:everyone"
+
+            def answers(reach: dict) -> bool:
+                # A short list (car) answers All and State, and In zone where it holds it.
+                if reach.get("complete", True):
+                    return True
+                if choice.startswith("one:"):
+                    return False
+                return choice != "zone" or "zone" in (reach.get("holds") or [])
+
+            usable = {m: r for m, r in reaches.items() if answers(r)}
+            times = schools.choice_times(usable, dests, service, choice, student, standard_modes, zones)
+            w = weights
+            if who == "zone":
+                d = next(k for k, x in enumerate(dests) if x.get("moe") == int(choice.split(":")[1]) and service in x["services"])
+                if zoned(d, service):
+                    inside = schools.zone_share(zones, service, d, n)
+                    w = weights * inside
+                    out["one_zone"].setdefault(choice, {})[service] = {
+                        "weights_in_zone": round(float(w.sum()), 1), "residents_in_zone": round(float((pop * inside).sum()), 1)}
             block = {}
             for mode, minutes in times.items():
-                share, total = schools.share_within(minutes, pop, standard)
-                share_u, total_u = schools.share_within(minutes, pop * urban, standard)
+                share, total = schools.share_within(minutes, w, standard)
+                share_u, total_u = schools.share_within(minutes, w * urban, standard)
                 block[mode] = {"share": round(share, 6), "share_urban": round(share_u, 6),
                                "people_within": round(share * total, 1), "people": round(total, 1)}
             out["figures"].setdefault(key, {})[service] = block
+            if who == "everyone":
+                continue
             for h3 in args.cell:
                 if h3 in cells["h3"]:
                     i = cells["h3"].index(h3)
                     out["cells"].setdefault(h3, {}).setdefault(key, {})[service] = {
                         m: (None if np.isnan(v[i]) else int(v[i])) for m, v in times.items()}
-                    named = schools.choice_named(usable, dests, service, choice, student, i)
+                    named = schools.choice_named(usable, dests, service, choice, student, i, zones)
                     out["named"].setdefault(h3, {}).setdefault(key, {})[service] = named
                     if "pt" in usable and "r5" in usable["pt"]:
                         body = usable["pt"]

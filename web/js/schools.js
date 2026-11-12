@@ -280,10 +280,12 @@ export function decodeReach(json, n) {
   if (start[0] !== 0 || start[n] !== json.d.length) throw new Error('The school times do not cover every hexagon.');
   const numeric = (values) => Float32Array.from(values, (v) => (v == null ? NaN : v));
   // complete: false is a short list (by car): the nearest school under All
-  // and State only, so it cannot answer One school or In zone.
+  // and State only, so it cannot answer One school; `holds` says whether it
+  // also has the nearest under In zone.
   const out = {
     start, d: Int32Array.from(json.d), m: numeric(json.m), lo: null, hi: null, r5: null, walked: null,
     complete: json.complete !== false, format: json.format, ptOrWalk: json.pt_or_walk === true,
+    holds: Array.isArray(json.holds) ? json.holds.slice() : null,
   };
   if (Array.isArray(json.lo) && json.lo.length === json.d.length) out.lo = numeric(json.lo);
   if (Array.isArray(json.hi) && json.hi.length === json.d.length) out.hi = numeric(json.hi);
@@ -300,6 +302,16 @@ export function decodeReach(json, n) {
     out.walked = walked;
   }
   return out;
+}
+
+/** Whether a reach list can answer a choice: a full list answers any; a
+ *  short list (by car) answers All and State, and In zone when it says so. */
+export function listAnswers(list, choice) {
+  if (!list) return false;
+  if (list.complete) return true;
+  if (choice.kind === 'one') return false;
+  if (choice.kind === 'zone') return Array.isArray(list.holds) && list.holds.includes('zone');
+  return true;
 }
 
 /** Every school hexagon i reaches by one way of travelling, nearest first:
@@ -1536,9 +1548,16 @@ export function stopsIntro(stops) {
 
 /** A stop's name as the section lists it: the station for a platform, with
  *  the stop number where there is one. */
+/** A stop's name. The build groups a station's platforms under the station:
+ *  `station` true and the station's name (an older file gave the station's
+ *  name in `station`). */
+function stopTitle(stop) {
+  return (typeof stop.station === 'string' && stop.station) || stop.name || 'Unnamed stop';
+}
+
 function stopName(stop) {
-  const name = stop.station || stop.name || 'Unnamed stop';
-  return stop.code && !stop.station ? `${name} (stop ${stop.code})` : name;
+  const grouped = stop.station === true || (typeof stop.station === 'string' && stop.station !== '');
+  return stop.code && !grouped ? `${stopTitle(stop)} (stop ${stop.code})` : stopTitle(stop);
 }
 
 /** "Mount Albert Grammar School (stop 1427) · 1 min walk · 14 trips 7–9am · 22N, 22R". */
@@ -1551,7 +1570,8 @@ export function stopLine(row, stops) {
   return [
     stopName(stop),
     `${row.walk} min walk`,
-    trips ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'} ${hours}` : `no trips ${hours} in the timetable used`,
+    trips ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'} ${hours}`
+      : stop.served === false ? 'no trips on any day in the timetable used' : `no trips ${hours} in the timetable used`,
     shown || null,
   ].filter(Boolean).join(' · ');
 }
@@ -1569,7 +1589,8 @@ export function stopsCsvLines(stops, d) {
     const stop = stops.stops[row.s];
     const modes = [...new Set((row.routes || []).map((r) => r.mode).filter(Boolean))];
     const byRoute = (row.routes || []).map((r) => `${r.route} ${r.trips}`).join(', ');
-    out.push(`stop ${stop.code || stop.id} ${stop.station || stop.name}: ${modes.join('/') || 'no service'}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'}${byRoute ? ` (${byRoute})` : ''}`);
+    const none = stop.served === false ? ' (none on any day in the timetable)' : '';
+    out.push(`stop ${stop.code || stop.id} ${stopTitle(stop)}: ${modes.join('/') || 'no service'}, ${row.walk} min walk, ${Number(row.trips) || 0} ${Number(row.trips) === 1 ? 'trip' : 'trips'}${byRoute ? ` (${byRoute})` : ''}${none}`);
   }
   return out;
 }

@@ -114,9 +114,10 @@ def test_every_school_has_a_stop_list(place):
     assert body["format"] == meta["formats"]["school_stops"] == 1
     assert body["date"] == "2026-09-15" and body["window"] == ["07:00", "08:59"]
     school_index = {i for i, d in enumerate(dests) if "moe" in d}
-    with_stops = {int(k) for k in body["schools"]}
-    assert with_stops <= school_index
-    assert len(school_index - with_stops) == meta["schools"]["stops"]["schools_with_none"]
+    listed = {int(k) for k in body["schools"]}
+    # Every school has a list; an empty one means no stop within the walk.
+    assert listed == school_index
+    assert sum(1 for rows in body["schools"].values() if not rows) == meta["schools"]["stops"]["schools_with_none"]
     for rows in body["schools"].values():
         assert all(r["walk"] <= body["max_walk_minutes"] == 15 for r in rows)
         # A trip runs on one route, so the routes' trips add up to the stop's.

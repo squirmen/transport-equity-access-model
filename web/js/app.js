@@ -37,7 +37,7 @@ import { placeHeader, renderPlace, tooltipLines } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 import {
   ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops, decodeZones,
-  DEFAULT_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, noZoneSentence, ptCsvLine, readChoice, readSchoolsMeta,
+  DEFAULT_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, listAnswers, noZoneSentence, ptCsvLine, readChoice, readSchoolsMeta,
   REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, sexOf, stopLine, stopsAt, stopsCsvLines, stopsIntro, tagOf, windowWords,
   zoneDates, zoneShares,
 } from './schools.js';
@@ -779,8 +779,9 @@ function syncSchools() {
       for (const m of modes) {
         const entry = requestReach(service, m);
         if (entry.status === 'loading') waiting = true;
-        // A short list (by car) holds the nearest under All and State only.
-        else if (entry.status === 'ready' && !entry.list.complete && (choice.kind === 'one' || choice.kind === 'zone')) missing.push(m);
+        // A short list (by car) holds the nearest under All and State, and
+        // under In zone when the build says so; never One school.
+        else if (entry.status === 'ready' && !listAnswers(entry.list, choice)) missing.push(m);
         else if (entry.status === 'ready') lists[m] = entry.list;
         else missing.push(m);
       }
@@ -1611,7 +1612,8 @@ function boardBox(board) {
  *  The same fare is a different burden in different places, so this maps the
  *  fare for the cheapest bus trip that gets there in time as a share of a
  *  day's income where each person lives. It asks about the bus whether or not
- *  someone could walk instead, because plenty of people cannot. The panel
+ *  someone could cycle instead; where walking all the way gets there in time
+ *  (cost z0, from 0.12.0) no fare is needed. The panel
  *  compares the most and least deprived areas, which a dollar map cannot.
  */
 /** Whether the commuting cost is the view on screen. */

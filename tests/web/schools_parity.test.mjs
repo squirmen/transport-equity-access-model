@@ -39,7 +39,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { ageGroupFor } from '../../web/js/ages.js';
-import { chooseSchools, decodeReach, decodeZones, formatOk, groupCounts, isZoned, readChoice, schoolByMoe, zoneShares } from '../../web/js/schools.js';
+import { chooseSchools, decodeReach, decodeZones, formatOk, groupCounts, isZoned, listAnswers, readChoice, schoolByMoe, zoneShares } from '../../web/js/schools.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const FOLDER = join(ROOT, 'tests/fixtures/schools');
@@ -131,8 +131,8 @@ function figures(place, service, key, modes) {
   for (const m of modes) {
     if (m === 'best') continue;
     const list = reachOf(place, service, m);
-    // A short list cannot answer One school (schools.js, app.js syncSchools).
-    if (list && (list.complete || choice.kind !== 'one')) reach[m] = list;
+    // A short list cannot answer One school, nor In zone unless it holds it (schools.js listAnswers).
+    if (listAnswers(list, choice)) reach[m] = list;
   }
   for (const m of counting) if (!reach[m]) reach[m] = reachOf(place, service, m);
   const zones = choice.kind === 'zone' || choice.kind === 'one' ? zonesOf(place, service) : null;

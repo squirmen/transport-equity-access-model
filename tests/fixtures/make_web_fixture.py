@@ -156,7 +156,7 @@ def school_files(cells, centres, destinations, dest_points, t, nearest, fields, 
             # Two stops near each school, made up.
             rows = []
             for j in range(2):
-                stops["stops"].append({"id": f"{moe}-{j}", "code": str(moe * 10 + j), "name": f"{dest['name']} stop {j + 1}", "station": None,
+                stops["stops"].append({"id": f"{moe}-{j}", "code": str(moe * 10 + j), "name": f"{dest['name']} stop {j + 1}", "station": False, "served": True,
                                        "lat": round(point[1] + 0.002 * (j + 1), 5), "lon": round(point[0] + 0.001 * (j - 0.5), 5)})
                 trips = rng.randint(0, 12)
                 rows.append({"s": len(stops["stops"]) - 1, "walk": 2 + 5 * j, "metres": 150 + 400 * j,

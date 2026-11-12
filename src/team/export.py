@@ -543,7 +543,7 @@ def reach_payload(reach: pd.DataFrame, n: int, dest_index: dict, spread: bool) -
 
 
 def write_schools(settings: Settings, folder: Path, school_state: dict, dest_index: dict, n: int,
-                  listed: pd.DataFrame | None = None) -> dict:
+                  listed: pd.DataFrame | None = None, zone_state: dict | None = None) -> dict:
     """data/schools/<service>_<mode>.json, read only when a school choice is
     made. Returns the file sizes, for the build log."""
     from .routing import service_windows
@@ -559,14 +559,16 @@ def write_schools(settings: Settings, folder: Path, school_state: dict, dest_ind
         window = (key[len(mode) + 1:] or service_windows(settings.services[service])[0]) if transit else None
         short = mode in SHORT_LIST_MODES and listed is not None
         if short:
-            reach = short_list(reach, listed, service)
+            reach = short_list(reach, listed, service, zone_state)
         body = {
             "format": FORMATS["school_reach"], "service": service, "mode": mode, "window": window,
             "max_minutes": int(settings.routing.get("max_minutes", 60)),
             "order": "minutes, then straight-line metres from the hexagon centre, then MoE number",
             # A short list holds only the nearest school under All, State,
-            # State girls and State boys, and those tied with it.
+            # State girls and State boys, and those tied with it; with zones,
+            # under In zone girls and In zone boys too.
             "complete": not short,
+            **({"holds": ["all", "state"] + (["zone"] if zone_state is not None else [])} if short else {}),
             **({"pt_or_walk": True} if transit else {}),
             **reach_payload(reach, n, dest_index, spread=(key == "pt")),
         }
@@ -695,7 +697,7 @@ def write_web(settings: Settings, table: pd.DataFrame, destinations: pd.DataFram
         from . import school_stops
 
         meta["schools"] = school_data.meta_block(settings, listed)
-        meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table), listed)
+        meta["schools"]["files"] = write_schools(settings, data, school_state, dest_index, len(table), listed, zone_state)
         meta["schools"]["zones"] = zones.write(settings, data, zone_state, dest_index, len(table), table)  # zones.json, outlines
         meta["schools"]["stops"] = school_stops.write(settings, data, dest_index)
     _dump(
