@@ -36,7 +36,8 @@ import { placeHeader, renderPlace } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 import {
   applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeZones, DEFAULT_CHOICE,
-  findSchools, hasAttributes, isSchoolService, readChoice, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, tagOf, zoneCells,
+  findSchools, hasAttributes, isSchoolService, readChoice, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv,
+  tagOf, zoneCells,
 } from './schools.js';
 
 function dataBase() {
@@ -563,8 +564,13 @@ let schoolsReady = true;
 // The middle of each hexagon as [lat, lng], for straight-line distances.
 let cellCentres = null;
 
+/** meta.schools as the page uses it (schools.js readSchoolsMeta), worked
+ *  out once for each data set. */
+const schoolsMetaCache = new WeakMap();
 function schoolsMeta() {
-  return (data && data.meta.schools) || {};
+  if (!data || !data.meta) return {};
+  if (!schoolsMetaCache.has(data.meta)) schoolsMetaCache.set(data.meta, readSchoolsMeta(data.meta));
+  return schoolsMetaCache.get(data.meta);
 }
 
 /** Whether the Schools row applies: a school service on screen, in a build
@@ -703,6 +709,8 @@ function syncSchools() {
       for (const m of modes) {
         const entry = requestReach(service, m);
         if (entry.status === 'loading') waiting = true;
+        // A short list (by car) holds the nearest under All and State only.
+        else if (entry.status === 'ready' && !entry.list.complete && (choice.kind === 'one' || choice.kind === 'zone')) missing.push(m);
         else if (entry.status === 'ready') lists[m] = entry.list;
         else missing.push(m);
       }
@@ -717,7 +725,9 @@ function syncSchools() {
       const counting = data.meta.standard_modes;
       if (missing.length && missing.every((m) => !counting.includes(m) && m !== 'zones')) {
         // A comparison way the build has no school times for: back to Best.
-        schoolUi.message = `${MODES[missing[0]].label} times for a set of schools are not in this build, so Best is shown.`;
+        schoolUi.message = choice.kind === 'one'
+          ? `${MODES[missing[0]].label} times to one school are not in this build, so Best is shown.`
+          : `${MODES[missing[0]].label} times for a set of schools are not in this build, so Best is shown.`;
         state.mode = 'best';
         writeHash();
         return syncSchools();
@@ -1028,7 +1038,9 @@ function downloadSchools() {
     `Public transport: median over ${(data.meta.windows || {})[data.meta.services[service]?.window]?.when || 'the usual window'}, timetable of ${data.meta.routing_date}.`,
     'moe_<mode> is the Ministry school number of the nearest school counted by that way; tied schools are joined with |.',
     choice.students === 'both' && result && result.bySex ? 'Girls and boys: each minutes_<mode> is the slower of the girls and boys columns; minutes_best is the slower of each one\'s fastest way.' : null,
-    meta.directory ? `School list as at ${meta.directory}.` : null,
+    meta.directory ? `School list as at ${meta.directory}${meta.roll_date ? `; rolls at ${meta.roll_date}` : ''}.` : null,
+    meta.dates ? `Data dates: timetable written ${meta.dates.timetable_written || 'not recorded'}, OpenStreetMap ${meta.dates.osm_downloaded || 'not recorded'}, routing day ${meta.dates.routing_date || data.meta.routing_date}.` : null,
+    meta.bus_note ? meta.bus_note : null,
     meta.zones ? `Zones as at ${typeof meta.zones === 'string' ? meta.zones : data.schoolZones?.date || 'the date in the build'}.` : null,
     state.urbanOnly ? 'Urban areas only.' : null,
   ].filter(Boolean);

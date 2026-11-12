@@ -25,6 +25,59 @@ export const DEFAULT_CHOICE = Object.freeze({ kind: 'all', moe: null, students: 
 
 export const isSchoolService = (service) => SCHOOL_SERVICES.includes(service);
 
+// Modes a reach list file can be for, longest first so "bike_low_stress" is
+// not read as "bike".
+const FILE_MODES = ['bike_low_stress', 'pt_slow', 'walk', 'bike', 'pt', 'car'];
+
+/** summary.json's meta.schools, as the page uses it.
+ *
+ *  The build writes { directory: { file, retrieved, roll_dates, ... },
+ *  dates: { directory, ... }, services, choices, zones, routed_to, buses,
+ *  bus_note, files: { "<service>_<mode>.json": sizes } } (docs/schools.md).
+ *  This returns { directory (date), roll_date, zones, reach: { service:
+ *  [modes] }, school_buses (true, false or null), bus_note, counts, dates },
+ *  and
+ *  takes those keys as they are when a build already sends them. {} for a
+ *  build before 0.12. */
+export function readSchoolsMeta(meta) {
+  const s = meta && meta.schools;
+  if (!s || typeof s !== 'object') return {};
+  const dir = s.directory;
+  const directory = typeof dir === 'string' ? dir
+    : (s.dates && s.dates.directory) || (dir && dir.retrieved ? String(dir.retrieved).slice(0, 10) : null);
+  let rollDate = typeof s.roll_date === 'string' ? s.roll_date : null;
+  if (!rollDate && dir && dir.roll_dates && typeof dir.roll_dates === 'object') {
+    // The date most schools' rolls are at; schools with none are left aside.
+    const dated = Object.entries(dir.roll_dates).filter(([k]) => /^\d{4}-\d{2}-\d{2}$/.test(k));
+    dated.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    rollDate = dated.length ? dated[0][0] : null;
+  }
+  let reach = s.reach && typeof s.reach === 'object' ? s.reach : null;
+  if (!reach && s.files && typeof s.files === 'object') {
+    reach = {};
+    for (const name of Object.keys(s.files)) {
+      const mode = FILE_MODES.find((m) => name.endsWith(`_${m}.json`));
+      if (!mode) continue;
+      const service = name.slice(0, -(`_${mode}.json`).length);
+      (reach[service] || (reach[service] = [])).push(mode);
+    }
+  }
+  let buses = null;
+  if (typeof s.school_buses === 'boolean') buses = s.school_buses;
+  else if (s.buses === 'in_timetable') buses = true;
+  else if (s.buses === 'none_found') buses = false;
+  return {
+    directory,
+    roll_date: rollDate,
+    zones: s.zones || null,
+    reach,
+    school_buses: buses,
+    bus_note: typeof s.bus_note === 'string' ? s.bus_note : null,
+    counts: s.services && typeof s.services === 'object' ? s.services : null,
+    dates: s.dates && typeof s.dates === 'object' ? s.dates : null,
+  };
+}
+
 // ---------------------------------------------------------------- links
 
 /** The choice in a link: sch=state, sch=zone or sch=one:<Ministry number>;
@@ -68,7 +121,7 @@ export function choiceKey(service, choice) {
 
 // ---------------------------------------------------------------- what a school is
 
-const OTHER_MEDIUM = { other: 'Māori- or Pacific-medium', maori: 'Māori-medium', pacific: 'Pacific-medium' };
+const OTHER_MEDIUM = { other: 'Māori- or Pacific-medium', maori: 'Māori-medium', pacific: 'Pacific-medium', unknown: 'teaching language not recorded' };
 const KIND_WORD = { state: 'state', integrated: 'state-integrated', private: 'private', charter: 'charter' };
 
 export const serves = (dest, service) => Boolean(dest && Array.isArray(dest.services) && dest.services.includes(service));
@@ -79,36 +132,54 @@ export function hasAttributes(destinations, service) {
   return (destinations || []).some((d) => serves(d, service) && typeof d.kind === 'string');
 }
 
-/** Taught in English, as the Ministry's Language_of_Instruction has it:
- *  schools where every student is taught in te reo Māori or a Pacific
- *  language are not; schools with a bilingual unit are. A school with no
- *  record counts as English-medium. */
-export const englishMedium = (dest) => !(dest && dest.medium && dest.medium !== 'english');
+/** The teaching language, from the Ministry's Language_of_Instruction:
+ *  english, maori or pacific (`language`), or english or other (`medium`)
+ *  where only that is sent; null where the directory gives none. Schools
+ *  where every student is taught in te reo Māori or a Pacific language are
+ *  maori or pacific; schools with a bilingual unit are english. */
+export function mediumOf(dest) {
+  if (!dest) return null;
+  if (['english', 'maori', 'pacific'].includes(dest.language)) return dest.language;
+  if (['english', 'maori', 'pacific', 'other'].includes(dest.medium)) return dest.medium;
+  return null;
+}
+
+/** Taught in English. A school whose teaching language is not recorded is
+ *  not, so State leaves it out and the counting line says so, as the build
+ *  does (schools.py eligible). */
+export const englishMedium = (dest) => mediumOf(dest) === 'english';
 
 /** A state school taught in English: what State and In zone count. */
 export const isState = (dest) => Boolean(dest && dest.kind === 'state' && englishMedium(dest));
 
-/** Co-ed, girls or boys, for the years of this service. King's College, for
- *  one, is a boys' school at Year 9 even though it takes girls later on. */
+/** Co-ed, girls or boys, for the years of this service, or null where the
+ *  directory does not say. King's College, for one, is a boys' school at
+ *  Year 9 even though it takes girls later on. */
 export function sexOf(dest, service) {
   const value = dest && dest.sex && typeof dest.sex === 'object' ? dest.sex[service] : null;
-  return value === 'girls' || value === 'boys' ? value : 'co-ed';
+  return value === 'co-ed' || value === 'girls' || value === 'boys' ? value : null;
 }
 
-/** Whether a girl (or a boy) can go to this school for this service. */
+/** Whether a girl (or a boy) can go to this school for this service: a co-ed
+ *  school or one of their own. A school that does not say is counted for
+ *  neither, as the build does (schools.py takes). */
 export function admits(dest, service, students) {
   const sex = sexOf(dest, service);
-  if (students === 'girls') return sex !== 'boys';
-  if (students === 'boys') return sex !== 'girls';
+  if (students === 'girls') return sex === 'co-ed' || sex === 'girls';
+  if (students === 'boys') return sex === 'co-ed' || sex === 'boys';
   return true;
 }
+
+const SEX_WORD = { girls: "girls' school", boys: "boys' school" };
 
 /** The group a school falls in for the counting line. Kind comes first: a
  *  state-integrated kura counts as state-integrated. */
 export function groupOf(dest) {
   if (!dest || !dest.kind) return 'unknown';
   if (dest.kind !== 'state') return dest.kind;
-  return englishMedium(dest) ? 'state' : 'other_medium';
+  const medium = mediumOf(dest);
+  if (medium === 'english') return 'state';
+  return medium ? 'other_medium' : 'language_unknown';
 }
 
 /** How a school differs from a state, English-medium, co-ed school, for a tag
@@ -118,10 +189,11 @@ export function tagOf(dest, service) {
   if (!dest || !dest.kind) return '';
   const bits = [];
   const sex = sexOf(dest, service);
-  const other = !englishMedium(dest);
-  if (dest.kind !== 'state' || other || sex !== 'co-ed') bits.push(KIND_WORD[dest.kind] || dest.kind);
-  if (other) bits.push(OTHER_MEDIUM[dest.medium] || OTHER_MEDIUM.other);
-  if (sex !== 'co-ed') bits.push(`${sex}' school`);
+  const medium = mediumOf(dest);
+  const other = medium !== 'english';
+  if (dest.kind !== 'state' || other || SEX_WORD[sex]) bits.push(KIND_WORD[dest.kind] || dest.kind);
+  if (other) bits.push(OTHER_MEDIUM[medium || 'unknown']);
+  if (SEX_WORD[sex]) bits.push(SEX_WORD[sex]);
   return bits.join(', ');
 }
 
@@ -157,14 +229,17 @@ export function decodeReach(json, n) {
   }
   if (start[0] !== 0 || start[n] !== json.d.length) throw new Error('The school times do not cover every hexagon.');
   const numeric = (values) => Float32Array.from(values, (v) => (v == null ? NaN : v));
-  const out = { start, d: Int32Array.from(json.d), m: numeric(json.m), lo: null, hi: null };
+  // complete: false is a short list (by car): the nearest school under All
+  // and State only, so it cannot answer One school or In zone.
+  const out = { start, d: Int32Array.from(json.d), m: numeric(json.m), lo: null, hi: null, complete: json.complete !== false };
   if (Array.isArray(json.lo) && json.lo.length === json.d.length) out.lo = numeric(json.lo);
   if (Array.isArray(json.hi) && json.hi.length === json.d.length) out.hi = numeric(json.hi);
   return out;
 }
 
 /** Every school hexagon i reaches by one way of travelling, nearest first:
- *  [{ d, m, lo, hi }]. Times over the routing limit are left out. */
+ *  [{ d, m, lo, hi }]. Times over the routing limit are left out. Schools
+ *  reached in the same minute keep the build's order (see below). */
 export function reachAt(reach, i, maxMinutes = 60) {
   if (!reach) return [];
   const out = [];
@@ -173,7 +248,7 @@ export function reachAt(reach, i, maxMinutes = 60) {
     if (!(m <= maxMinutes)) continue;
     out.push({ d: reach.d[k], m, lo: reach.lo ? reach.lo[k] : NaN, hi: reach.hi ? reach.hi[k] : NaN });
   }
-  return out.sort((a, b) => a.m - b.m || a.d - b.d);
+  return out.sort((a, b) => a.m - b.m);
 }
 
 /** In-zone lists for a service, from zones.json: the schools whose zone
@@ -238,23 +313,18 @@ export function kmBetween(centre, dest) {
   return 2 * RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-/** Tied schools in a steady order: nearest in a straight line, then the
- *  lower Ministry number, then the lower index. The same every time, however
- *  the routing returned them. */
-export function orderTies(ids, destinations, centre) {
-  if (ids.length < 2) return ids;
-  const key = (d) => {
-    const dest = destinations[d] || {};
-    const km = centre && Number.isFinite(dest.lat) ? kmBetween(centre, dest) : Infinity;
-    return [km, Number.isFinite(Number(dest.moe)) ? Number(dest.moe) : Infinity, d];
-  };
-  const keyed = ids.map((d) => [key(d), d]);
-  keyed.sort((a, b) => {
-    // Distances within a metre are the same place; the number decides.
-    if (Math.abs(a[0][0] - b[0][0]) > 0.001) return a[0][0] - b[0][0];
-    return a[0][1] - b[0][1] || a[0][2] - b[0][2];
-  });
-  return keyed.map(([, d]) => d);
+/** Tied schools in the build's order. Each hexagon's reach list comes
+ *  sorted by minutes, then straight-line metres (NZTM, whole metres), then
+ *  Ministry number (schools.py ordered_reach), which is the order cells.json
+ *  names ties in. Using that order, rather than working distances out again
+ *  here, names the same school the build does every time. Schools not in
+ *  the list go last, by index. */
+export function orderTies(ids, reach, i) {
+  if (ids.length < 2 || !reach) return ids;
+  const at = new Map();
+  for (let k = reach.start[i]; k < reach.start[i + 1]; k += 1) if (!at.has(reach.d[k])) at.set(reach.d[k], k);
+  const pos = (d) => (at.has(d) ? at.get(d) : Infinity);
+  return [...ids].sort((a, b) => pos(a) - pos(b) || a - b);
 }
 
 // ---------------------------------------------------------------- the engine
@@ -294,14 +364,11 @@ function solve({ reach, n, destinations, ok, eligible, centres, standardModes, m
         }
       }
       if (at < 0) continue;
+      // The list is in the build's order, so the first school found is the
+      // one named and the rest follow in order.
       time[i] = best;
-      if (extra) {
-        const ordered = orderTies([at, ...extra], destinations, centres ? centres[i] : null);
-        first[i] = ordered[0];
-        tied[i] = ordered.slice(1);
-      } else {
-        first[i] = at;
-      }
+      first[i] = at;
+      if (extra) tied[i] = extra;
     }
     t[mode] = time;
     near[mode] = first;
@@ -379,7 +446,7 @@ const fastestOf = (t, modes, i) => {
  *  the slower of the two. Best without a car is the slower of each one's
  *  fastest way, since a girl and a boy may each travel differently. Counts
  *  are the smaller of the two, and the straight line the longer. */
-function combine(girls, boys, { n, standardModes, centres, destinations }) {
+function combine(girls, boys, { n, standardModes, reach }) {
   const t = {};
   const near = {};
   const ties = {};
@@ -400,7 +467,7 @@ function combine(girls, boys, { n, standardModes, centres, destinations }) {
         if (k >= 0 && !ids.includes(k)) ids.push(k);
         for (const extra of s.ties[mode][i] || []) if (!ids.includes(extra)) ids.push(extra);
       }
-      const ordered = orderTies(ids, destinations, centres ? centres[i] : null);
+      const ordered = orderTies(ids, reach[mode], i);
       first[i] = ordered[0] ?? -1;
       if (ordered.length > 1) tied[i] = ordered.slice(1);
     }
@@ -419,7 +486,36 @@ function combine(girls, boys, { n, standardModes, centres, destinations }) {
     choice[limit] = Float32Array.from(girls.choice[limit], (v, i) => Math.min(v, boys.choice[limit][i]));
   }
   const km = Float32Array.from(girls.km, (v, i) => (Number.isFinite(v) && Number.isFinite(boys.km[i]) ? Math.max(v, boys.km[i]) : NaN));
-  return { t, near, ties, choice, km, best };
+  return { t, near, ties, choice, km, best, ptFoot: onFoot(girls, boys, t, n, reach) };
+}
+
+/** Where the public transport time shown for girls and boys together is a
+ *  walk. The time shown is the slower student's; it is said as a walk only
+ *  when, for each student whose time it is, walking takes as long as public
+ *  transport. Comparing the joint walking and public transport times alone
+ *  would also say it where the girl's walk sets one and the boy's bus trip
+ *  the other. { mask, near, ties }, near and ties naming the schools those
+ *  students walk to, or null without both lists. */
+function onFoot(girls, boys, t, n, reach) {
+  if (!t.pt || !t.walk || !reach.walk) return null;
+  const mask = new Uint8Array(n);
+  const near = new Int32Array(n).fill(-1);
+  const ties = {};
+  for (let i = 0; i < n; i += 1) {
+    const shown = t.pt[i];
+    if (!Number.isFinite(shown) || t.walk[i] !== shown) continue;
+    const binding = [girls, boys].filter((s) => s.t.pt[i] === shown);
+    if (!binding.length || !binding.every((s) => s.t.walk[i] === shown)) continue;
+    mask[i] = 1;
+    const ids = [];
+    for (const s of binding) {
+      for (const d of [s.near.walk[i], ...(s.ties.walk[i] || [])]) if (d >= 0 && !ids.includes(d)) ids.push(d);
+    }
+    const ordered = orderTies(ids, reach.walk, i);
+    near[i] = ordered.length ? ordered[0] : -1;
+    if (ordered.length > 1) ties[i] = ordered.slice(1);
+  }
+  return { mask, near, ties };
 }
 
 /** Everything the app swaps in for one service under a choice.
@@ -462,7 +558,7 @@ export function chooseSchools({
 /** The nearest school hexagon i reaches by one way, among those `ok(d)`
  *  allows: { m, ds } with ties in the steady order, or null. For the card,
  *  which looks at one hexagon. */
-export function nearestAt(reach, i, ok, { destinations, centre = null, maxMinutes = 60 } = {}) {
+export function nearestAt(reach, i, ok, { maxMinutes = 60 } = {}) {
   if (!reach) return null;
   let best = Infinity;
   let ds = [];
@@ -477,7 +573,7 @@ export function nearestAt(reach, i, ok, { destinations, centre = null, maxMinute
     }
   }
   if (!ds.length) return null;
-  return { m: best, ds: destinations ? orderTies(ds, destinations, centre) : ds };
+  return { m: best, ds: orderTies(ds, reach, i) };
 }
 
 /** Minutes from hexagon i to school d by one way, with the 10th and 90th
@@ -531,6 +627,10 @@ export function applyToData(data, service, result) {
   if (data.usual && data.usual.t) data.usual.t[service] = t.pt;
   data.nearestMode = { ...(data.nearestMode || {}), [service]: result.near };
   data.ties = { ...(data.ties || {}), [service]: result.ties };
+  // Girls and boys together: where the public transport time is a walk (place.js tripWords).
+  data.ptFoot = { ...(data.ptFoot || {}) };
+  if (result.ptFoot) data.ptFoot[service] = result.ptFoot;
+  else delete data.ptFoot[service];
   if (data.nearest) data.nearest = { ...data.nearest, [service]: null };
   // Counts and distances come with the rest of the data; until then there
   // are none to replace.
@@ -559,6 +659,10 @@ export function restoreData(data) {
       data.best = { ...data.best };
       if (kept.best) data.best[service] = kept.best;
       else delete data.best[service];
+    }
+    if (data.ptFoot) {
+      data.ptFoot = { ...data.ptFoot };
+      delete data.ptFoot[service];
     }
   }
   data.schoolsAll = {};
@@ -617,7 +721,7 @@ export function choiceWords(base, choice, school = null) {
 /** How many schools of each group teach a service: { all, state, other_medium,
  *  integrated, private, charter, unknown }. */
 export function groupCounts(destinations, service, students = 'both') {
-  const out = { all: 0, state: 0, other_medium: 0, integrated: 0, private: 0, charter: 0, unknown: 0 };
+  const out = { all: 0, state: 0, other_medium: 0, language_unknown: 0, integrated: 0, private: 0, charter: 0, unknown: 0 };
   for (const dest of destinations || []) {
     if (!serves(dest, service)) continue;
     out.all += 1;
@@ -633,8 +737,18 @@ const LEFT_OUT = [
   ['private', 'private'],
   ['charter', 'charter'],
   ['other_medium', 'Māori- or Pacific-medium'],
+  ['language_unknown', 'state with no record of their teaching language'],
   ['unknown', 'with no record of their kind'],
 ];
+
+/** "Māori-medium" when every such school is, and so on. */
+function otherMediumWord(destinations, service) {
+  const seen = new Set();
+  for (const dest of destinations || []) {
+    if (serves(dest, service) && groupOf(dest) === 'other_medium') seen.add(mediumOf(dest));
+  }
+  return seen.size === 1 ? OTHER_MEDIUM[[...seen][0]] || OTHER_MEDIUM.other : OTHER_MEDIUM.other;
+}
 
 /** The line under every headline that says which schools are counted, with
  *  the counts taken from the build's own list. `plural` is the service's
@@ -642,10 +756,12 @@ const LEFT_OUT = [
 export function countingLine(destinations, service, choice, { plural = 'schools', zones = null, meta = {} } = {}) {
   const c = groupCounts(destinations, service);
   const listed = meta.directory ? ` School list as at ${day(meta.directory)}.` : '';
+  const otherWord = otherMediumWord(destinations, service);
   if (!choice || choice.kind === 'all') {
     const parts = [
       c.state ? `${c.state} state` : null,
-      c.other_medium ? `${c.other_medium} state Māori- or Pacific-medium` : null,
+      c.other_medium ? `${c.other_medium} state ${otherWord}` : null,
+      c.language_unknown ? `${c.language_unknown} state with no record of their teaching language` : null,
       c.integrated ? `${c.integrated} state-integrated` : null,
       c.private ? `${c.private} private` : null,
       c.charter ? `${c.charter} charter` : null,
@@ -666,7 +782,7 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
     return `Counting ${name} only.${zoneText}${listed}`;
   }
   const sexed = choice.students !== 'both' ? groupCounts(destinations, service, choice.students) : c;
-  const notCounted = LEFT_OUT.filter(([key]) => c[key]).map(([key, word]) => `${thousands(c[key])} ${word}`);
+  const notCounted = LEFT_OUT.filter(([key]) => c[key]).map(([key, word]) => `${thousands(c[key])} ${key === 'other_medium' ? otherWord : word}`);
   const left = notCounted.length ? ` Not counted: ${andList(notCounted)}.` : '';
   let who = '';
   if (choice.students === 'girls') who = ` Counting co-ed and girls' schools: ${thousands(sexed.state)} of the ${thousands(c.state)}.`;
@@ -700,8 +816,9 @@ export function schoolFacts(dest, service, { zone = null } = {}) {
   if (!dest) return [];
   const kind = KIND_WORD[dest.kind] || dest.kind || 'kind not recorded';
   const sex = sexOf(dest, service);
-  const bits = [capital(kind), sex === 'co-ed' ? 'co-ed' : `${sex}' school`];
-  if (!englishMedium(dest)) bits.push(OTHER_MEDIUM[dest.medium] || OTHER_MEDIUM.other);
+  const bits = [capital(kind), SEX_WORD[sex] || (sex === 'co-ed' ? 'co-ed' : 'co-ed or single-sex not recorded')];
+  const medium = mediumOf(dest);
+  if (medium !== 'english') bits.push(capital(OTHER_MEDIUM[medium || 'unknown']));
   const years = Array.isArray(dest.years) ? dest.years : String(dest.years || '').match(/\d+/g);
   if (years && years.length >= 2) bits.push(`Years ${years[0]}–${years[years.length - 1]}`);
   if (Number.isFinite(Number(dest.roll)) && dest.roll != null) bits.push(`roll ${thousands(dest.roll)}${dest.roll_date ? ` (${day(dest.roll_date)})` : ''}`);
@@ -751,8 +868,8 @@ const HOW = { walk: 'on foot', walk_slow: 'on foot at the slower pace', bike_low
 /** "Mt Albert Grammar School, 15 min on foot" for one way of travelling from
  *  hexagon i, among the schools `ok` allows. With public transport, a time no
  *  quicker than walking is said as walking, which it is. */
-export function nearestPhrase(reachByMode, mode, i, ok, { destinations, centre, maxMinutes = 60, label = (d) => destinations[d]?.name || 'unnamed' } = {}) {
-  const opts = { destinations, centre, maxMinutes };
+export function nearestPhrase(reachByMode, mode, i, ok, { destinations, maxMinutes = 60, label = (d) => destinations[d]?.name || 'unnamed' } = {}) {
+  const opts = { maxMinutes };
   const found = nearestAt(reachByMode[mode], i, ok, opts);
   if (!found) return null;
   let { m, ds } = found;
@@ -776,8 +893,7 @@ export function nearestPhrase(reachByMode, mode, i, ok, { destinations, centre, 
  *  zones, centres, maxMinutes, words }. `named` is the schools the band names
  *  for `mode` in hexagon i. Returns a list of sentences. */
 export function cardLines(ctx, mode, i, named = []) {
-  const { destinations, service, choice, reach = {}, result = null, zones = null, centres = null, maxMinutes = 60 } = ctx;
-  const centre = centres ? centres[i] : null;
+  const { destinations, service, choice, reach = {}, result = null, zones = null, maxMinutes = 60 } = ctx;
   const label = (d) => destinations[d]?.name || 'unnamed';
   const lines = [];
   const real = mode && mode !== 'best' ? (mode === 'walk_slow' ? 'walk' : mode) : null;
@@ -791,8 +907,8 @@ export function cardLines(ctx, mode, i, named = []) {
     const odd = named.filter((d) => tagOf(destinations[d], service));
     if (real && odd.length && reach[real]) {
       const state = (students) => (d) => isState(destinations[d]) && admits(destinations[d], service, students);
-      const g = nearestPhrase(reach, real, i, state('girls'), { destinations, centre, maxMinutes });
-      const b = nearestPhrase(reach, real, i, state('boys'), { destinations, centre, maxMinutes });
+      const g = nearestPhrase(reach, real, i, state('girls'), { destinations, maxMinutes });
+      const b = nearestPhrase(reach, real, i, state('boys'), { destinations, maxMinutes });
       if (!g && !b) lines.push(`No state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
       else if (g && b && g.text === b.text) lines.push(`Nearest state school: ${g.text}.`);
       else {
@@ -821,8 +937,10 @@ export function cardLines(ctx, mode, i, named = []) {
     } else if (destinations[d].scheme === false) {
       lines.push('It has no enrolment scheme.');
     }
-    if (real && reach[real]) {
-      const other = nearestPhrase(reach, real, i, (k) => k !== d && isState(destinations[k]), { destinations, centre, maxMinutes });
+    if (real && reach[real] && reach[real].complete) {
+      // A single-sex school is said as one, since not every student can go.
+      const named = (k) => `${label(k)}${SEX_WORD[sexOf(destinations[k], service)] ? ` (${SEX_WORD[sexOf(destinations[k], service)]})` : ''}`;
+      const other = nearestPhrase(reach, real, i, (k) => k !== d && isState(destinations[k]), { destinations, maxMinutes, label: named });
       lines.push(other ? `Nearest other state school: ${other.text}.` : `No other state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
     }
     return done();
@@ -856,8 +974,8 @@ export function cardLines(ctx, mode, i, named = []) {
   }
 
   // The nearer schools this choice leaves out, so a reader can see why the
-  // figure differs from All.
-  if (real && reach[real]) {
+  // figure differs from All. A short list (by car) does not hold them all.
+  if (real && reach[real] && reach[real].complete) {
     const shown = named.length && Number.isFinite(ctx.shownMinutes) ? ctx.shownMinutes : Infinity;
     const counted = (d) => {
       const dest = destinations[d];

@@ -1,6 +1,7 @@
 // The About dialog. Plain statements of what TEAM shows, how, and its limits.
 
 import { count, el, place } from './format.js';
+import { readSchoolsMeta } from './schools.js';
 
 const LINKS = {
   method: 'https://github.com/squirmen/transport-equity-access-model/blob/main/docs/methodology.md',
@@ -28,17 +29,19 @@ function link(label, href) {
 
 /** How the Schools row counts, for builds that say what each school is. */
 function schoolsHelp(meta) {
-  const s = meta.schools;
-  if (!s) return [];
+  if (!meta.schools) return [];
+  const s = readSchoolsMeta(meta);
   const dated = (value) => (value ? new Date(`${value}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
   const choices = [
     'All: every school that teaches those years, whether state, state-integrated, private or charter, single-sex included. This is what TEAM showed before the row was added, and what a link without a choice shows.',
-    'State: state schools taught in English. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own.',
+    'State: state schools taught in English. A state school whose teaching language the directory does not give is left out, and the line under the headline says so. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own.',
   ];
   if (s.zones) {
     choices.push(`In zone: the state schools whose home zone covers at least half of a hexagon, and the state schools with no enrolment scheme. Zones are the Ministry of Education's, as at ${dated(s.zones) || 'the date in the build'}. Where a zone line crosses a hexagon, the headline says how many people live in such hexagons.`);
   }
-  choices.push('One school: minutes to one school, found by name or by clicking its pin. With Only people living in its zone ticked, the figures count the people in its zone and nobody else.');
+  choices.push(`One school: minutes to one school, found by name or by clicking its pin. ${s.zones
+    ? 'With Only people living in its zone ticked, the figures count the people in its zone and nobody else.'
+    : 'School zones are not in this build yet, so the figures count everyone in the place.'} There are no car times to one school.`);
   const listed = dated(s.directory);
   return [
     el('h3', null, 'Schools'),
@@ -48,7 +51,8 @@ function schoolsHelp(meta) {
       + 'The card names the school reached in the time it shows, by the way of travelling shown. A public transport time that is no quicker than walking is a walk, and is said as one. '
       + "Times are whole minutes from the routing, rounded down, so 30 min means under 31. They run from the middle of each hexagon to the Ministry's map point for the school, unless the school's details under One school say its entrances were checked."
       + (s.school_buses === false ? ' School buses are not in the timetable used here, so a trip by school bus is not counted.' : '')
-      + (s.school_buses === true ? ' School buses in the timetable are counted.' : '')),
+      + (s.school_buses === true ? ' School buses in the timetable are counted.' : '')
+      + (s.roll_date ? ` Rolls are at ${dated(s.roll_date)}.` : '')),
   ];
 }
 
@@ -115,7 +119,7 @@ export function renderAbout(root, meta) {
     el('h3', null, 'Limits'),
     list([
       meta.schools
-        ? 'The nearest service is not always one you can use. For schools, the Schools row can count only state or in-zone schools, or one school; GP enrolment, opening hours and store size are not modelled.'
+        ? `The nearest service is not always one you can use. For schools, the Schools row can count only state${readSchoolsMeta(meta).zones ? ' or in-zone' : ''} schools, or one school${readSchoolsMeta(meta).zones ? '' : '; school zones are not in yet'}. GP enrolment, opening hours and store size are not modelled.`
         : 'The nearest service is not always one you can use: school zones, GP enrolment, opening hours and store size are not modelled.',
       'Times come from timetables, not real-world reliability or crowding.',
       'Walking and cycling times allow for hills, but not lighting, footpath condition or benches.',

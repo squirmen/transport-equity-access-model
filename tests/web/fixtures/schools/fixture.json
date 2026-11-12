@@ -48,13 +48,17 @@
    "lat": -36.8884,
    "moe": 4207,
    "kind": "state",
-   "medium": "maori",
+   "medium": "other",
+   "language": "maori",
    "sex": {
     "primary_school": "co-ed",
     "intermediate_school": "co-ed",
     "secondary_school": "co-ed"
    },
-   "years": "1-15",
+   "years": [
+    1,
+    15
+   ],
    "roll": 71,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -72,11 +76,15 @@
    "moe": 70,
    "kind": "integrated",
    "medium": "english",
+   "language": "english",
    "sex": {
     "intermediate_school": "girls",
     "secondary_school": "girls"
    },
-   "years": "7-15",
+   "years": [
+    7,
+    15
+   ],
    "roll": 765,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -93,10 +101,14 @@
    "moe": 69,
    "kind": "state",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "co-ed"
    },
-   "years": "9-15",
+   "years": [
+    9,
+    15
+   ],
    "roll": 3635,
    "roll_date": "2026-10-01",
    "scheme": true,
@@ -113,10 +125,14 @@
    "moe": 53,
    "kind": "state",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "girls"
    },
-   "years": "9-15",
+   "years": [
+    9,
+    15
+   ],
    "roll": 1300,
    "roll_date": "2026-10-01",
    "scheme": true,
@@ -133,10 +149,14 @@
    "moe": 48,
    "kind": "state",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "co-ed"
    },
-   "years": "9-15",
+   "years": [
+    9,
+    15
+   ],
    "roll": 1500,
    "roll_date": "2026-10-01",
    "scheme": true,
@@ -155,12 +175,16 @@
    "moe": 3630,
    "kind": "integrated",
    "medium": "english",
+   "language": "english",
    "sex": {
     "primary_school": "co-ed",
     "intermediate_school": "co-ed",
     "secondary_school": "co-ed"
    },
-   "years": "1-15",
+   "years": [
+    1,
+    15
+   ],
    "roll": 449,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -177,10 +201,14 @@
    "moe": 89,
    "kind": "private",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "boys"
    },
-   "years": "9-15",
+   "years": [
+    9,
+    15
+   ],
    "roll": 1230,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -205,10 +233,14 @@
    "moe": 99002,
    "kind": "state",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "boys"
    },
-   "years": "9-15",
+   "years": [
+    9,
+    15
+   ],
    "roll": 900,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -225,10 +257,14 @@
    "moe": 99001,
    "kind": "state",
    "medium": "english",
+   "language": "english",
    "sex": {
     "secondary_school": "co-ed"
    },
-   "years": "9-13",
+   "years": [
+    9,
+    13
+   ],
    "roll": 400,
    "roll_date": "2026-10-01",
    "scheme": false,
@@ -579,15 +615,26 @@
   ],
   "routing_max_minutes": 60,
   "schools": {
-   "directory": "2026-11-12",
-   "roll_date": "2026-10-01",
+   "directory": {
+    "file": "moe_schools_directory_2026-11-12.csv",
+    "retrieved": "2026-11-12T10:50:20+13:00",
+    "roll_dates": {
+     "2026-10-01": 9
+    }
+   },
+   "dates": {
+    "directory": "2026-11-12",
+    "timetable_written": "2026-08-29",
+    "osm_downloaded": "2026-05-04",
+    "routing_date": "2026-09-15"
+   },
    "zones": "2026-07-14",
-   "reach": {
-    "secondary_school": [
-     "walk",
-     "bike_low_stress",
-     "pt"
-    ]
+   "buses": "none_found",
+   "bus_note": "Auckland Transport's open timetable has no school bus services.",
+   "files": {
+    "secondary_school_walk.json": {},
+    "secondary_school_bike_low_stress.json": {},
+    "secondary_school_pt.json": {}
    }
   }
  }

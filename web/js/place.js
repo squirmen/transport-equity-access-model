@@ -146,10 +146,14 @@ export function tripWords(data, service, mode, i, zones = null) {
   const priced = mode === 'pt' && zones != null;
   if (mode === 'pt') {
     const walk = data.t[service]?.walk?.[i];
-    if (Number.isFinite(walk) && walk === shown) {
+    // Girls and boys together say for themselves where the time shown is a
+    // walk (schools.js onFoot): equal joint times are not enough there.
+    const foot = !priced ? data.ptFoot?.[service] : null;
+    if (foot ? foot.mask[i] === 1 : Number.isFinite(walk) && walk === shown) {
       out.how = 'on foot';
       out.onFoot = true;
-      if (!priced) out.names = namedFor(data, service, 'walk', i);
+      if (foot) out.names = foot.near[i] >= 0 ? [foot.near[i], ...(foot.ties[i] || [])] : [];
+      else if (!priced) out.names = namedFor(data, service, 'walk', i);
       return out;
     }
     if (Number.isFinite(walk) && walk < shown) out.quicker = walk;

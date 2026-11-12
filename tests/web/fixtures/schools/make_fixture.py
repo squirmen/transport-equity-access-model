@@ -1,8 +1,11 @@
 """Write the small schools fixture the web tests read (fixture.json here).
 
-It follows the 0.12 export contract (docs/schools.md once written): school
-attributes in destinations.json, nearest_mode and ties in cells.json, reach
-lists in schools/<service>_<mode>.json and zones in schools/zones.json.
+It follows the 0.12 export contract in docs/schools.md: school attributes
+in destinations.json, nearest_mode and ties in cells.json, reach lists in
+schools/<service>_<mode>.json (each hexagon's schools in order of minutes,
+then straight-line metres, then Ministry number, as the build sorts them),
+meta.schools as summary.json has it, and zones in schools/zones.json (the
+format the page reads; the build does not write zones yet).
 
 Hexagon 0 is the St Lukes hexagon on the councillors' slide, 89bb50021a3ffff,
 with its real minutes to the six nearest secondary schools by walking,
@@ -30,42 +33,42 @@ S = "secondary_school"
 DESTINATIONS = [
     # 0
     {"name": "TKKM o Nga Maungarongo", "services": ["primary_school", "intermediate_school", S], "lon": 174.7268, "lat": -36.8884,
-     "moe": 4207, "kind": "state", "medium": "maori", "sex": {"primary_school": "co-ed", "intermediate_school": "co-ed", S: "co-ed"},
-     "years": "1-15", "roll": 71, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
+     "moe": 4207, "kind": "state", "medium": "other", "language": "maori", "sex": {"primary_school": "co-ed", "intermediate_school": "co-ed", S: "co-ed"},
+     "years": [1, 15], "roll": 71, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
     # 1
     {"name": "Marist College", "services": ["intermediate_school", S], "lon": 174.7261, "lat": -36.8819,
-     "moe": 70, "kind": "integrated", "medium": "english", "sex": {"intermediate_school": "girls", S: "girls"},
-     "years": "7-15", "roll": 765, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
+     "moe": 70, "kind": "integrated", "medium": "english", "language": "english", "sex": {"intermediate_school": "girls", S: "girls"},
+     "years": [7, 15], "roll": 765, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
     # 2
     {"name": "Mt Albert Grammar School", "services": [S], "lon": 174.7253, "lat": -36.8847,
-     "moe": 69, "kind": "state", "medium": "english", "sex": {S: "co-ed"},
-     "years": "9-15", "roll": 3635, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2018-06-06", "routed_to": "point"},
+     "moe": 69, "kind": "state", "medium": "english", "language": "english", "sex": {S: "co-ed"},
+     "years": [9, 15], "roll": 3635, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2018-06-06", "routed_to": "point"},
     # 3
     {"name": "Auckland Girls' Grammar School", "services": [S], "lon": 174.7537, "lat": -36.8569,
-     "moe": 53, "kind": "state", "medium": "english", "sex": {S: "girls"},
-     "years": "9-15", "roll": 1300, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2009-01-01", "routed_to": "point"},
+     "moe": 53, "kind": "state", "medium": "english", "language": "english", "sex": {S: "girls"},
+     "years": [9, 15], "roll": 1300, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2009-01-01", "routed_to": "point"},
     # 4
     {"name": "Western Springs College-Ngā Puna o Waiōrea", "services": [S], "lon": 174.7175, "lat": -36.862,
-     "moe": 48, "kind": "state", "medium": "english", "sex": {S: "co-ed"},
-     "years": "9-15", "roll": 1500, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2010-01-01", "routed_to": "point"},
+     "moe": 48, "kind": "state", "medium": "english", "language": "english", "sex": {S: "co-ed"},
+     "years": [9, 15], "roll": 1500, "roll_date": "2026-10-01", "scheme": True, "zone_from": "2010-01-01", "routed_to": "point"},
     # 5
     {"name": "Elim Christian College Mt Albert", "services": ["primary_school", "intermediate_school", S], "lon": 174.7092, "lat": -36.8891,
-     "moe": 3630, "kind": "integrated", "medium": "english", "sex": {"primary_school": "co-ed", "intermediate_school": "co-ed", S: "co-ed"},
-     "years": "1-15", "roll": 449, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
+     "moe": 3630, "kind": "integrated", "medium": "english", "language": "english", "sex": {"primary_school": "co-ed", "intermediate_school": "co-ed", S: "co-ed"},
+     "years": [1, 15], "roll": 449, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
     # 6
     {"name": "King's College", "services": [S], "lon": 174.8373, "lat": -36.9598,
-     "moe": 89, "kind": "private", "medium": "english", "sex": {S: "boys"},
-     "years": "9-15", "roll": 1230, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
+     "moe": 89, "kind": "private", "medium": "english", "language": "english", "sex": {S: "boys"},
+     "years": [9, 15], "roll": 1230, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
     # 7: not a school
     {"name": "Hill Medical", "services": ["gp"], "lon": 174.73, "lat": -36.88},
     # 8: made up
     {"name": "Boys High", "services": [S], "lon": 174.735, "lat": -36.87,
-     "moe": 99002, "kind": "state", "medium": "english", "sex": {S: "boys"},
-     "years": "9-15", "roll": 900, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": 2},
+     "moe": 99002, "kind": "state", "medium": "english", "language": "english", "sex": {S: "boys"},
+     "years": [9, 15], "roll": 900, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": 2},
     # 9: made up, reached by nobody
     {"name": "Open State College", "services": [S], "lon": 174.9, "lat": -37.0,
-     "moe": 99001, "kind": "state", "medium": "english", "sex": {S: "co-ed"},
-     "years": "9-13", "roll": 400, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
+     "moe": 99001, "kind": "state", "medium": "english", "language": "english", "sex": {S: "co-ed"},
+     "years": [9, 13], "roll": 400, "roll_date": "2026-10-01", "scheme": False, "zone_from": None, "routed_to": "point"},
 ]
 
 H3 = ["89bb50021a3ffff", "89bb50021a7ffff", "89bb5002133ffff", "89bb50021b3ffff", "89bb5002107ffff"]
@@ -118,10 +121,16 @@ def km(a, b):
     return 2 * 6371.0088 * math.asin(min(1, math.sqrt(h)))
 
 
+def order(i, dest, minutes):
+    """The build's order: minutes, then whole metres in a straight line, then
+    Ministry number (schools.py ordered_reach)."""
+    return (minutes, round(km(CENTRES[i], DESTINATIONS[dest]) * 1000), DESTINATIONS[dest]["moe"])
+
+
 def reach_list(mode):
     o, d, m, lo, hi = [0], [], [], [], []
     for i, row in enumerate(REACH[mode]):
-        for dest, minutes in sorted(row.items(), key=lambda kv: (kv[1], kv[0])):
+        for dest, minutes in sorted(row.items(), key=lambda kv: order(i, kv[0], kv[1])):
             d.append(dest)
             m.append(minutes)
             a, b = SPREAD.get((i, dest), (minutes, minutes))
@@ -142,7 +151,7 @@ def nearest(mode):
             t.append(None)
             continue
         best = min(row.values())
-        tied = sorted([k for k, v in row.items() if v == best], key=lambda k: (round(km(CENTRES[i], DESTINATIONS[k]), 6), DESTINATIONS[k]["moe"], k))
+        tied = sorted([k for k, v in row.items() if v == best], key=lambda k: order(i, k, best))
         near.append(tied[0])
         if len(tied) > 1:
             ties[str(i)] = tied[1:]
@@ -180,8 +189,15 @@ def main():
                   "schools": {str(d): {"moe": DESTINATIONS[d]["moe"], "from": DESTINATIONS[d]["zone_from"], "outline": OUTLINE} for d in ZONE_IN},
                   "in": {S: csr(ZONE_IN)}, "cut": {S: csr(ZONE_CUT)}},
         "meta": {"standard_modes": ["walk", "bike_low_stress", "pt"], "routing_max_minutes": 60,
-                 "schools": {"directory": "2026-11-12", "roll_date": "2026-10-01", "zones": "2026-07-14",
-                             "reach": {S: ["walk", "bike_low_stress", "pt"]}}},
+                 # As summary.json has it (schools.py meta_block), with a zone date
+                 # standing in for the zone file the build does not have yet.
+                 "schools": {"directory": {"file": "moe_schools_directory_2026-11-12.csv", "retrieved": "2026-11-12T10:50:20+13:00",
+                                           "roll_dates": {"2026-10-01": 9}},
+                             "dates": {"directory": "2026-11-12", "timetable_written": "2026-08-29", "osm_downloaded": "2026-05-04",
+                                       "routing_date": "2026-09-15"},
+                             "zones": "2026-07-14", "buses": "none_found",
+                             "bus_note": "Auckland Transport's open timetable has no school bus services.",
+                             "files": {f"{S}_{mode}.json": {} for mode in REACH}}},
     }
     OUT.write_text(json.dumps(fixture, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 

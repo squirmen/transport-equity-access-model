@@ -4,11 +4,11 @@ import test from 'node:test';
 
 import { setCellMask, setUrban, times } from '../../web/js/data.js';
 import { setServices } from '../../web/js/panel.js';
-import { namedFor, serviceVerdict, verdictLine } from '../../web/js/place.js';
+import { namedFor, serviceVerdict, tripWords, verdictLine } from '../../web/js/place.js';
 import {
   admits, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeZones,
-  findSchools, groupCounts, hasAttributes, isState, nearestAt, orderTies, readChoice, restoreData, schoolFacts, schoolsCsv, sexOf,
-  tagOf, zoneCells,
+  findSchools, groupCounts, groupOf, hasAttributes, isState, mediumOf, nearestAt, orderTies, readChoice, readSchoolsMeta, restoreData,
+  schoolFacts, schoolsCsv, sexOf, tagOf, zoneCells,
 } from '../../web/js/schools.js';
 
 const F = JSON.parse(readFileSync(new URL('./fixtures/schools/fixture.json', import.meta.url), 'utf8'));
@@ -66,9 +66,20 @@ test('school kinds, teaching language and sex by service', () => {
   assert.equal(tagOf(D[MARIST], S), "state-integrated, girls' school");
   assert.equal(tagOf(D[6], S), "private, boys' school");
   assert.equal(tagOf(D[MAGS], S), '', 'a state, English-medium co-ed school has no tag');
-  assert.equal(tagOf({ ...D[MAGS], medium: 'other' }, S), 'state, Māori- or Pacific-medium');
+  assert.equal(mediumOf(D[TKKM]), 'maori', 'language comes before medium');
+  assert.equal(tagOf({ ...D[MAGS], medium: 'other', language: null }, S), 'state, Māori- or Pacific-medium');
+  // Not recorded: left out of State and said so, as the build does (schools.py eligible, takes).
+  const unrecorded = { ...D[MAGS], medium: null, language: null };
+  assert.equal(isState(unrecorded), false, 'a state school with no teaching language recorded is not counted as English-medium');
+  assert.equal(groupOf(unrecorded), 'language_unknown');
+  assert.equal(tagOf(unrecorded, S), 'state, teaching language not recorded');
+  const noSex = { ...D[MAGS], sex: { [S]: null } };
+  assert.equal(sexOf(noSex, S), null);
+  assert.equal(admits(noSex, S, 'girls'), false, 'a school that does not say who it takes counts for neither');
+  assert.equal(admits(noSex, S, 'boys'), false);
+  assert.equal(tagOf(noSex, S), '');
   const counts = groupCounts(D, S);
-  assert.deepEqual(counts, { all: 9, state: 5, other_medium: 1, integrated: 2, private: 1, charter: 0, unknown: 0 });
+  assert.deepEqual(counts, { all: 9, state: 5, other_medium: 1, language_unknown: 0, integrated: 2, private: 1, charter: 0, unknown: 0 });
   assert.equal(groupCounts(D, S, 'girls').state, 4, 'girls: all but Boys High');
 });
 
@@ -100,17 +111,18 @@ test('times over the routing limit count as none', () => {
   assert.equal(out.near.walk[0], -1);
 });
 
-test('ties come out in the same order however the routing listed them', () => {
-  const forwards = decodeReach({ format: 1, o: [0, 2], d: [WSC, MAGS], m: [20, 20] }, 1);
-  const backwards = decodeReach({ format: 1, o: [0, 2], d: [MAGS, WSC], m: [20, 20] }, 1);
-  const go = (list) => chooseSchools({ destinations: D, service: S, choice: { kind: 'all' }, reach: { pt: list }, n: 1, centres: [F.centres[1]], standardModes: ['pt'] });
-  const a = go(forwards);
-  const b = go(backwards);
-  assert.equal(a.near.pt[0], b.near.pt[0]);
-  assert.deepEqual(a.ties.pt[0], b.ties.pt[0]);
-  assert.equal(a.near.pt[0], MAGS, 'MAGS is nearer the middle of the hexagon in a straight line');
-  // With no distance to go on, the lower Ministry number comes first.
-  assert.deepEqual(orderTies([MAGS, WSC], D, null), [WSC, MAGS]);
+test("ties follow the build's order: minutes, straight-line metres, Ministry number", () => {
+  // The build sorts each hexagon's list (schools.py ordered_reach), and
+  // cells.json names ties in that order; the page keeps it rather than
+  // working distances out again, so both name the same school.
+  const listed = decodeReach(F.schools[`${S}_pt`], N);
+  const all = chooseSchools({ destinations: D, service: S, choice: { kind: 'all' }, reach: { pt: listed }, n: N, centres: F.centres, standardModes: ['pt'] });
+  assert.equal(all.near.pt[1], MAGS, 'hexagon 1: MAGS and Western Springs both 20 min; MAGS is nearer in a straight line');
+  assert.deepEqual(all.ties.pt[1], [WSC]);
+  assert.deepEqual(all.ties.pt, F.cells.ties[S].pt);
+  const swapped = decodeReach({ format: 1, o: [0, 2], d: [WSC, MAGS], m: [20, 20] }, 1);
+  assert.deepEqual(orderTies([MAGS, WSC], swapped, 0), [WSC, MAGS], 'the order is the list\'s, whatever order the ids come in');
+  assert.deepEqual(orderTies([MAGS, 99], swapped, 0), [MAGS, 99], 'a school not in the list goes last');
 });
 
 // ---------------------------------------------------------------- the slide's hexagon
@@ -337,12 +349,12 @@ test('under a fare budget the priced time names nothing', () => {
 
 test('the counting line, with counts from the data', () => {
   const plural = 'secondary schools';
-  const meta = F.meta.schools;
+  const meta = readSchoolsMeta(F.meta);
   assert.equal(countingLine(D, S, { kind: 'all' }, { plural, meta }),
-    'Counting all 9 secondary schools: 5 state, 1 state Māori- or Pacific-medium, 2 state-integrated and 1 private. '
+    'Counting all 9 secondary schools: 5 state, 1 state Māori-medium, 2 state-integrated and 1 private. '
     + 'Single-sex schools count for everyone. School list as at 12 Nov 2026.');
   assert.equal(countingLine(D, S, { kind: 'state', students: 'both' }, { plural }),
-    'Counting 5 state secondary schools taught in English. Not counted: 2 state-integrated, 1 private and 1 Māori- or Pacific-medium. '
+    'Counting 5 state secondary schools taught in English. Not counted: 2 state-integrated, 1 private and 1 Māori-medium. '
     + 'Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two.');
   assert.match(countingLine(D, S, { kind: 'state', students: 'girls' }, { plural }), /Counting co-ed and girls' schools: 4 of the 5\./);
   assert.match(countingLine(D, S, { kind: 'zone', students: 'both' }, { plural, zones }),
@@ -404,4 +416,56 @@ test('the nearest among some schools, for one hexagon', () => {
   const found = nearestAt(reach.pt, 0, (d) => isState(D[d]), { destinations: D, centre: F.centres[0] });
   assert.deepEqual(found, { m: 15, ds: [MAGS] });
   assert.equal(nearestAt(reach.pt, 2, () => true, { destinations: D }), null);
+});
+
+test("summary.json's meta.schools, as the build writes it", () => {
+  const meta = readSchoolsMeta(F.meta);
+  assert.equal(meta.directory, '2026-11-12', 'the directory date, from dates.directory');
+  assert.equal(meta.roll_date, '2026-10-01', 'the date most rolls are at');
+  assert.deepEqual(meta.reach, { [S]: ['walk', 'bike_low_stress', 'pt'] }, 'the reach lists, from the file names');
+  assert.equal(meta.school_buses, false, 'buses: none_found');
+  assert.match(meta.bus_note, /no school bus/);
+  assert.deepEqual(readSchoolsMeta({}), {}, 'a build before 0.12');
+  assert.equal(readSchoolsMeta({ schools: { buses: 'in_timetable' } }).school_buses, true);
+  const files = { 'intermediate_school_bike_low_stress.json': {}, 'intermediate_school_bike.json': {}, 'intermediate_school_pt_slow.json': {}, 'intermediate_school_pt.json': {} };
+  assert.deepEqual(readSchoolsMeta({ schools: { files } }).reach.intermediate_school.sort(), ['bike', 'bike_low_stress', 'pt', 'pt_slow']);
+  const rolls = readSchoolsMeta({ schools: { directory: { retrieved: '2026-11-12T10:50:20+13:00', roll_dates: { none: 40, '2026-07-01': 2, '2026-10-01': 30 } } } });
+  assert.equal(rolls.directory, '2026-11-12');
+  assert.equal(rolls.roll_date, '2026-10-01');
+});
+
+test('a short car list answers All and State, and says it is short', () => {
+  // By car the build keeps only the nearest school under All, State, State
+  // girls and State boys, with ties (schools.py short_list), and marks the
+  // file complete: false. One school and In zone must not read it.
+  const short = decodeReach({ format: 1, complete: false, o: [0, 2], d: [TKKM, MAGS], m: [2, 6] }, 1);
+  assert.equal(short.complete, false);
+  assert.equal(decodeReach(F.schools[`${S}_pt`], N).complete, true);
+  const state = chooseSchools({ destinations: D, service: S, choice: { kind: 'state', students: 'girls' }, reach: { car: short }, n: 1, standardModes: [] });
+  assert.equal(state.t.car[0], 6);
+  assert.equal(state.near.car[0], MAGS);
+  // The card leaves out what a short list cannot say.
+  const lines = cardLines({ destinations: D, service: S, choice: { kind: 'state', students: 'girls' }, reach: { car: short }, result: state }, 'car', 0, [MAGS]);
+  assert.ok(!lines.some((l) => /^Not counted/.test(l)), lines.join(' '));
+});
+
+test('girls and boys: on foot only when it is for the student whose time is shown', () => {
+  // A girl walks 15 min to Auckland Girls' Grammar or takes the bus there in
+  // 10; a boy walks 12 min to Boys High or takes the bus there in 15. The
+  // joint times are both 15, but the 15 by public transport is the boy's bus
+  // trip, so it is not said as a walk.
+  const walk = decodeReach({ format: 1, o: [0, 2], d: [BOYS_HIGH, AGGS], m: [12, 15] }, 1);
+  const pt = decodeReach({ format: 1, o: [0, 2], d: [AGGS, BOYS_HIGH], m: [10, 15] }, 1);
+  const result = chooseSchools({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt }, n: 1, standardModes: ['walk', 'pt'] });
+  assert.equal(result.t.walk[0], 15);
+  assert.equal(result.t.pt[0], 15);
+  assert.equal(result.ptFoot.mask[0], 0);
+  const data = { t: { [S]: { walk: result.t.walk, pt: result.t.pt } }, nearestMode: { [S]: result.near }, ties: { [S]: result.ties }, ptFoot: { [S]: result.ptFoot } };
+  const words = tripWords(data, S, 'pt', 0);
+  assert.equal(words.onFoot, false);
+  assert.deepEqual(words.names, [BOYS_HIGH], "the boy's bus trip sets the time");
+  // When each student's public transport time is their walk, it is a walk.
+  const both = chooseSchools({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt: walk }, n: 1, standardModes: ['walk', 'pt'] });
+  assert.equal(both.ptFoot.mask[0], 1);
+  assert.deepEqual([both.ptFoot.near[0], ...(both.ptFoot.ties[0] || [])], [AGGS], "the girl's walk sets the time");
 });
