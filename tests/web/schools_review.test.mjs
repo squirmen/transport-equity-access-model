@@ -161,6 +161,10 @@ test("the St Lukes card on another service: the secondary row names the school r
   assert.equal(row.nearest, 'Nearest on foot: TKKM o Ngā Maungarongo (state, Māori-medium)');
   assert.doesNotMatch(row.nearest, /Marist/, 'the 9-minute walk is never paired with Marist College');
   assert.equal(row.fastest, "Fastest without a car: low-stress cycling, 6 min, within the 30-minute standard, to Marist College (state-integrated, girls' school).");
+  // A public transport time that beats walking is a bus or train trip, and said as one.
+  const bus = { ...data, t: { [S]: { ...data.t[S], pt: [7] } }, nearestMode: { [S]: { ...data.nearestMode[S], pt: [1] } } };
+  assert.equal(rowWords(bus, 0, S, 30, 'pt').time, '7 min · public transport');
+  assert.match(rowWords(bus, 0, S, 30, 'pt').nearest, /^Nearest by public transport: Marist College/);
   const chosen = rowWords(data, 0, S, 30, 'pt', null, { short: 'State secondary school, in zone', choice: true, label: (k) => destinations[k].name });
   assert.equal(chosen.name, 'State secondary school, in zone');
 });

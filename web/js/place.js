@@ -338,7 +338,8 @@ export function rowWords(data, i, service, standard, viewMode, zones = null, mor
   const allSchools = isSchoolService(service) && !(more && more.choice);
   const name = `${more?.short || SERVICE_SHORT[service]}${allSchools ? ', all schools' : ''}`;
   const trip = mode && mode !== 'best' && counts && !pricedOut ? tripWords(data, service, mode, i, zones) : null;
-  const how = trip && trip.onFoot ? 'on foot' : mode ? MODES[mode].short : '';
+  // A public transport time that is not a walk is a bus or train trip.
+  const how = trip && trip.onFoot ? 'on foot' : trip && mode === 'pt' ? 'public transport' : mode ? MODES[mode].short : '';
   const time = pricedOut ? 'costs too much' : mode ? `${minutes(shown)} · ${how}` : 'over 60 min';
   const label = (k) => {
     if (more?.label) return more.label(k);
@@ -357,7 +358,7 @@ export function rowWords(data, i, service, standard, viewMode, zones = null, mor
   const named = trip ? trip.names : mode === 'best' ? [] : fastest && !own && !(fastest === 'pt' && zones != null) ? namedFor(data, service, fastest, i) : [];
   let nearest = null;
   if (named.length && !more?.one) {
-    const way = trip ? (trip.onFoot ? 'on foot' : `by ${MODES[mode].short}`) : `by ${MODES[fastest].short}`;
+    const way = trip ? (trip.onFoot ? 'on foot' : `by ${mode === 'pt' ? 'public transport' : MODES[mode].short}`) : `by ${MODES[fastest].short}`;
     nearest = `Nearest ${way}: ${orNames(named.map(label))}`;
   }
   return { v, name, time, fastest: fastestLine, nearest };
