@@ -16,7 +16,11 @@ checksum.
 The current copy was fetched on 12 November 2026: 2,578 schools, 50 fields,
 rolls at 1 October 2026 (68 schools have no roll). Each place keeps the
 schools of the regional councils named under `schools.regions` in its config,
-then those within about 8 km of the place, as before. Schools marked
+then those within about 8 km of the place, as before. Every config names only
+the place's own region, so a school over a regional boundary is not counted,
+however near: in Auckland, Pukeoware School (Waikato) is 160 m from an
+Auckland hexagon, and about 2,000 rural Aucklanders have their nearest
+secondary school, in a straight line, outside the region. Schools marked
 "Proposed" are left out until they open.
 
 ### Which schools a service counts
@@ -58,8 +62,22 @@ its directory map point. Its time is the fastest of its entrances.
   mornings, with the hours they are open.
 
 A row in either file is used only when `checked_by` and `checked_on` are
-filled. In 0.12.0 both files are empty: every school is routed to its
+filled. In 0.12.0 no row is checked: every school is routed to its
 directory point, as before.
+
+A directory point can sit deep inside a large site. Mt Albert Grammar
+School's (174.72535, -36.88471) is inside its 19.5 ha grounds (OpenStreetMap
+way 24530357, about 660 m by 740 m), and R5 places it on the drive off
+Alberton Avenue, on the west side. From the hexagons east and south of the
+school the walk goes round the site to that drive: from the St Lukes hexagon
+on the councillors' slide (89bb50021a3ffff), 80 m from the grounds, it is 15
+minutes. `entrances.csv` lists three candidate entrances for the school, none
+checked: the Alberton Avenue drive, a footpath on the north-east side
+(OpenStreetMap way 260845395) and a gate on the south-east side (node
+266732026, tagged locked, for customers, open 7:00 to 9:30 on weekdays). They
+change nothing until a person confirms with the school which of them students
+may use on school mornings. A check run to them, not published, is in the
+0.12.0 changelog.
 
 `scripts/school_points_review.py` writes two sheets for a person to work
 through, and changes nothing itself:
@@ -94,12 +112,27 @@ departure minute from 7:00 to 8:59.
   nearer in a straight line from the hexagon centre (to the whole metre), then
   the lower MoE number. Every tied school is listed.
 - **Walking inside a public transport trip.** R5 lets a public transport trip
-  walk up to 15 minutes to or from stops, or all the way. When the public
-  transport time equals the walking time, no bus or train gets there sooner
-  than walking; the trip may be the walk itself. A public transport time can
-  be slower than walking, mostly where the walk is over 15 minutes (in
-  Auckland, 1,718 hexagons for secondary school; 80 of them have a walk of 15
-  minutes or less, and why R5 does not use the walk there is not yet checked).
+  walk up to 15 minutes to or from stops, and counts walking all the way only
+  when the walk is within that 15-minute limit. When the public transport
+  time equals the walking time, no bus or train gets there sooner than
+  walking; the trip may be the walk itself. Where the walk is longer than the
+  limit and no bus or train helps, public transport is slower than walking.
+  Walking times are whole minutes rounded down, so a walk shown as 15 minutes
+  can be up to 15:59 and over the limit. In Auckland, for secondary schools,
+  151 of the 303 school pairs with a 15-minute walk have a slower public
+  transport time (or none), and no pair with a walk of 14 minutes or less
+  does. In R5's detailed itineraries, ten of those 151 walks took 914 to 954
+  seconds; ten of the other 152 took 901 to 946 seconds too, and in the one
+  looked at (to MAGS, a 906-second walk) public transport matched it with a
+  bus trip of 15:26, so it still reads 15.
+  Public transport is slower than walking in 1,718 hexagons for secondary
+  school, 80 of them with a 15-minute walk. TEAM counts public transport as
+  R5 routes it, as it does for every other service: the card and the map's
+  tooltip say "Walking is quicker" there, and the key says a walk counts only
+  up to 15 minutes. Counting the quicker of public transport and walking
+  instead would put 77,139 more Aucklanders (845 hexagons) within 30 minutes
+  of a secondary school by public transport, 84.5% against 79.8%; that is a
+  change of measure for every service, not made here.
 
 ### Checks
 
@@ -127,9 +160,9 @@ departure minute from 7:00 to 8:59.
 | Choice | Counts |
 | --- | --- |
 | All | every school in the directory that teaches the service's years: today's measure |
-| State | state schools taught in English: not integrated, private, charter, or a school where all students are taught in te reo Māori or a Pacific language. A school whose teaching language is not given is left out and counted as such. |
+| State | state schools taught in English: not integrated, private, charter, or a school where all students are taught in te reo Māori or a Pacific language. A school whose teaching language is not given is left out and counted as such. Home zones are not applied: a zoned school counts for everyone, in or out of its zone, and the line under the headline says so. |
 | In zone | not yet: needs the Ministry's zone file (below) |
-| One school | that school alone |
+| One school | that school alone; see below |
 
 Under State (and In zone, when it comes), a second row picks who is counted:
 
@@ -144,6 +177,27 @@ Under State (and In zone, when it comes), a second row picks who is counted:
 
 The default stays All in 0.12.0, so every published figure and link keeps its
 meaning.
+
+Every school figure weights hexagons by all their residents (Census 2023),
+of every age, not by school-age children; the line under every school
+headline says so.
+
+### One school without its zone
+
+Until zones are in, nobody can be said to be in or out of a school's
+catchment, and a share of everyone in the place would mostly count people
+who would never go there (Mt Albert Grammar School by public transport: 3%
+of Aucklanders, against 50% of the Albert-Eden Local Board area). So under
+One school:
+
+- the headline is the number of people who live within the standard of the
+  school by the way shown (Mt Albert Grammar School, public transport, 30
+  minutes: 57,003 people, shown as 57,000);
+- for a local board, ward or suburb, the share of its residents follows,
+  under the count;
+- the area picked or in the link stays when the school changes, so two
+  schools are compared for the same people;
+- Who misses out and What would help are off, with a line saying why.
 
 ## In zone (when the zone file is in)
 
@@ -303,13 +357,51 @@ TEAM_SITE=<site>/data PYTHONPATH=src pytest tests/test_schools.py
 
 Wellington's Metlink timetable has 123 school bus routes, Dunedin's has 8
 routes named for schools and Palmerston North's has 10. Auckland Transport's
-open timetable has none, so an Auckland school trip by public transport is by
-the public network only. Each place's config says which (`schools.buses`).
+dedicated school buses
+(https://at.govt.nz/bus-train-ferry/timetables/school-bus-timetables) are
+not in its open timetable, so they are not counted. A few public routes run
+school-time trips on the routing day, and those are counted: on Tuesday 15
+September 2026, route 747 Panmure to Selwyn College at 7:35, route 989
+Ahutoetoe School to Hibiscus Coast Station at 7:26, and route 997 Warkworth
+to Omaha (AM School) at 8:25. Each place's config says which
+(`schools.buses`, `schools.bus_note`); the card says dedicated school buses
+are not counted wherever none were found.
+
+### Reading the card and the map
+
+- **Nearest** means quickest by the way shown. Every school reached in the
+  same minute is named, nearest in a straight line first. The key says so.
+- **The tooltip** on the map uses the card's own first sentence, so a public
+  transport time that is a walk reads "9 min on foot. No bus or train is
+  quicker." on both, and Best names the way ("6 min by low-stress
+  cycling"). Where walking is quicker than public transport, the tooltip
+  says so too.
+- **State** on the card means what the State choice counts: "Nearest state
+  school taught in English".
+- **When.** Public transport was routed on one day, Tuesday 15 September
+  2026, leaving each minute from 7:00 to 8:59. The spread on the One school
+  card ("By public transport, usually 23–30 min") and the CSV name that day
+  rather than "weekdays".
+- **Where the times end.** The One school card says the time goes to the
+  Ministry's map point for the school, not its nearest gate, with the pin's
+  straight-line distance from the hexagon. The CSV says the same.
+- **Links.** A link pasted into a page already open, differing only after
+  the `#`, reloads the page, so the figures match the link.
+- **Search.** "Mount" finds "Mt", "Saint" finds "St", and initials find a
+  school (MAGS, EGGS, AGS).
 
 ## Not in this release
 
-- In zone, until the Ministry's zone file is in.
-- Checked entrances and corrected points: the review sheets are ready.
+- In zone, until the Ministry's zone file is in. Until then One school's
+  headline is a count of people, and Who misses out and What would help are
+  off for one school.
+- Checked entrances and corrected points: the review sheets are ready, and
+  Mt Albert Grammar School's candidates are listed.
+- The walking inside a public transport trip to one school (to the first
+  stop, from the last), from R5's itineraries.
+- Weighting by school-age children rather than all residents.
+- Schools across a regional boundary.
+- Two schools side by side.
 - Arriving by the school bell, rather than leaving at any minute from 7 to 9.
 - Rolls for Years 9 to 13 only, as weights.
 - Routing chosen schools beyond 60 minutes.

@@ -51,6 +51,54 @@ School (MAGS). [`docs/schools.md`](docs/schools.md) has the rules.
   `scripts/school_points_review.py` writes the sheets to check them against
   LINZ NZ Facilities and OpenStreetMap.
 
+After a review of the MAGS case (12 November 2026), before release:
+
+- **The map's tooltip says what the card says**, for every service. At St
+  Lukes it said "9 min by public transport" for the walk to TKKM o Nga
+  Maungarongo; it now gives the card's first sentence ("9 min on foot. No
+  bus or train is quicker."), names the way under Best ("6 min by low-stress
+  cycling") and adds "Walking is quicker" where it is.
+- **One school without its zone.** The headline was a share of everyone in
+  Auckland (MAGS by public transport: 3%), mostly people who would never go
+  there, and picking a school reset the area to all of Auckland, so MAGS for
+  Albert-Eden (50%) could sit beside Western Springs College for Auckland
+  (3%). The headline is now the number of people within the standard (MAGS
+  by public transport: 57,000), with a share only for a local board, ward or
+  suburb, and the area stays when the school changes (Albert-Eden: MAGS 50%,
+  Western Springs College 20%). Who misses out and What would help are off
+  for one school until zones are in.
+- **Words that were not quite right.** On the card "state school" is "state
+  school taught in English", as State counts. Under State, the line under
+  the headline says home zones are not applied. Every school headline says
+  it counts all residents, not only school-age children. The One school
+  spread is public transport's own ("By public transport, usually 23–30
+  min") and names the routing day, Tuesday 15 September 2026, rather than
+  "weekdays". The key says what nearest means, and no longer says a walk of
+  up to 15 minutes counts without saying that a walk shown as 15 minutes may
+  not (151 of the 303 Auckland secondary school pairs with a 15-minute walk
+  have a slower public transport time; none with a shorter walk do). Auckland
+  Transport's open timetable has no dedicated school buses but does have a
+  few school-time trips on public routes (747, 989, 997), which are counted.
+- **Where the times end.** The One school card and the CSV say a time goes to
+  the Ministry's map point (the pin), not the nearest gate, with the pin's
+  straight-line distance. MAGS's point is inside its 19.5 ha grounds and R5
+  places it on the Alberton Avenue drive. Three candidate entrances are
+  listed in `configs/schools/entrances.csv`, not checked and not used. A
+  check run to them (r5py 1.1.3, TEAM's settings, 3,884 hexagons within 15
+  km; it gives exactly the published minutes to the point for every one of
+  them, by every way) shows what is at stake. If students could use all three, the
+  people within 30 minutes of MAGS by public transport would be 74,558
+  rather than 57,003 (74,014 without the south-east gate), 63.5% of
+  Albert-Eden rather than 50.3%; on foot 42,991 rather than 33,295. Single
+  hexagons east of the school would be up to 25 minutes nearer by public
+  transport. These are not published figures: which gates students may use
+  needs checking with the school.
+- **Links and search.** A link pasted into an open page, differing only after
+  the `#`, now reloads it, so the figures match the link. School search finds
+  "Mount" for "Mt", "Saint" for "St", and initials (MAGS).
+- **Docs.** Why public transport can be slower than a 15-minute walk, and
+  that schools over a regional boundary are not counted.
+
 What changed in the published figures, from the 0.11.0 site to the 0.12.0
 build: the share of people within each school standard (all hexagons), before
 and after, and how many hexagons have a new time. One figure means no change

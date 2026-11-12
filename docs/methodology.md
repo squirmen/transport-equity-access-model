@@ -100,9 +100,12 @@ each have a ward of the same name have the council added to it.
 A service mapped twice in OpenStreetMap, once as a point and once as a
 building, is kept once when the two lie within 40 m. OpenStreetMap services are
 taken from the whole extract, which reaches beyond the council boundary, so
-people near the edge are not cut off from services across it. Schools, early
+people near the edge are not cut off from services across it. Early
 childhood services and GPs come from national or regional lists and are kept
-within about 8 km of the area; jobs cover the area's own statistical areas.
+within about 8 km of the area. Schools come from the national directory, cut
+to the place's own regional council and then to about 8 km of the area, so a
+school in a neighbouring region is not counted, however near. Jobs cover the
+area's own statistical areas.
 Every place reads one dated copy of the school directory, and each school
 carries its kind (state, integrated, private, charter), teaching language, who
 it takes at each service's years, roll and enrolment scheme;
@@ -173,7 +176,9 @@ footpaths and driveways, keep R5's rating.
 **Public transport.** A public transport trip can be a walk the whole way when
 the walk takes 15 minutes or less, the limit set for walking to and from stops.
 Longer walks count only under walking, so a service 15 to 20 minutes away on
-foot can show a longer public transport time than walking time. The median over
+foot can show a longer public transport time than walking time. Walking times
+are rounded down, so a walk shown as 15 minutes may be just over the limit and
+not count as a public transport trip. The median over
 the window reflects the timetable a person would meet if they left at a random
 minute, which is how frequency enters the measure.
 
