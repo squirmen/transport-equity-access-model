@@ -46,6 +46,27 @@ export const MODE_NOTES = {
   car: 'Driving time with no traffic delay or parking. Shown for comparison only.',
 };
 
+// From 0.12.0 a build may give public transport as the quicker of the trip
+// and walking all the way (summary.json meta.pt_or_walk). Set once when the
+// data loads, like the place's name, so every sentence about public
+// transport says the same.
+const PT_NOTE_BEFORE = MODE_NOTES.pt;
+const PT_NOTE_OR_WALK = 'Public transport, or walking where that is quicker. A bus or train trip may walk up to 15 minutes to and from stops; the time is the median of trips leaving each minute in the window.';
+
+export const transit = { orWalk: false };
+
+/** How a public transport time is said: "by public transport", and in a
+ *  build that takes the walk where it is quicker, ", or on foot where that
+ *  is quicker" after it. */
+export function ptPhrase() {
+  return transit.orWalk ? 'by public transport, or on foot where that is quicker' : 'by public transport';
+}
+
+export function setTransit(meta) {
+  transit.orWalk = Boolean(meta && meta.pt_or_walk);
+  MODE_NOTES.pt = transit.orWalk ? PT_NOTE_OR_WALK : PT_NOTE_BEFORE;
+}
+
 // How this build names its place. Set once when the data loads, so the copy
 // does not have to know which city it is describing.
 export const place = {

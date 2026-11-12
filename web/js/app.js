@@ -1,9 +1,10 @@
 // TEAM web app: state, derived figures, map colours and panels.
 
 import { renderAbout } from './about.js';
+import { ageGroupFor, ageWords } from './ages.js';
 import {
   byQuintile, decileBands, FEWEST, fetchJson, load, loadMore, loadOverlays, meetsFlags, peopleBelow, peopleByReason, pricedLayer, rankPlaces,
-  choiceWithin, defaultStandard, reasons as reasonCodes, setCellMask, settingsChanged, setUrban, setWindow, times, tripTime, USUAL,
+  choiceWithin, defaultStandard, reasons as reasonCodes, setAgeGroup, setCellShare, settingsChanged, setUrban, setWindow, times, tripTime, USUAL,
   weightedMedian, weightedShare, windowOf, windowsFor,
 } from './data.js';
 import {
@@ -18,7 +19,7 @@ import {
 import { count, el, minutes, MODES, percent, place } from './format.js';
 import {
   BASEMAPS, boundsOf, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, onCells, onPoints, OVERLAYS, paintCells,
-  select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setSchoolPins, setSchoolZone, setTrip, showDestinationsFor,
+  select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setSchoolPins, setSchoolStops, setSchoolZone, setTrip, showDestinationsFor,
 } from './map.js';
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FADED, FAIR,
@@ -28,16 +29,17 @@ import {
 import {
   goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes, renderNeedsZone,
   renderJobsPeople, renderBurden, renderChips, renderChoice, renderModePicker, renderPeople, renderSchools, renderScore, renderTraveller,
-  renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_PLURAL, SERVICE_SHORT, setServices, shortScaleLabel, travelOptions,
+  groupPhrase, renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_PLURAL, SERVICE_SHORT, setCounted, setServices, shortScaleLabel, travelOptions,
 } from './panel.js';
 import { areaCsv, areaTable, sortAreas } from './areas.js';
 import { nearestCity } from './cities.js';
 import { placeHeader, renderPlace, tooltipLines } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 import {
-  applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeZones, DEFAULT_CHOICE,
-  findSchools, hasAttributes, isSchoolService, readChoice, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe,
-  schoolFacts, schoolsCsv, tagOf, windowWords, zoneCells,
+  ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops, decodeZones,
+  DEFAULT_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, noZoneSentence, ptCsvLine, readChoice, readSchoolsMeta,
+  REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, sexOf, stopLine, stopsAt, stopsCsvLines, stopsIntro, tagOf, windowWords,
+  zoneDates, zoneShares,
 } from './schools.js';
 
 function dataBase() {
@@ -117,19 +119,17 @@ const mateState = { profile: 'manual_wheelchair', dark: false, view: 'nkb', map:
 const VIEWS = ['access', 'people', 'fixes'];
 // Which groups exist depends on the census tables the build had, so they come
 // from the data rather than being listed here.
-const GROUP_NOUN = {
-  everyone: 'people',
-  no_car: 'people without a car',
-  children: 'children',
-  older: 'people 65+',
-  low_income: 'people on lower household incomes',
-  maori: 'Māori',
-  pacific: 'Pacific peoples',
-  asian: 'Asian residents',
-  disabled: 'disabled people',
+// The groups the figures can be for. Under a service that counts children
+// of one age, everyone is those children, and the groups that mean nothing
+// among them (under 15, 65 and over) are left out.
+const groupKeys = () => Object.keys(data.meta.groups || { everyone: 'Everyone' }).filter((g) => g === 'everyone' || data.weights[g]);
+const groupChips = () => {
+  const words = countedWords();
+  return groupKeys().map((g) => [g, g === 'everyone' && words.key ? capitalise(words.many) : (data.meta.groups || {})[g] || g]);
 };
-const groupKeys = () => Object.keys(data.meta.groups || { everyone: 'Everyone' });
-const groupChips = () => groupKeys().map((g) => [g, (data.meta.groups || {})[g] || g]);
+/** The group the figures are for: the one picked, or everyone where it is not
+ *  counted under the service on screen. */
+const groupNow = () => (data && data.weights[state.group] ? state.group : 'everyone');
 const $ = (id) => document.getElementById(id);
 
 const MEASURES = ['standards', 'score'];
@@ -312,7 +312,7 @@ function hashNow() {
   if (state.service === 'errands') {
     params.set('e', [errandStops().join('+'), state.errandMode, state.errandLeg, state.pace === 'slow' ? 'slow' : ''].join('.'));
   }
-  if (state.group !== 'everyone') params.set('g', state.group);
+  if (groupNow() !== 'everyone') params.set('g', groupNow());
   const where = areaNow();
   if (where) params.set('r', `${where.area.level}.${where.area.name}`);
   else if (state.areaPin && state.areaPin.level === 'place') params.set('r', 'place');
@@ -383,7 +383,7 @@ function set(patch) {
     delete patch.schoolFit;
   }
   if ('schools' in patch) {
-    const next = { ...DEFAULT_CHOICE, ...patch.schools };
+    const next = { ...ALL_CHOICE, ...patch.schools };
     if (next.kind !== 'one' && state.schools.kind === 'one') schoolUi.searching = false;
     // Picking One school with none chosen yet opens the search.
     if (next.kind === 'one' && next.moe == null) schoolUi.searching = true;
@@ -483,12 +483,14 @@ function zonesFor(service) {
  *  can afford: none where no fare is affordable. */
 function pricedJobs(zones) {
   if (typeof zones === 'number') {
-    return zones <= 0 ? new Float32Array(data.n).fill(0) : data.cost.jobs[`z${Math.min(zones, zoneCap(data.meta.fares))}`];
+    // With no fare affordable, the jobs within reach on foot, where the build sends them (z0).
+    if (zones <= 0) return data.cost.jobs.z0 || new Float32Array(data.n).fill(0);
+    return data.cost.jobs[`z${Math.min(zones, zoneCap(data.meta.fares))}`];
   }
   const layer = pricedLayer(data, 'jobs', zones);
   const cap = zoneCap(data.meta.fares);
   const full = data.jobs.pt?.['45'];
-  return Float32Array.from(layer, (v, i) => (zones[i] >= cap && full ? full[i] : zones[i] > 0 ? v : 0));
+  return Float32Array.from(layer, (v, i) => (zones[i] >= cap && full ? full[i] : zones[i] > 0 || data.cost.jobs.z0 ? v : 0));
 }
 
 /** The line under a figure saying what a per-area budget is doing. */
@@ -554,15 +556,20 @@ function placeName(i) {
 // ---------------------------------------------------------------- schools
 
 // What the Schools row is doing beyond the link: the search box, a message
-// when a choice cannot be shown, and the zone mask last worked out.
+// when a choice cannot be shown, and the zone shares last worked out.
 const schoolUi = { searching: false, query: '', fit: false, message: null, maskKey: null, cells: null, sig: null };
-// Reach lists and zones as they arrive. They are kept when the rest of the
-// data arrives and the data set is rebuilt, since the hexagons are the same.
-const schoolStore = { reach: new Map(), zones: null };
+// Reach lists, zones, zone outlines and stops as they arrive. They are kept
+// when the rest of the data arrives and the data set is rebuilt, since the
+// hexagons are the same.
+const schoolStore = { reach: new Map(), zones: null, outlines: new Map(), stops: null };
 // False while the times a school choice needs are still on their way.
 let schoolsReady = true;
 // The middle of each hexagon as [lat, lng], for straight-line distances.
 let cellCentres = null;
+
+const ZONES_MISSING = 'Zones could not be loaded; showing all schools.';
+// Hexagons outside one school's zone, on the map.
+const OUTSIDE_ZONE = '#b4bbc2';
 
 /** meta.schools as the page uses it (schools.js readSchoolsMeta), worked
  *  out once for each data set. */
@@ -573,15 +580,31 @@ function schoolsMeta() {
   return schoolsMetaCache.get(data.meta);
 }
 
+/** The age group the figures for a service count (ages.js), or null for all
+ *  residents: early childhood and the school services, in a build with ages. */
+function ageKeyFor(service = state.service) {
+  if (!data || state.measure === 'score') return null;
+  return ageGroupFor(data.meta, data.ages, service);
+}
+
+/** Who the figures on screen count, in words (ages.js ageWords). */
+function countedWords(service = state.service) {
+  return ageWords(data && data.meta, ageKeyFor(service));
+}
+
 /** Whether the Schools row applies: a school service on screen, in a build
  *  that says what kind of school each one is. */
 function schoolsAvailable(service = state.service) {
   return Boolean(data) && state.measure !== 'score' && isSchoolService(service) && hasAttributes(data.destinations, service);
 }
 
-/** Zones are offered once the build has the Ministry's zone file. */
+/** Zones are offered once the build has the Ministry's zone file, and until
+ *  the file fails to load. */
 function zonesAvailable() {
-  return Boolean(schoolsMeta().zones);
+  const s = schoolsMeta();
+  if (!s.zones) return false;
+  if (s.choices && !s.choices.includes('zone')) return false;
+  return !(schoolStore.zones && schoolStore.zones.status === 'missing');
 }
 
 function schoolIndex(service = state.service) {
@@ -618,23 +641,34 @@ function schoolModesNeeded(service) {
   return schoolModes(service).filter((m) => counting.includes(m) || (m === state.mode && state.view === 'access'));
 }
 
-function requestReach(service, mode) {
-  const key = `${service}_${mode}`;
-  if (schoolStore.reach.has(key)) return schoolStore.reach.get(key);
-  const entry = { status: 'loading', list: null, error: null };
-  schoolStore.reach.set(key, entry);
-  fetchJson(`${DATA_BASE}${CITY}/`, `schools/${key}`)
+/** A school file, loaded once: { status: loading | ready | missing, value }.
+ *  `kind` is its format family (schools.js FORMATS); a file in a format this
+ *  page does not read is refused, with a warning, as if it were missing. */
+function requestSchoolFile(store, key, name, kind, decode) {
+  if (store.has(key)) return store.get(key);
+  const entry = { status: 'loading', value: null, error: null };
+  store.set(key, entry);
+  fetchJson(`${DATA_BASE}${CITY}/`, `schools/${name}`)
     .then((json) => {
-      entry.list = decodeReach(json, data.n);
+      if (!formatOk(data.meta, kind, json)) {
+        throw new Error(`schools/${name}.json is format ${json && json.format}, which this page does not read`);
+      }
+      entry.value = decode(json);
+      entry.list = entry.value;
       entry.status = 'ready';
     })
     .catch((error) => {
       entry.status = 'missing';
       entry.error = error.message;
-      console.warn(`School times for ${key} could not be loaded.`, error);
+      console.warn(`School file ${name} could not be used.`, error);
     })
     .finally(schedule);
   return entry;
+}
+
+function requestReach(service, mode) {
+  const key = `${service}_${mode}`;
+  return requestSchoolFile(schoolStore.reach, key, key, 'school_reach', (json) => decodeReach(json, data.n));
 }
 
 /** The zones for a service: an object once in, 'loading', or 'missing'. */
@@ -644,6 +678,7 @@ function schoolZonesOf(service) {
     schoolStore.zones = entry;
     fetchJson(`${DATA_BASE}${CITY}/`, 'schools/zones')
       .then((json) => {
+        if (!formatOk(data.meta, 'zones', json)) throw new Error(`schools/zones.json is format ${json && json.format}, which this page does not read`);
         entry.json = json;
         entry.status = 'ready';
       })
@@ -659,36 +694,71 @@ function schoolZonesOf(service) {
   return entry.byService.get(service);
 }
 
+/** One school's zone outline for a service (GeoJSON), loaded only for One
+ *  school; null until it is in, or where there is none. */
+function zoneOutline(service, d) {
+  if (!schoolsMeta().zones || d < 0) return null;
+  const entry = requestSchoolFile(schoolStore.outlines, service, `zone_outlines_${service}`, 'zone_outlines', (json) => json.schools || {});
+  if (entry.status !== 'ready') return null;
+  return entry.value[d] || entry.value[String(d)] || null;
+}
+
+/** The stops near each school, loaded only for One school; null until in. */
+function schoolStops() {
+  if (!schoolsMeta().stops) return null;
+  if (!schoolStore.stops) schoolStore.stops = new Map();
+  const entry = requestSchoolFile(schoolStore.stops, 'stops', 'stops', 'school_stops', decodeStops);
+  return entry.status === 'ready' ? entry.value : null;
+}
+
 function afterSchoolSwap() {
   cache.best.clear();
   cache.routed.clear();
   figureCache.clear();
 }
 
-/** One school's zone as a mask, when only its zone is counted. */
-function schoolMask() {
+/** One school's zone shares, when only its zone is counted. */
+function schoolShare() {
   const c = appliedChoice();
   if (!c || c.kind !== 'one' || c.zoneOnly === false || !data.schoolZones) return null;
   const cells = schoolCells();
-  return cells && cells.any ? cells.mask : null;
+  return cells && cells.any ? cells.share : null;
 }
 
-/** The hexagons in the one school's zone, and those its zone line crosses. */
+/** The one school's zone: each hexagon's share of residents in it, and the
+ *  hexagons its zone line crosses. Null where it has no zone for the years. */
 function schoolCells() {
   const c = appliedChoice();
   if (!c || c.kind !== 'one' || !data.schoolZones) return null;
   const d = schoolIndex();
+  if (d < 0 || !isZoned(data.schoolZones, data.destinations[d], d, state.service)) return null;
   const key = `${state.service}|${d}`;
   if (schoolUi.maskKey !== key) {
     schoolUi.maskKey = key;
-    schoolUi.cells = zoneCells(data.schoolZones, d, data.n);
+    schoolUi.cells = zoneShares(data.schoolZones, d, data.n);
   }
   return schoolUi.cells;
+}
+
+/** Count the children of the service's ages, or everyone, and say so in the
+ *  panel's words. */
+function syncCounted() {
+  const changed = setAgeGroup(data, ageKeyFor());
+  setCounted(countedWords());
+  if (changed) afterSchoolSwap();
 }
 
 /** Put the figures for the school service on screen onto the choice, or
  *  back onto All. False while the times it needs are on their way. */
 function syncSchools() {
+  syncCounted();
+  // In zone with no zones to read (a build without them, or the file failed):
+  // say so, and show All.
+  if (schoolsAvailable() && state.schools.kind === 'zone' && !zonesAvailable()) {
+    schoolUi.message = ZONES_MISSING;
+    state.schools = { ...state.schools, kind: 'all' };
+    writeHash();
+  }
   const choice = activeChoice();
   const service = state.service;
   const needed = choice ? schoolModesNeeded(service) : [];
@@ -736,9 +806,9 @@ function syncSchools() {
         // Say so, and show what can be shown, rather than a figure for
         // something other than what was asked.
         schoolUi.message = choice.kind === 'zone' && missing.includes('zones')
-          ? 'The school zones are not in this build, so all schools are shown.'
+          ? ZONES_MISSING
           : 'The school times for this choice are not in this build, so all schools are shown.';
-        state.schools = { ...DEFAULT_CHOICE };
+        state.schools = { ...ALL_CHOICE };
         writeHash();
         return syncSchools();
       }
@@ -762,9 +832,9 @@ function syncSchools() {
       afterSchoolSwap();
     }
   }
-  const mask = schoolMask();
-  if (mask !== (data.cellMask || null)) {
-    setCellMask(data, mask);
+  const share = schoolShare();
+  if (share !== (data.cellShare || null)) {
+    setCellShare(data, share);
     afterSchoolSwap();
   }
   return true;
@@ -779,20 +849,44 @@ function baseWords(service) {
 function wordsFor(service = state.service) {
   const choice = service === state.service ? appliedChoice() : null;
   const school = choice && choice.kind === 'one' ? data.destinations[schoolIndex()] : null;
-  return choiceWords(baseWords(service), choice, school);
+  return choiceWords(baseWords(service), choice, school, { children: Boolean(countedWords(service).key) });
 }
 
 /** Only one school's zone is counted. */
 function zoneOnlyNow() {
-  return Boolean(data.cellMask) && appliedChoice()?.kind === 'one';
+  return Boolean(data.cellShare) && appliedChoice()?.kind === 'one';
 }
 
-/** One school, with everyone counted rather than only its zone (always, until
- *  zones are in). A share of the whole place then mostly counts people who
- *  would never go there, so the headline is a count, and Who misses out and
- *  What would help, which need to know who would, are off. */
+/** One school, with everyone counted rather than only its zone: a school
+ *  with no home zone, its zone left out by choice, or a build without zones.
+ *  A share of the whole place then mostly counts people who would never go
+ *  there, so the headline is a count, and Who misses out and What would help,
+ *  which need to know who would, are off. */
 function oneSchoolEveryone() {
   return appliedChoice()?.kind === 'one' && !zoneOnlyNow();
+}
+
+/** Why One school counts everyone: 'build' (no zones in this build),
+ *  'school' (it has no zone for these years) or 'everyone' (left out by the
+ *  tick box). */
+function zoneWhy() {
+  if (!data.schoolZones) return 'build';
+  return schoolCells()?.any ? 'everyone' : 'school';
+}
+
+/** "It has no home zone, so there is no catchment to give a share of.", for
+ *  One school with no zone in a build with zones; null otherwise. */
+function noCatchment() {
+  if (!oneSchoolEveryone() || zoneWhy() !== 'school') return null;
+  const d = schoolIndex();
+  const why = noZoneSentence(data.schoolZones, data.destinations[d], d, state.service);
+  return why ? `${why.replace(/\.$/, '')}, so there is no catchment to give a share of.` : null;
+}
+
+/** Why the one school has no zone that counts, as a sentence, or null. */
+function noZoneNow() {
+  const d = schoolIndex();
+  return d >= 0 && data.schoolZones ? noZoneSentence(data.schoolZones, data.destinations[d], d, state.service) : null;
 }
 
 /** When public transport was timed for a service: "between 7am and 9am on
@@ -813,46 +907,45 @@ function schoolPanel(panel) {
   const zone = `${dest.name}'s zone`;
   const where = panel.where ? `the part of ${panel.where} in ${zone}` : zone;
   const out = { ...panel, where };
+  const many = countedWords().many;
   if (state.view === 'access' && Number.isFinite(panel.people) && (panel.show == null || panel.show === 'minutes')) {
-    out.who = `the ${count(panel.people)} ${Math.round(panel.people) === 1 ? 'person' : 'people'} in ${where}`;
+    // "84% of the 3,900 children aged 13–17 living in Mt Albert Grammar
+    // School's zone are within 30 minutes of it ..."
+    out.zoneName = where;
+    const sex = sexOf(dest, state.service);
+    if (sex === 'girls' || sex === 'boys') out.sexNote = `It takes ${sex} only; the share is the same for ${sex} alone.`;
+  } else if (Number.isFinite(panel.people)) {
+    out.who = `the ${count(panel.people)} ${Math.round(panel.people) === 1 ? countedWords().one : many} in ${where}`;
   }
   return out;
 }
 
-/** People in `mask`'s hexagons, counted as the figures count them. */
+/** People in the hexagons flagged, counted as the figures count them. */
 function peopleIn(mask) {
   let total = 0;
   for (let i = 0; i < data.n; i += 1) if (mask[i] && data.pop[i] > 0) total += data.pop[i];
   return total;
 }
 
-/** A line about hexagons a zone line crosses, whose zone is less certain. */
+/** A line about hexagons one school's zone line crosses, which count only
+ *  the share of their residents inside it. In zone says the same in its
+ *  counting line. */
 function zoneNote() {
   const choice = appliedChoice();
-  if (!choice || !data.schoolZones) return null;
-  if (choice.kind === 'one') {
-    const cells = schoolCells();
-    if (!cells || !cells.any) return null;
-    const crossed = Uint8Array.from(cells.cut, (v, i) => (v && (data.cellMask ? data.cellMask[i] : 1) ? 1 : 0));
-    const people = peopleIn(crossed);
-    return people >= 0.5 ? `${count(people)} of them live in hexagons its zone line crosses, counted in the zone when at least half the hexagon is.` : null;
-  }
-  if (choice.kind === 'zone' && data.schoolZones.cut) {
-    const cut = data.schoolZones.cut;
-    const counted = data.schoolResult.counted;
-    const crossed = new Uint8Array(data.n);
-    for (let i = 0; i < data.n; i += 1) {
-      for (let k = cut.start[i]; k < cut.start[i + 1]; k += 1) {
-        if (counted[cut.d[k]]) {
-          crossed[i] = 1;
-          break;
-        }
-      }
-    }
-    const people = peopleIn(crossed);
-    return people >= 0.5 ? `${count(people)} people live in hexagons a zone line crosses, where a hexagon counts in a zone when at least half of it is.` : null;
-  }
-  return null;
+  if (!choice || !data.schoolZones || choice.kind !== 'one' || !zoneOnlyNow()) return null;
+  const cells = schoolCells();
+  if (!cells || !cells.any) return null;
+  const people = peopleIn(cells.crossed);
+  return people >= 0.5
+    ? `${count(people)} of them live in hexagons its zone line crosses; each hexagon counts the share of its residents living inside the zone, from address points.`
+    : null;
+}
+
+/** How many of those counted live in hexagons a zone line splits, for In zone. */
+function splitPeople() {
+  const choice = appliedChoice();
+  if (!choice || choice.kind !== 'zone' || !data.schoolZones || !data.schoolZones.split) return null;
+  return peopleIn(data.schoolZones.split);
 }
 
 /** The parts of one school's zone, the furthest first. */
@@ -865,6 +958,12 @@ function zoneAreasModel(shownTimes, standard) {
     .slice(0, 12)
     .map((row) => ({ ...row, name: suburbName(row.area) }));
   return rows.length ? { title: 'Areas in the zone, lowest share first', rows } : null;
+}
+
+/** How far each corrected school point was moved, by Ministry number. */
+function movedPoints() {
+  const moved = schoolsMeta().points?.moved;
+  return Array.isArray(moved) ? Object.fromEntries(moved.map((m) => [m.moe, m.metres])) : {};
 }
 
 /** The wording the card uses for the school service on screen. */
@@ -882,7 +981,7 @@ function schoolCard() {
   const ctx = {
     destinations: data.destinations,
     service,
-    choice: choice || DEFAULT_CHOICE,
+    choice: choice || ALL_CHOICE,
     reach: lists,
     result: choice ? data.schoolResult : null,
     zones: choice ? data.schoolZones : null,
@@ -891,10 +990,12 @@ function schoolCard() {
     when: timedWhen(service),
     schoolBuses: schoolsMeta().school_buses,
     standardModes: data.meta.standard_modes,
+    moved: movedPoints(),
   };
   return {
     short: words.short,
     one: Boolean(words.one),
+    nearestLabel: words.nearestLabel || null,
     label: (d) => {
       const dest = data.destinations[d];
       const tag = !choice ? tagOf(dest, service) : '';
@@ -913,6 +1014,20 @@ function schoolCard() {
   };
 }
 
+/** Stops near the school, for the One school panel: null where the build
+ *  has no stops, or none for this school. */
+function stopsModel(d) {
+  const stops = schoolStops();
+  const rows = stops ? stopsAt(stops, d) : null;
+  if (!rows) return null;
+  return {
+    intro: stopsIntro(stops),
+    rows: rows.map((row) => stopLine(row, stops)),
+    none: `No stop within a ${stops.maxWalk}-minute walk.`,
+    summary: rows.length ? `${rows.length} within ${stops.maxWalk} min` : 'none',
+  };
+}
+
 /** The Schools row under Getting to. */
 function renderSchoolsField() {
   const root = $('school-field');
@@ -927,8 +1042,7 @@ function renderSchoolsField() {
   const d = choice.kind === 'one' ? schoolIndex() : -1;
   const dest = d >= 0 ? data.destinations[d] : null;
   const zones = choice.kind === 'one' && appliedChoice() ? data.schoolZones : null;
-  const zone = dest && zones ? zones.schools?.[d] || zones.schools?.[String(d)] || null : null;
-  const cells = zone ? schoolCells() : null;
+  const cells = zones ? schoolCells() : null;
   let status = null;
   let statusKind = null;
   if (!schoolsReady) status = 'Loading the school times…';
@@ -939,10 +1053,16 @@ function renderSchoolsField() {
     status = `School number ${choice.moe} does not teach these years here. Pick another school, or All.`;
     statusKind = 'error';
   }
+  const stops = dest && appliedChoice() ? stopsModel(d) : null;
   const model = {
     kinds,
     choice,
-    school: dest ? { name: dest.name, facts: schoolFacts(dest, service, { zone }), hasZone: Boolean(cells && cells.any) } : null,
+    school: dest ? {
+      name: dest.name,
+      facts: schoolFacts(dest, service, { zones, d, moved: movedPoints()[dest.moe] }),
+      hasZone: Boolean(cells && cells.any),
+      stops,
+    } : null,
     searching: choice.kind === 'one' && (schoolUi.searching || !dest),
     query: schoolUi.query,
     hint: 'Or click a school on the map.',
@@ -963,7 +1083,7 @@ function renderSchoolsField() {
   }, set);
 }
 
-/** The pins, the zone outline and the school's label on the map. */
+/** The pins, the zone outline, the stops and the school's label on the map. */
 function renderSchoolMap() {
   if (!map) return false;
   const service = state.service;
@@ -976,29 +1096,37 @@ function renderSchoolMap() {
     spec = { service, counted: null, focus: null, key: `pick|${service}` };
   }
   const d = choice && choice.kind === 'one' ? schoolIndex() : -1;
-  const zone = d >= 0 && data.schoolZones ? data.schoolZones.schools?.[d] || data.schoolZones.schools?.[String(d)] : null;
+  // The outline of a school with a zone for these years, loaded when asked for.
+  const outline = d >= 0 && schoolCells()?.any ? zoneOutline(service, d) : null;
+  const stops = d >= 0 ? schoolStops() : null;
+  const near = stops ? stopsAt(stops, d) : null;
   try {
     setSchoolPins(map, spec, data.destinations);
-    setSchoolZone(map, zone && zone.outline ? zone.outline : null);
+    setSchoolZone(map, outline);
+    setSchoolStops(map, near ? near.map((row) => ({ ...stops.stops[row.s], walk: row.walk })) : null, d >= 0 ? `${service}|${d}` : null);
   } catch (error) {
     console.warn('School pins are not ready yet.', error);
   }
   if (schoolUi.fit && d >= 0) {
-    schoolUi.fit = false;
     const dest = data.destinations[d];
-    const box = zone && zone.outline ? boundsOf(zone.outline) : null;
-    userMoved = false;
-    const pad = placePadding();
-    if (box) {
-      // With its zone counted, the figures are those of the whole zone until
-      // the map is moved by hand. Otherwise the area picked or linked stays,
-      // so two schools are compared for the same people.
-      state.areaPin = { level: 'place' };
-      map.fitBounds([[box[0], box[1]], [box[2], box[3]]], {
-        padding: { top: pad.top + 20, bottom: pad.bottom + 20, left: pad.left + 20, right: pad.right + 20 }, maxZoom: 15, duration: 600,
-      });
-    } else if (Number.isFinite(dest.lon)) {
-      map.flyTo({ center: [dest.lon, dest.lat], zoom: Math.max(map.getZoom(), 12.5), duration: 600 });
+    const zoned = Boolean(schoolCells()?.any);
+    // Wait for a zoned school's outline, so the map fits the whole zone.
+    if (!zoned || outline || !schoolsMeta().zones || schoolStore.outlines.get(service)?.status === 'missing') {
+      schoolUi.fit = false;
+      const box = outline ? boundsOf(outline) : null;
+      userMoved = false;
+      const pad = placePadding();
+      if (box) {
+        // With its zone counted, the figures are those of the whole zone until
+        // the map is moved by hand. Otherwise the area picked or linked stays,
+        // so two schools are compared for the same people.
+        state.areaPin = { level: 'place' };
+        map.fitBounds([[box[0], box[1]], [box[2], box[3]]], {
+          padding: { top: pad.top + 20, bottom: pad.bottom + 20, left: pad.left + 20, right: pad.right + 20 }, maxZoom: 15, duration: 600,
+        });
+      } else if (Number.isFinite(dest.lon)) {
+        map.flyTo({ center: [dest.lon, dest.lat], zoom: Math.max(map.getZoom(), 12.5), duration: 600 });
+      }
     }
   }
   return Boolean(spec);
@@ -1008,7 +1136,7 @@ function renderSchoolMap() {
  *  file whose first lines say what was counted and when. */
 function downloadSchools() {
   const service = state.service;
-  const choice = appliedChoice() || DEFAULT_CHOICE;
+  const choice = appliedChoice() || ALL_CHOICE;
   const modes = REACH_MODES.filter((m) => data.t[service]?.[m]);
   const near = {};
   const ties = {};
@@ -1016,7 +1144,20 @@ function downloadSchools() {
     near[m] = data.nearestMode?.[service]?.[m] || [];
     ties[m] = data.ties?.[service]?.[m] || {};
   }
+  const orWalk = Boolean(data.meta.pt_or_walk);
   const extra = { minutes_best: times(data, service, 'best', null) };
+  // R5's own public transport time, where public transport is the quicker of it and the walk.
+  if (orWalk && data.t[service]?.pt) {
+    const own = data.r5t?.[service];
+    const ptr = data.ptr?.[service];
+    if (own || (ptr && !data.schoolsAll?.[service])) {
+      extra.minutes_pt_r5 = own || Float32Array.from(data.t[service].pt, (v, i) => {
+        const key = String(i);
+        if (!Object.prototype.hasOwnProperty.call(ptr, key)) return v;
+        return ptr[key] == null ? NaN : ptr[key];
+      });
+    }
+  }
   const result = choice.kind !== 'all' ? data.schoolResult : null;
   if (result && result.bySex) {
     for (const m of data.meta.standard_modes) {
@@ -1042,30 +1183,48 @@ function downloadSchools() {
     extra.pt_p90 = hi;
   }
   const cells = d >= 0 ? schoolCells() : null;
-  if (cells && cells.any) {
-    extra.in_zone = Float32Array.from(cells.mask);
-    extra.zone_line_crosses = Float32Array.from(cells.cut);
-  }
+  if (cells && cells.any) extra.zone_share = cells.share;
   const meta = schoolsMeta();
   const words = wordsFor(service);
+  const kids = countedWords(service);
+  const zoneLine = (() => {
+    if (!cells || !cells.any) return null;
+    const z = zoneDates(data.schoolZones, data.destinations[d], d, service);
+    const version = data.schoolZones.source?.version || meta.zone_source?.version;
+    const when = z.status === 'upcoming_used' ? `the Ministry's file holds only its zone from ${z.from}, which is used` : `in force since ${z.from || 'a date not given'}`;
+    return `Zone: ${when}${version ? `, from the Ministry's file of ${version}` : ''}. zone_share is the share of the hexagon's residents in the zone, from LINZ address points.`;
+  })();
   const header = [
     `TEAM ${data.meta.version}, ${place.name}. ${baseWords(service).short}, ${choice.kind === 'one' ? words.short : choice.kind === 'all' ? 'all schools' : words.plural}.`,
-    countingLine(data.destinations, service, choice, { plural: baseWords(service).plural, zones: data.schoolZones, meta }),
+    countingLine(data.destinations, service, choice, {
+      plural: baseWords(service).plural, zones: data.schoolZones, meta, ages: kids.key ? kids : null, splitPeople: splitPeople(),
+    }),
     `Minutes from the middle of each hexagon to each school's map point in the Ministry's directory (not its nearest gate), whole minutes as the routing gives them, rounded down; blank is none within ${data.meta.routing_max_minutes || 60} minutes.`,
-    `Public transport: the median of trips leaving each minute ${timedWhen(service) || 'in the usual window'}, on that day's timetable. A walk all the way counts as a public transport trip only up to 15 minutes, so minutes_pt can be more than minutes_walk.`,
-    'residents: everyone living in the hexagon, of all ages (Census 2023).',
+    ptCsvLine(timedWhen(service), orWalk),
+    kids.key
+      ? `${kids.column}: ${kids.many.replace(/^children aged .*/, 'children of these ages')} living in the hexagon, 2023 Census; residents: everyone, of all ages.`
+      : 'residents: everyone living in the hexagon, of all ages (Census 2023).',
     'moe_<mode> is the Ministry school number of the nearest school counted by that way; tied schools are joined with |.',
     choice.students === 'both' && result && result.bySex ? 'Girls and boys: each minutes_<mode> is the slower of the girls and boys columns; minutes_best is the slower of each one\'s fastest way.' : null,
+    zoneLine,
     // The counting line above gives the directory date already.
     meta.roll_date ? `Rolls at ${meta.roll_date}.` : null,
     meta.dates ? `Data dates: timetable written ${meta.dates.timetable_written || 'not recorded'}, OpenStreetMap ${meta.dates.osm_downloaded || 'not recorded'}, routing day ${meta.dates.routing_date || data.meta.routing_date}.` : null,
     meta.bus_note ? meta.bus_note : null,
-    meta.zones ? `Zones as at ${typeof meta.zones === 'string' ? meta.zones : data.schoolZones?.date || 'the date in the build'}.` : null,
+    !meta.zone_source && meta.zones ? `Zones as at ${typeof meta.zones === 'string' ? meta.zones : 'the date in the build'}.` : null,
     state.urbanOnly ? 'Urban areas only.' : null,
+    ...(d >= 0 ? stopsCsvLines(schoolStops(), d) : []),
   ].filter(Boolean);
+  // A row for each hexagon counted: with residents, and inside the zone
+  // where only the zone is counted.
+  const residents = state.urbanOnly && data.urbanOnly ? data.urbanOnly.pop : data.everywhere.pop;
+  const share = data.cellShare;
   const text = schoolsCsv({
     h3: data.h3,
-    pop: data.pop,
+    residents,
+    children: kids.key ? data.ages[kids.key] : null,
+    childrenColumn: kids.key ? kids.column : null,
+    include: Uint8Array.from(residents, (v, i) => (v > 0 && (!share || share[i] > 0) ? 1 : 0)),
     placeNames: Array.from(data.place, (p) => (p != null && data.places[p] ? data.places[p].name : '')),
     t: data.t[service],
     near,
@@ -1127,9 +1286,12 @@ function accessModel() {
       keyName: words.one ? `Minutes to ${words.short}` : appliedChoice() ? `Minutes to ${words.nearest}` : null,
       oneSchool: Boolean(words.one),
       oneEveryone,
+      noZone: oneEveryone ? noCatchment() : null,
       within: peopleWithin(flags, data.pop),
       keyNote: !schoolsAvailable(service) ? null : words.one
-        ? "Times go to the Ministry's map point for the school (the pin), not to its nearest gate."
+        ? (data.destinations[schoolIndex()]?.point === 'corrected'
+          ? "Times go to a corrected point inside the school's grounds."
+          : "Times go to the Ministry's map point for the school (the pin), not to its nearest gate.")
         : 'Nearest is the quickest by the way shown. Schools reached in the same minute are all named on the card, nearest in a straight line first.',
       people,
       zoneNote: zoneNote(),
@@ -1411,7 +1573,7 @@ function downloadAreas() {
   const text = areaCsv(lastAreas.rows, label);
   const name = [
     'team', data.meta.naming.slug, state.service, `${standardFor(state.service)}min`,
-    state.group, lastAreas.where ? lastAreas.where.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null,
+    groupNow(), lastAreas.where ? lastAreas.where.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null,
     lastAreas.live ? 'where-they-live' : null, lastAreas.villagesOut ? 'without-rest-homes' : null,
     lastAreas.missingOnly ? 'missing-only' : null, state.when || 'usual',
     state.budget != null ? `budget-${state.budget}${state.budgetUnit === 'income' ? 'pct' : ''}` : null, label,
@@ -1558,7 +1720,7 @@ function burdenModel() {
     children: ['child_5_15', 'child'].find((k) => profiles.includes(k)),
     older: profiles.includes('supergold') ? 'supergold' : undefined,
   };
-  const weights = data.weights[state.group];
+  const weights = data.weights[groupNow()];
   const labels = ['Least deprived', 'NZDep 3–4', 'NZDep 5–6', 'NZDep 7–8', 'Most deprived'];
   const byQuintile = [1, 2, 3, 4, 5].map((q, k) => ({
     label: labels[k],
@@ -1572,7 +1734,7 @@ function burdenModel() {
     return {
       label: concession && profile !== state.profile ? `${label} (${concession})` : label,
       value: meanOf(values, data.weights[g]),
-      emphasis: g === state.group,
+      emphasis: g === groupNow(),
     };
   });
   let heavy = 0;
@@ -1622,7 +1784,7 @@ function burdenModel() {
       commute,
       standard,
       trip,
-      group: state.group,
+      group: groupNow(),
       groups: groupChips(),
       least: byQuintile[0].value,
       most: byQuintile[4].value,
@@ -1668,7 +1830,7 @@ function peopleModel() {
   const service = state.service;
   const standard = standardFor(service);
   const shown = bestTimes(service, state.zonesNow);
-  const weights = data.weights[state.group];
+  const weights = data.weights[groupNow()];
   const cap = unreachable(service);
 
   // The map shows where the shortfall actually piles up: how many people, and
@@ -1702,12 +1864,12 @@ function peopleModel() {
     tooltip: (i) => {
       if (!(gaps[i] > 0)) return [`Within ${standard} min`];
       const short = Math.round(gaps[i] * standard);
-      return [`About ${count(weights[i])} ${GROUP_NOUN[state.group] || 'people'} miss out`, `Short by ${short} min`];
+      return [`About ${count(weights[i])} ${groupPhrase(groupNow())} miss out`, `Short by ${short} min`];
     },
     panel: {
       noun: nounOf(service),
       standard,
-      group: state.group,
+      group: groupNow(),
       fare: fareClause(),
       below: overall.below,
       minutesShort: overall.minutesShort,
@@ -1728,7 +1890,7 @@ function peopleModel() {
       byGroup: groups.map((row) => ({
         label: row.label,
         value: row.people >= FEWEST ? row.rate : NaN,
-        emphasis: row.key === state.group,
+        emphasis: row.key === groupNow(),
         detail: row.people >= FEWEST && row.rate > 0 && Number.isFinite(row.minutesShort) ? `${Math.round(row.minutesShort)} min` : null,
         title: row.people < FEWEST
           ? `${row.label}: fewer than ${FEWEST} here, too few to give a share`
@@ -1756,17 +1918,17 @@ function liveModel() {
   const shown = bestTimes(service, state.zonesNow);
   const cap = unreachable(service);
   const gaps = shortfalls(shown, standard, cap);
-  const everyone = state.group === 'everyone';
+  const everyone = groupNow() === 'everyone';
   // Rest homes and retirement villages house people 65 and over by design.
   // Left out, what remains is where people have aged in their own homes.
-  const older = state.group === 'older';
+  const older = groupNow() === 'older';
   // Where the census suppresses a group's count there is no share to draw, and
   // those residents are left out of the place's share rather than counted as
   // having none of the group.
-  const shares = everyone ? null : data.shares[state.group];
+  const shares = everyone ? null : data.shares[groupNow()];
   const known = (i) => everyone || Number.isFinite(shares && shares[i]);
   const pop = everyone ? data.pop : Float32Array.from(data.pop, (p, i) => (known(i) ? p : 0));
-  const weights = Float32Array.from(data.weights[state.group]);
+  const weights = Float32Array.from(data.weights[groupNow()]);
   // Rest homes and retirement villages house people 65 and over by design.
   // In a hexagon holding part of one, the 65+ are counted block by block, so
   // they can be left out and what remains is where people have aged in place.
@@ -1795,7 +1957,7 @@ function liveModel() {
     ? (placeRef && placeRef.norcSet) || norcSuburbs(weights, pop, placeShare ?? summary.share)
     : null;
   const keep = state.liveMissing ? Array.from(gaps, (g) => g > 0) : null;
-  const noun = GROUP_NOUN[state.group] || 'people';
+  const noun = groupPhrase(groupNow());
   // Small groups need a decimal, or a 3% share and its edges round together.
   const digits = !everyone && summary.share < 0.1 ? 1 : 0;
 
@@ -1854,7 +2016,7 @@ function liveModel() {
       live: true,
       noun: nounOf(service),
       standard,
-      group: state.group,
+      group: groupNow(),
       groups: groupChips(),
       fare: fareClause(),
       missingOnly: state.liveMissing,
@@ -1929,7 +2091,7 @@ function liveAreas(gaps, weights, pop, standard, norcSet = null) {
     for (const row of rows) row.norc = norcSet.has(row.area);
   }
   // Everyone is all of the residents, so a share of them sorts nothing.
-  const sort = state.group !== 'everyone' && state.areaSort === 'share' ? 'share' : 'missing';
+  const sort = groupNow() !== 'everyone' && state.areaSort === 'share' ? 'share' : 'missing';
   // An area of a few dozen people can be almost all one group; a share means
   // more from an area of some size.
   const eligible = sort === 'share' ? rows.filter((r) => r.residents >= 200) : rows;
@@ -1958,7 +2120,7 @@ function fixesModel() {
   const best = bestTimes(service, state.zonesNow);
   const flags = meetsFlags(best, standard);
   const codes = reasonCodes(data, service, standard, best, state.zonesNow, state.zonesNow != null ? bestTimes(service, null) : null);
-  const weights = data.weights[state.group];
+  const weights = data.weights[groupNow()];
   const classes = Int8Array.from(codes, (code) => {
     const cls = REASON_CLASS[code];
     if (cls == null) return -1;
@@ -1990,7 +2152,7 @@ function fixesModel() {
       if (cls == null) return [codes[i] === 0 ? `Meets the ${standard}-min standard` : 'Not routed'];
       return [REASON_GROUPS[cls].label, REASON_GROUPS[cls].fix];
     },
-    panel: { service, noun: nounOf(service), standard, group: state.group, groups: groupChips(), fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
+    panel: { service, noun: nounOf(service), standard, group: groupNow(), groups: groupChips(), fare: fareClause(), below: peopleBelow(flags, weights), reasons, ranked, focus: state.reason },
   };
 }
 
@@ -2389,7 +2551,7 @@ function compute() {
     state.mode = 'best';
     try {
       const model = accessModel();
-      return { ...model, panel: { ...model.panel, needsZone: state.view } };
+      return { ...model, panel: { ...model.panel, needsZone: state.view, zoneWhy: zoneWhy(), noZone: noZoneNow() } };
     } finally {
       state.mode = kept;
     }
@@ -2848,14 +3010,18 @@ function renderView(model) {
   }
   $('view').keySpec = null;
   renderInto($('view'), { ...model, panel: schoolPanel(model.panel) });
-  // Which schools the figure counts, under every headline for a school service.
+  // Which schools the figure counts, under every headline for a school
+  // service, and who: children of the service's ages where the build has them.
+  const kids = countedWords();
+  const heroBox = $('view').querySelector('.hero');
   if (schoolsAvailable() && state.service !== 'jobs') {
-    const choice = appliedChoice() || DEFAULT_CHOICE;
+    const choice = appliedChoice() || ALL_CHOICE;
     const line = countingLine(data.destinations, state.service, choice, {
-      plural: baseWords(state.service).plural, zones: data.schoolZones, meta: schoolsMeta(),
+      plural: baseWords(state.service).plural, zones: data.schoolZones, meta: schoolsMeta(), ages: kids.key ? kids : null, splitPeople: splitPeople(),
     });
-    const heroBox = $('view').querySelector('.hero');
     if (heroBox) heroBox.after(el('p', 'note counting', line));
+  } else if (kids.key && heroBox) {
+    heroBox.after(el('p', 'note counting', kids.line));
   }
 }
 
@@ -3014,7 +3180,10 @@ function keyNow(catchment) {
     const colour = DESTINATION_COLOURS[state.service] || DESTINATION_OTHER;
     if (choice && choice.kind === 'one') {
       out.onMap.push({ swatch: 'dot', colour: '#0c0c48', label: wordsFor().short });
-      if (data.cellMask || schoolCells()?.any) out.onMap.push({ swatch: 'line', colour: '#0c0c48', label: 'Its zone' });
+      if (schoolCells()?.any) out.onMap.push({ swatch: 'line', colour: '#0c0c48', label: 'Its zone' });
+      if (data.cellShare) out.onMap.push({ swatch: 'square', colour: OUTSIDE_ZONE, label: 'Outside its zone, not counted' });
+      const stops = schoolStops();
+      if (stops && stopsAt(stops, schoolIndex())?.length) out.onMap.push({ swatch: 'stop', colour: '#ffffff', label: `Stops within a ${stops.maxWalk}-minute walk, with the minutes` });
       out.onMap.push({ swatch: 'ring', colour: '#6b767c', label: 'Other schools' });
     } else if (choice) {
       out.onMap.push({ swatch: 'dot', colour, label: 'School counted' }, { swatch: 'ring', colour: '#6b767c', label: 'Not counted' });
@@ -3543,9 +3712,13 @@ function update() {
   if (state.urbanOnly && data.urban) {
     current.classes = Int8Array.from(current.classes, (c, i) => (data.urban[i] ? c : -1));
   }
-  // Likewise the hexagons outside one school's zone, when only it is counted.
-  if (data.cellMask && !current.waiting) {
-    current.classes = Int8Array.from(current.classes, (c, i) => (data.cellMask[i] ? c : -1));
+  // The hexagons outside one school's zone, when only it is counted, are
+  // greyed: lived in, but not counted. Hexagons partly inside keep their colour.
+  if (data.cellShare && !current.waiting) {
+    const grey = current.colours.length;
+    const living = data.everywhere.pop;
+    current.classes = Int8Array.from(current.classes, (c, i) => (data.cellShare[i] > 0 ? c : living[i] > 0 ? grey : -1));
+    current.colours = [...current.colours, OUTSIDE_ZONE];
   }
   const t1 = performance.now();
   // With MATE on and a hexagon picked, the map shows its catchment instead;
@@ -5033,7 +5206,7 @@ async function init() {
   const linked = linkedCell;
   if (state.when && !(data.meta.windows || {})[state.when]) state.when = null;
   // A link can carry values this city does not have; fall back rather than fail.
-  if (!data.weights[state.group]) state.group = 'everyone';
+  if (!(data.everywhere || data).weights[state.group]) state.group = 'everyone';
   prepareScope();
   if (linked && cellOf.has(linked)) state.selected = cellOf.get(linked);
   // A link to a trip opens on its Trip tab.

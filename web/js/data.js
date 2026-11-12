@@ -1,7 +1,7 @@
 // Load the TEAM data files and derive per-cell values for the current view.
 
 import { diagnoseCell } from './diagnose.js';
-import { setPlace } from './format.js';
+import { setPlace, setTransit } from './format.js';
 
 // The network overlays are not needed for the first view, so they load separately.
 const FILES = ['cells', 'summary', 'places', 'destinations'];
@@ -79,6 +79,7 @@ function mapValues(object, fn) {
 
 function prepare(raw) {
   setPlace(raw.summary.meta.naming);
+  setTransit(raw.summary.meta);
   const c = raw.cells;
   const n = c.h3.length;
   const data = {
@@ -124,6 +125,12 @@ function prepare(raw) {
     zone: c.zone || null,
     // How many of each service are within 10, 15, 20 and 30 minutes.
     choice: mapValues(c.choice, (byLimit) => mapValues(byLimit, numeric)),
+    // Children of the ages each school service and early childhood count,
+    // by hexagon (from 0.12.0 round 2; null before).
+    ages: c.ages ? mapValues(c.ages, numeric) : null,
+    // R5's own public transport time where it is slower than walking or
+    // missing, usual window only: {service: {cell: minutes | null}}.
+    ptr: c.ptr && typeof c.ptr === 'object' ? c.ptr : null,
     // 1 where a hexagon is in an urban area of 1,000 people or more; absent
     // when every hexagon is.
     urban: c.urban ? Uint8Array.from(c.urban) : null,
@@ -165,6 +172,38 @@ function prepare(raw) {
   }
   data.everywhere = { pop: data.pop, weights: data.weights };
   return data;
+}
+
+// Groups that mean nothing among children of one age group: under 15 and
+// 65 and over. Hidden under the services that count children.
+export const AGE_HIDDEN = Object.freeze(['children', 'older']);
+
+/** The weights for one age group: its children, and each other group as the
+ *  children times the group's share of the census block (shares are for all
+ *  ages). Made once a group. */
+function ageBase(data, group) {
+  data.byAge = data.byAge || {};
+  if (!data.byAge[group]) {
+    const kids = Float32Array.from(data.ages[group], (v) => (Number.isFinite(v) && v > 0 ? v : 0));
+    const weights = { everyone: kids };
+    for (const [g, share] of Object.entries(data.shares)) {
+      if (AGE_HIDDEN.includes(g)) continue;
+      weights[g] = Float32Array.from(kids, (k, i) => (Number.isFinite(share[i]) ? (k * share[i]) / 100 : 0));
+    }
+    data.byAge[group] = { pop: kids, weights };
+  }
+  return data.byAge[group];
+}
+
+/** Count the children of one age group (ages.js SERVICE_AGE), or everyone
+ *  again with null. Works with setUrban and setCellShare. True when it
+ *  changed anything. */
+export function setAgeGroup(data, group) {
+  const next = group && data.ages && data.ages[group] ? group : null;
+  if ((data.ageGroup || null) === next) return false;
+  data.ageGroup = next;
+  applyCounted(data);
+  return true;
 }
 
 /** Stands in for a window when each part of a score keeps its own usual time. */
@@ -270,35 +309,46 @@ export function setUrban(data, on) {
   applyCounted(data);
 }
 
-/** Count only the hexagons in `mask` (one school's zone), or every hexagon
- *  again with null. Works with setUrban: both can be on at once. */
-export function setCellMask(data, mask) {
-  data.cellMask = mask || null;
+/** Count each hexagon by `share` (0 to 1: the share of its residents living
+ *  in one school's zone), or every hexagon in full again with null. Works
+ *  with setUrban and setAgeGroup: all can be on at once. */
+export function setCellShare(data, share) {
+  data.cellShare = share || null;
   applyCounted(data);
 }
 
+/** The same with a 0/1 mask, as before zones gave shares. */
+export const setCellMask = setCellShare;
+
 function applyCounted(data) {
   const urban = data.urbanOn && data.urban;
-  const cells = data.cellMask;
+  const cells = data.cellShare;
+  const base = data.ageGroup ? ageBase(data, data.ageGroup) : data.everywhere;
   if (!urban && !cells) {
-    data.pop = data.everywhere.pop;
-    data.weights = data.everywhere.weights;
+    data.pop = base.pop;
+    data.weights = base.weights;
     return;
   }
+  // Urban-only copies, one for each set of weights, made once.
+  data.urbanCopies = data.urbanCopies || new WeakMap();
+  if (urban && !data.urbanCopies.has(base)) {
+    const mask = (w) => Float32Array.from(w, (v, i) => (data.urban[i] ? v : 0));
+    const pop = mask(base.pop);
+    data.urbanCopies.set(base, { pop, weights: Object.fromEntries(Object.entries(base.weights).map(([k, w]) => [k, k === 'everyone' ? pop : mask(w)])) });
+  }
+  const from = urban ? data.urbanCopies.get(base) : base;
+  // The urban copy of everyone, for the code that reads all urban residents
+  // whatever the service counts (the card's access score rank, the CSV).
   if (urban && !data.urbanOnly) {
     const mask = (w) => Float32Array.from(w, (v, i) => (data.urban[i] ? v : 0));
-    data.urbanOnly = {
-      pop: mask(data.everywhere.pop),
-      weights: Object.fromEntries(Object.entries(data.everywhere.weights).map(([k, w]) => [k, mask(w)])),
-    };
+    data.urbanOnly = base === data.everywhere ? from : { pop: mask(data.everywhere.pop), weights: {} };
   }
-  const from = urban ? data.urbanOnly : data.everywhere;
   if (!cells) {
     data.pop = from.pop;
     data.weights = from.weights;
     return;
   }
-  // One copy for each mask and urban setting, made once.
+  // One copy for each share and set of weights, made once.
   data.masked = data.masked || new WeakMap();
   let byFrom = data.masked.get(cells);
   if (!byFrom) {
@@ -306,7 +356,7 @@ function applyCounted(data) {
     data.masked.set(cells, byFrom);
   }
   if (!byFrom.has(from)) {
-    const cut = (w) => Float32Array.from(w, (v, i) => (cells[i] ? v : 0));
+    const cut = (w) => Float32Array.from(w, (v, i) => (cells[i] > 0 ? v * cells[i] : 0));
     const pop = cut(from.pop);
     byFrom.set(from, { pop, weights: Object.fromEntries(Object.entries(from.weights).map(([k, w]) => [k, k === 'everyone' ? pop : cut(w)])) });
   }
@@ -337,11 +387,14 @@ export function tripTime(data, window) {
  *
  *  Networks differ in how many zone steps they have: Auckland four,
  *  Wellington fourteen, a flat fare one. A budget beyond the last step buys
- *  the whole network, which is the last layer.
+ *  the whole network, which is the last layer. With no fare affordable, a
+ *  build from 0.12.0 sends `z0`, the trips on foot (which need no fare);
+ *  older builds have none, and then nothing is reached.
  */
 export function costLayer(data, service, zones) {
   const layers = data.cost[service];
-  if (!layers || !(zones > 0)) return null;
+  if (!layers) return null;
+  if (!(zones > 0)) return zones === 0 || zones < 0 ? layers.z0 || null : null;
   let steps = 0;
   while (layers[`z${steps + 1}`]) steps += 1;
   return steps ? layers[`z${Math.min(Math.floor(zones), steps)}`] : null;
@@ -372,6 +425,7 @@ export function pricedLayer(data, service, zones) {
     for (let i = 0; i < data.n; i += 1) {
       if (zones[i] >= steps && full) out[i] = full[i];
       else if (zones[i] > 0) out[i] = layers[`z${Math.min(zones[i], steps)}`][i];
+      else if (layers.z0) out[i] = layers.z0[i];
     }
     byService.set(service, out);
   }
@@ -391,7 +445,7 @@ export function times(data, service, mode, zones = null) {
   const byMode = data.t[service] || {};
   const forMode = (m) => {
     if (m !== 'pt' || zones == null) return byMode[m];
-    if (typeof zones === 'number' && zones <= 0) return null;
+    if (typeof zones === 'number' && zones <= 0) return data.cost[service]?.z0 || null;
     return pricedLayer(data, service, zones);
   };
   if (mode !== 'best') return forMode(mode) || new Float32Array(data.n).fill(NaN);

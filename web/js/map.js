@@ -352,6 +352,29 @@ export function setSchoolZone(map, geometry) {
   map.getSource('school-zone').setData(geometry ? { type: 'Feature', properties: {}, geometry } : EMPTY);
 }
 
+let stopMarkers = [];
+let stopsKey = null;
+
+/** The stops near one school (One school), each a small marker with its
+ *  walking minutes to the school, or none with null. `key` changes with the
+ *  school. */
+export function setSchoolStops(map, stops, key) {
+  const next = stops && stops.length ? key : null;
+  if (next === stopsKey) return;
+  for (const marker of stopMarkers) marker.remove();
+  stopMarkers = [];
+  stopsKey = next;
+  if (!next) return;
+  for (const stop of stops) {
+    if (!Number.isFinite(stop.lon) || !Number.isFinite(stop.lat)) continue;
+    const box = document.createElement('span');
+    box.className = 'map-tag is-school-stop';
+    box.textContent = String(stop.walk);
+    box.setAttribute('aria-hidden', 'true');
+    stopMarkers.push(new maplibregl.Marker({ element: box }).setLngLat([stop.lon, stop.lat]).addTo(map));
+  }
+}
+
 /** The box around a GeoJSON geometry, as [west, south, east, north]. */
 export function boundsOf(geometry) {
   let box = null;
