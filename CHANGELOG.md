@@ -201,9 +201,13 @@ Round 2, putting the three parts together (12 November 2026):
   and the station's name). A stop no trip in the timetable stops at, on any
   day, says so ("no trips on any day in the timetable used"), as Mt Albert
   Grammar School's own stop does.
-- **Fare burden.** The panel and the methods say what is counted: where
-  walking all the way gets there inside the standard, no fare is needed, the
-  map shows no fare and the averages leave the home out.
+- **Fare burden.** A trip is a walk, with no fare, only where no bus or train
+  that gets there in time is quicker than walking all the way; a bus trip
+  that beats the walk is priced, as before, whether or not the traveller
+  could walk. The Auckland supermarket burden now counts about 188,000
+  people with a bus there in time (272,000 in 0.11.0, which priced R5 trips
+  slower than a walk; leaving out every home within 20 minutes on foot would
+  have left 99,000).
 - **Golden files.** `scripts/school_golden.py` writes In zone (girls and boys
   together, girls, boys), One school by the children living in its zone, and
   children as the weights, for the parity tests in all 20 places.

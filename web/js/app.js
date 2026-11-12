@@ -1612,8 +1612,9 @@ function boardBox(board) {
  *  The same fare is a different burden in different places, so this maps the
  *  fare for the cheapest bus trip that gets there in time as a share of a
  *  day's income where each person lives. It asks about the bus whether or not
- *  someone could cycle instead; where walking all the way gets there in time
- *  (cost z0, from 0.12.0) no fare is needed. The panel
+ *  someone could walk instead, because plenty of people cannot; only where no
+ *  bus in time is quicker than walking all the way (cost z0, from 0.12.0) is
+ *  the trip a walk, with no fare. The panel
  *  compares the most and least deprived areas, which a dollar map cannot.
  */
 /** Whether the commuting cost is the view on screen. */
@@ -1779,7 +1780,7 @@ function burdenModel() {
         ].filter(Boolean);
       }
       if (classes[i] === 5) return [`${shortOf(service)}: public transport can't get there within ${standard} min`];
-      if (zones[i] === 0) return [`${shortOf(service)}: close enough to walk, so no fare is needed`];
+      if (zones[i] === 0) return [`${shortOf(service)}: no bus or train is quicker than walking, so no fare is needed`];
       if (!Number.isFinite(burden[i])) return [zones[i] === -1 ? 'Not routed' : 'No income figure for this area'];
       if (burden[i] === 0) return [`${shortOf(service)}: free for this traveller at this time`];
       const perYear = Math.round(data.income[i] / 1000);

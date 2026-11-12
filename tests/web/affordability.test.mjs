@@ -70,6 +70,17 @@ test('the bus-only count needs no fare where the trip is a walk (z0)', () => {
     cost: { gp: { z0: f32([12, null, 25, null]), z1: f32([12, 40, 18, null]), z2: f32([12, 18, 18, null]) } },
   };
   assert.deepEqual(Array.from(cheapestZones(data, 'gp', 20, { walkable: false })), [0, 2, 1, -2]);
+  // An 18-minute walk is in time, but a 10-minute trip in one zone beats it:
+  // the trip is by bus and pays. Where the one-zone trip is no quicker than
+  // the walk and two zones are, it pays for two.
+  const quicker = {
+    n: 2,
+    meta: { standard_modes: ['walk', 'pt'], fares: { kind: 'zones', zone_cap: 2 } },
+    t: { gp: { walk: f32([18, 18]) } },
+    cost: { gp: { z0: f32([18, 18]), z1: f32([10, 18]), z2: f32([10, 9]) } },
+  };
+  assert.deepEqual(Array.from(cheapestZones(quicker, 'gp', 20, { walkable: false })), [1, 2]);
+  assert.deepEqual(Array.from(cheapestZones(quicker, 'gp', 20)), [0, 0], 'the cheapest way is the walk');
   // A build before 0.12.0 has no z0, and its public transport time is R5's
   // own: a trip in time boards something and pays.
   const before = { ...data, cost: { gp: { z1: f32([15, 40, 18, null]), z2: f32([15, 18, 18, null]) } } };

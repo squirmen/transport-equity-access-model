@@ -259,10 +259,13 @@ export function incomeZones(meta, daily, share, state) {
  *
  *  By default walking and low-stress cycling count as free, so this is the
  *  cheapest way to get there. With `walkable` false it asks about public
- *  transport alone: the fewest zones of a trip that gets there in time,
- *  whether or not the traveller could walk instead. From 0.12.0 a public
- *  transport time is the quicker of the trip and walking all the way, and a
- *  walk has no fare: the build sends those trips as `z0`, and they are 0. */
+ *  transport alone: the fewest zones of a bus or train trip that gets there
+ *  in time, whether or not the traveller could walk instead. From 0.12.0 a
+ *  public transport time is the quicker of the trip and walking all the way,
+ *  and a walk has no fare: the build sends the walks as `z0`. A trip counts
+ *  as a bus or train only where it is quicker than walking (z_k < z0, since
+ *  each z_k already takes the walk where that is quicker); where no bus in
+ *  time beats the walk and the walk is in time, it is 0. */
 export function cheapestZones(data, service, standard, { walkable = true } = {}) {
   const cap = zoneCap(data.meta.fares);
   const times = data.t[service] || {};
@@ -272,7 +275,8 @@ export function cheapestZones(data, service, standard, { walkable = true } = {})
   const onFoot = priced.z0 || null;
   const out = new Int8Array(data.n).fill(-1);
   for (let i = 0; i < data.n; i += 1) {
-    if (free.some((m) => times[m]?.[i] <= standard) || (onFoot && onFoot[i] <= standard)) {
+    const walk = onFoot ? onFoot[i] : NaN;
+    if (free.some((m) => times[m]?.[i] <= standard) || (walkable && walk <= standard)) {
       out[i] = 0;
       continue;
     }
@@ -280,9 +284,12 @@ export function cheapestZones(data, service, standard, { walkable = true } = {})
     for (let z = 1; z <= cap; z += 1) {
       const t = priced[`z${z}`]?.[i];
       if (!(t <= standard)) continue;
+      // Not a bus or train trip: walking is as quick (the trip is the walk).
+      if (!walkable && Number.isFinite(walk) && !(t < walk)) continue;
       found = z;
       break;
     }
+    if (found === -1 && walk <= standard) found = 0;
     if (found === -1) {
       const routed = every.some((layer) => Number.isFinite(layer?.[i]))
         || Object.values(priced).some((layer) => Number.isFinite(layer?.[i]));
