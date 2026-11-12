@@ -239,8 +239,9 @@ def test_r5_routes_the_hand_checked_trips_again_minute_by_minute():
     origins = routing.load_origins(settings).set_index("id")
     directory = schools.read_directory(SNAPSHOT).set_index("School_Id")
     ids = [f"{t['h3']}>{t['school']}" for t in trips]
-    orig = gpd.GeoDataFrame({"id": ids}, geometry=[origins.loc[t["h3"], "geometry"] for t in trips], crs=4326)
-    dest = gpd.GeoDataFrame({"id": ids}, geometry=gpd.points_from_xy(
+    # r5py gives 0 minutes where an origin and a destination share an id, so they differ.
+    orig = gpd.GeoDataFrame({"id": [f"o|{i}" for i in ids]}, geometry=[origins.loc[t["h3"], "geometry"] for t in trips], crs=4326)
+    dest = gpd.GeoDataFrame({"id": [f"d|{i}" for i in ids]}, geometry=gpd.points_from_xy(
         [float(directory.loc[t["school"].split(":")[1], "Longitude"]) for t in trips],
         [float(directory.loc[t["school"].split(":")[1], "Latitude"]) for t in trips]), crs=4326)
     gtfs, _ = routing.prepare_gtfs(settings)
@@ -252,7 +253,8 @@ def test_r5_routes_the_hand_checked_trips_again_minute_by_minute():
         m = pd.DataFrame(r5py.TravelTimeMatrix(network, origins=orig, destinations=dest, departure=t0,
                                                departure_time_window=dt.timedelta(minutes=1), percentiles=[50],
                                                max_time=dt.timedelta(minutes=60), snap_to_network=True, **kwargs))
-        m = m[m["from_id"] == m["to_id"]].set_index("from_id")["travel_time"]
+        m = m[m["from_id"].str[2:] == m["to_id"].str[2:]]
+        m = m.set_index(m["from_id"].str[2:])["travel_time"]
         for trip, key in zip(trips, ids):
             matched += int(m.get(key) == trip["minutes"][k])
     assert matched == 600
