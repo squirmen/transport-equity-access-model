@@ -150,9 +150,11 @@ def test_every_flagged_school_is_listed(place):
     moved = audited[audited["move"]]
     assert set(moved["moe"]) <= set(checked_rows()["moe"].astype(int))
     # Every school more than 50 m outside its grounds was moved by rule or checked by a person.
-    assert (audited.loc[outside, "move"].astype(bool) | audited.loc[outside, "checked"].notna()).all()
+    # (An audit from before 0.12.1 has no `checked` column: no school there was checked.)
+    checked = audited["checked"] if "checked" in audited else pd.Series(None, index=audited.index, dtype="object")
+    assert (audited.loc[outside, "move"].astype(bool) | checked[outside].notna()).all()
     expected = audited["moe"].map(lambda m: "moved" if m in CHECKED_MOVED else "kept" if m in CHECKED_KEPT else None)
-    assert (audited["checked"].fillna("") == expected.fillna("")).all()
+    assert (checked.fillna("") == expected.fillna("")).all()
     if place == "auckland":
         mags = audited.set_index("moe").loc[69]
         assert mags["linz_outside_m"] == 0 and not mags["move"] and pd.isna(mags["flags"])
