@@ -3,301 +3,180 @@
 ## 0.12.0 (not yet released)
 
 Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
-School (MAGS). [`docs/schools.md`](docs/schools.md) has the rules.
+School (MAGS), and public transport that takes the walk where it is quicker.
+[`docs/schools.md`](docs/schools.md) has the school rules and
+[`docs/methodology.md`](docs/methodology.md) the rest.
 
-- **The card names the right school.** It named the nearest school by the
-  quickest way, beside the time for the way on screen. On the councillors'
-  slide (St Lukes, hexagon 89bb50021a3ffff) "9 min by public transport,
-  nearest Marist College" was a 9-minute walk to TKKM o Nga Maungarongo, with
-  Marist the nearest by low-stress cycling (6 min). The data now names the
-  school for each way (`nearest_mode`), and every school tied in the same
-  minute (`ties`). From that hexagon MAGS is 15 min on foot or by public
-  transport and 10 by low-stress bike; Marist is 12 on foot.
-- **Every school within reach, and what it is.** School runs keep every school
-  within 60 minutes of each hexagon, in files the page loads when asked
-  (`schools/<service>_<mode>.json`), and each school carries its kind, teaching
-  language, who it takes, years, roll and enrolment scheme. That is what the
-  page needs to count state schools only, or one school, without routing
-  again. Public transport school times also keep the 10th and 90th
-  percentiles over the departure minutes.
-- **One directory for every place.** Schools come from one copy of the
-  Ministry's national directory, fetched 12 November 2026 (rolls at 1 October
-  2026). Auckland's old copy had 10 of the 50 fields.
-- **Intermediate schools.** Every config spelt "Restricted Composite (Yr
-  7-10)", which matched no school, and Secondary (Year 7-10) schools were not
-  counted. Both now count for intermediate only: 5 schools in Auckland (3,887
-  students) and 4 around Hamilton (2,865).
-- **Times past the limit.** R5 returned times a minute or more past the
-  60-minute limit for some walks and rides to the point; these were published
-  (up to 80 min) although every count stopped at 60. They now show as over
-  60, for every service.
-- **School runs of their own.** Schools are routed apart from the other
-  services, so a change to the directory re-routes schools only. Before any
-  point changed, the school runs gave the same minutes as the services runs
-  for every pair. `team schools split` moves a build over.
-- **The Schools row.** Under Getting to, for the three school services: All
-  (as before, and what a link without a choice shows), State (state schools
-  taught in English, for girls and boys together, girls or boys) and One
-  school, picked by name or by its pin, with a link of its own
-  (`sch=one:69`). In zone follows once the Ministry's zone file is in. A line
-  under the headline says which schools are counted and how many are not,
-  from the build's own list. The card tags a school that is not a state,
-  English-medium co-ed school and gives the nearest state school beside it,
-  says when a public transport time is a walk, and lists tied schools. The
-  hexagons shown can be downloaded as a CSV with the choice and data dates
-  in its first lines.
-- **For checking points and entrances.** Corrected map points and checked
-  entrances can be added by hand (`configs/schools/`); none yet.
-  `scripts/school_points_review.py` writes the sheets to check them against
-  LINZ NZ Facilities and OpenStreetMap.
+### What changes on the page
 
-After a review of the MAGS case (12 November 2026), before release:
-
-- **The map's tooltip says what the card says**, for every service. At St
-  Lukes it said "9 min by public transport" for the walk to TKKM o Nga
-  Maungarongo; it now gives the card's first sentence ("9 min on foot. No
-  bus or train is quicker."), names the way under Best ("6 min by low-stress
-  cycling") and adds "Walking is quicker" where it is.
-- **One school without its zone.** The headline was a share of everyone in
-  Auckland (MAGS by public transport: 3%), mostly people who would never go
-  there, and picking a school reset the area to all of Auckland, so MAGS for
-  Albert-Eden (50%) could sit beside Western Springs College for Auckland
-  (3%). The headline is now the number of people within the standard (MAGS
-  by public transport: 57,000), with a share only for a local board, ward or
-  suburb, and the area stays when the school changes (Albert-Eden: MAGS 50%,
-  Western Springs College 20%). Who misses out and What would help are off
-  for one school until zones are in.
-- **Words that were not quite right.** On the card "state school" is "state
-  school taught in English", as State counts. Under State, the line under
-  the headline says home zones are not applied. Every school headline says
-  it counts all residents, not only school-age children. The One school
-  spread is public transport's own ("By public transport, usually 23–30
-  min") and names the routing day, Tuesday 15 September 2026, rather than
-  "weekdays". The key says what nearest means, and no longer says a walk of
-  up to 15 minutes counts without saying that a walk shown as 15 minutes may
-  not (151 of the 303 Auckland secondary school pairs with a 15-minute walk
-  have a slower public transport time; none with a shorter walk do). Auckland
-  Transport's open timetable has no dedicated school buses but does have a
-  few school-time trips on public routes (747, 989, 997), which are counted.
-- **Where the times end.** The One school card and the CSV say a time goes to
-  the Ministry's map point (the pin), not the nearest gate, with the pin's
-  straight-line distance. MAGS's point is inside its 19.5 ha grounds, and
-  every walk to it takes within a minute of the walk to the Alberton Avenue
-  drive on the west side. Three candidate entrances are
-  listed in `configs/schools/entrances.csv`, not checked and not used. A
-  check run to them (r5py 1.1.3, TEAM's settings, 3,884 hexagons within 15
-  km; it gives exactly the published minutes to the point for every one of
-  them, by every way) shows what is at stake. If students could use all three, the
-  people within 30 minutes of MAGS by public transport would be 74,558
-  rather than 57,003 (74,014 without the south-east gate), 63.5% of
-  Albert-Eden rather than 50.3%; on foot 42,991 rather than 33,295. Single
-  hexagons east of the school would be up to 25 minutes nearer by public
-  transport. These are not published figures: which gates students may use
-  needs checking with the school.
-- **Links and search.** A link pasted into an open page, differing only after
-  the `#`, now reloads it, so the figures match the link. School search finds
-  "Mount" for "Mt", "Saint" for "St", and initials (MAGS).
-- **Docs.** Why public transport can be slower than a 15-minute walk, and
-  that schools over a regional boundary are not counted.
-
-Zones and school-age children (12 November 2026):
-
-- **In zone.** A new school choice: the state schools taught in English that
-  must take a child living in the hexagon, under the Education and Training
-  Act 2020 (sections 33 and 74): those whose home zone holds the home, and
-  those with no zone. Zones come from the Ministry's enrolment scheme file of
-  2 October 2026 (`raw/nz/education/moe_enrolment_zones_2026-11-12/`), as in
-  force on 12 November 2026. A year-level zone applies from the school's
-  entry year for the service (Balmoral School's Zone B is its intermediate
-  zone). Where the file holds only a zone that starts later (Tangaroa
-  College, Ormiston Junior College, Western Heights School, six Christchurch
-  primaries, Shotover, Arrowtown and Remarkables), that zone is used and
-  labelled. Checked against Eagle Technology's copy, which is not published.
-- **Zones by where people live.** Where a zone line crosses a hexagon, its
-  residents are placed by LINZ address points (each carries its census
-  block's residents shared equally), and the hexagon is counted in the zones
-  most of its residents live in. One school with a zone gets the share of
-  the children living in its zone who can reach it, and Who misses out and
-  What would help for them; MAGS's zone holds about 63,600 residents and
-  3,780 children aged 13–17.
+- **The Schools row.** Under Getting to, for primary, intermediate and
+  secondary school: All, State, In zone and One school. All is every school
+  that teaches the years, as before. State is state schools taught in
+  English. In zone is the state schools taught in English that must take a
+  child living there: those whose home zone covers the home and those with
+  no zone (Education and Training Act 2020, sections 33 and 74), leaving out
+  designated character schools, whose boards may decline a student. One
+  school is one school, found by name or its pin, with its zone drawn and the
+  stops near it listed. Under State and In zone a home counts only when both
+  a girl and a boy can reach a school that takes them.
+- **A link without a school choice now opens In zone, counting children.**
+  This is set in one place (`DEFAULT_SCHOOL_CHOICE` in `web/js/schools.js`)
+  and is an open decision. A link with `sch=all` gives every school, as
+  0.11.0 did, but counting children. Every link the page writes says which.
+  The two emailed short links (`/go/albert-eden-cycling`,
+  `/go/north-shore-cycling`) now carry `sch=all`, so they show every school
+  as when they were sent; their figures still change, because they count
+  children aged 13–17 and take the walk where it is quicker. A school link
+  for a fare, a fare burden or a fare budget made before this release has no
+  `sch` and opens All, where fares are worked out.
 - **Children, not everyone.** School and early childhood figures count
-  children of the service's ages (0–4, 5–10, 11–12, 13–17), from the 2023
-  Census five-year bands by SA1 split into single years by the 2018 Census
-  shape of the surrounding SA2. An even split would count several times too
-  many secondary-age children in student areas (Campus North, Dunedin: 149
-  rather than 979). Other services and the all-residents columns are as before.
-- **Files.** `schools/zones.json` (format 2), `schools/zone_outlines_<service>.json`,
-  `cells.json` `ages`, `summary.json` `meta.ages` and `meta.schools.zones`;
-  downloads `team_<place>_school_zones.csv`, zone columns in
-  `team_<place>_schools.csv` and age columns in `team_<place>_h3`. New
-  commands `team zones check` and `team ages check`; new scripts
-  `fetch_address_points.py`, `fetch_census_ages.py` and `check_zones_eagle.py`.
-Round 2 (12 November 2026), before release:
+  children of the service's ages: 0–4, 5–10 (Years 1–6), 11–12 (Years 7–8)
+  and 13–17 (Years 9–13). One school counts the ages its own years cover
+  (15–17 for a school that starts at Year 11), and at a girls' or a boys'
+  school only girls or boys: the place's share of them in the 2018 Census.
+- **Public transport, or walking where that is quicker.** Every public
+  transport time is the quicker of the bus or train trip and walking all the
+  way, for every service, jobs and fares. R5 on its own drops a walk once it
+  passes 15 minutes, so public transport could show slower than walking (26
+  minutes next to MAGS for a 15-minute walk). The card still says when a time
+  is a walk, with the bus or train time beside it. Labels say "by public
+  transport or on foot", jobs included: in a small town the jobs figure is
+  mostly jobs on foot (Blenheim's typical resident reaches 10,400 jobs within
+  45 minutes this way, against 900 by bus in 0.11.0).
+- **The card.** It names the school reached the way the time on screen was
+  made, and every school tied in that minute. A school row on a card for
+  another service (the councillors' St Lukes hexagon under GP, say) says "all
+  schools", tags the school's kind, says "on foot" for a walk, and names the
+  fastest way's school with the fastest way.
+- **Fares under a school choice.** The fare and fare burden maps and the fare
+  budget count every school, so they are off under State, In zone and One
+  school, and the page says so.
+- **Commuting cost.** A home where half the jobs within 45 minutes are a walk
+  away pays no fare and is left out of the commuting burden.
+- **Stops near a school.** Under One school: every stop and station within a
+  15-minute walk of the school's point, with its stop number, walk, routes
+  and the trips arriving from 7 to 9am on the routing day. School buses that
+  end at the school's stop count (Wellington's 402 at Tawa College).
 
-- **Public transport, or walking where that is quicker.** R5 drops a walk all
-  the way once it passes the 15 minutes a trip may walk to and from stops, so
-  public transport could show slower than walking: 26 minutes next to MAGS
-  for a 15-minute walk. Every public transport time is now the quicker of
-  R5's trip and walking, destination by destination, for every service and
-  window, for jobs, the competition-adjusted job measure, the gravity scores
-  and fares (a walk has no fare; budgets gain a zero-zone step, `z0`).
-  Public transport counts in "more than one way" only where a bus or train
-  is quicker than walking. R5's own times stay in the downloads (`_r5`
-  columns), in `cells.json` (`ptr`) and in the school lists (`r5`). In
-  Auckland the share within each standard by public transport rises by 0.4
-  to 9.3 points (secondary school 79.8% to 84.5%, supermarket off-peak 58.8%
-  to 67.2%); in small towns public transport becomes mostly walking
-  (Blenheim secondary school 36.4% to 81.4%).
-  Best and Who misses out do not change. The cell-to-cell trips behind
-  `?mate=1` are R5's paths and are not changed.
+### Data and method
+
+- **One school directory** for every place, fetched 12 November 2026 (rolls
+  at 1 October 2026), with each school's kind, teaching language, sex by
+  year, years, roll and enrolment scheme.
 - **Schools across a regional boundary.** A place keeps every open school
-  within about 8 km of it, from any region, that its street file reaches.
-  60 schools come in: Auckland 43 (Waikato and Northland, among them
-  Pukeoware School, 160 m from an Auckland hexagon), Wellington 7, Rotorua 4,
-  Nelson 3, Tauranga 3. 13 schools in 9 places that round 1 counted are left
+  within about 8 km of it, from any region, that its street file reaches: 60
+  schools come in (Auckland 43, Wellington 7, Rotorua 4, Nelson 3, Tauranga
+  3). 10 schools in 7 places that the first 0.12.0 build counted are left
   out because the street file stops short of them; none had a time on foot,
-  by bike or by public transport. `schools.regions` is gone from the configs.
-- **School map points.** Every point is checked against LINZ NZ Facilities
-  and OpenStreetMap school grounds and the street network
-  (`scripts/school_points_audit.py`). Rule D5-1 moves a point only when it
-  is more than 100 m outside its own grounds and both sources agree where the
-  grounds are: Te Aute College (263 m), Te Kura aa Iwi o Ngaati Kauwhata
-  (602 m) and Porirua Montessori Primary School (219 m). 106 others are
-  listed for a person to check, among them Twin Oaks Classical School, whose
-  point is 4.5 km from its grounds but which has no OpenStreetMap grounds to
-  confirm where they are. Mt Albert Grammar School keeps
-  the Ministry's point: Google Maps routes trips to its Alberton Avenue
-  entrance, where the point is.
-- **Stops near a school.** For each school, the stops and stations within a
-  15-minute walk of its point on the street network, with the routes and
-  trips stopping there from 7am to 9am on the routing day
-  (`schools/stops.json`, `team_<place>_school_stops.csv`). In Auckland 507
-  of 594 schools have a stop with a morning trip within a 15-minute walk. The
-  stop named for Mt Albert Grammar School, a minute's walk from its point,
-  has no trip in Auckland Transport's open timetable on any day (it may be
-  for the school buses that timetable leaves out); the nearest stops with
-  morning trips are 7 and 8 minutes' walk away, on Owairaka Avenue (route 66)
-  and New North Road (22N, 22R, OUT, 209).
-- **Re-routing only what changed.** `team schools reroute` routes added and
-  moved schools only, in the runs' own batches, and leaves every other
-  school's minutes as they were; it ends by routing 300 hexagons again in a
-  fresh process and comparing every pair. Every reroute matched.
-- **Leftovers.** Te Wharekura o Tāmaki ki te Tonga, with no teaching language
-  in the directory, is taken as Māori-medium from its peak body (Ngā Kura ā
-  Iwi o Aotearoa); State was already leaving it out, so no figure changes.
-  The Christchurch batch that once routed differently was routed again six
-  times and gave today's minutes each time; the first routing followed two
-  processes failing on r5py's shared cache.
+  by bike or by public transport.
+- **Enrolment zones** from the Ministry's enrolment scheme file of 2 October
+  2026, as in force on 12 November 2026, by year level. Where a zone line
+  crosses a hexagon, its residents are placed by LINZ address points; the
+  hexagon is counted with the zones most of its residents live in, and the
+  counting line says how many children live outside them. Where most of a
+  school's zone lies outside the place (Tuakau College for Auckland), One
+  school says it counts the part inside.
+- **School types.** Every config spelt "Restricted Composite (Yr 7-10)",
+  which matched no school. Years 7–10 and Years 1–10 schools now count for
+  intermediate and, for Years 9–10, for secondary.
+- **Secondary school in two stages.** Where a school stops at Year 10 or
+  starts at Year 11 (Albany, Ormiston, Rototuna and others), State and In zone
+  count a home only when a student in Years 9–10 and one in Years 11–13 can
+  each reach a school that teaches them.
+- **Designated character schools.** 15 in the twenty places, each checked
+  against its Gazette notice (`configs/schools/attributes.csv`), are left out
+  of In zone. Vanguard Military School takes Years 11–13 only.
+- **School map points.** Every point checked against LINZ NZ Facilities and
+  OpenStreetMap school grounds; three far outside their grounds moved inside
+  them by rule and routed again (Te Aute College, Te Kura aa Iwi o Ngaati
+  Kauwhata, Porirua Montessori). MAGS keeps the Ministry's point, by the
+  Alberton Avenue drive Google Maps routes to.
+- **Times past the limit.** R5 returned some times a minute or more past 60
+  for the walk from the street to the point; they now show as over 60, for
+  every service.
+- **School runs of their own**, so a change to a school re-routes schools
+  only (`team schools reroute`), and `team schools relabel` gives a school
+  that gains a service the minutes it already had.
 
-Round 2, putting the three parts together (12 November 2026):
+### Files
 
-- **Car times under In zone.** The car short lists also keep each hexagon's
-  nearest In zone school for girls and for boys (`holds: ["all", "state",
-  "zone"]`), so the default choice has car times on the card, as All and
-  State do. One school still has none by car.
-- **Stops near a school.** Every school has an entry in `schools/stops.json`;
-  an empty list means no stop within a 15-minute walk, and the page says so.
-  A station's platforms are read as the build writes them (`station: true`
-  and the station's name). A stop no trip in the timetable stops at, on any
-  day, says so ("no trips on any day in the timetable used"), as Mt Albert
-  Grammar School's own stop does.
-- **Fare burden.** A trip is a walk, with no fare, only where no bus or train
-  that gets there in time is quicker than walking all the way; a bus trip
-  that beats the walk is priced, as before, whether or not the traveller
-  could walk. The Auckland supermarket burden now counts about 188,000
-  people with a bus there in time (272,000 in 0.11.0, which priced R5 trips
-  slower than a walk; leaving out every home within 20 minutes on foot would
-  have left 99,000).
-- **Golden files.** `scripts/school_golden.py` writes In zone (girls and boys
-  together, girls, boys), One school by the children living in its zone, and
-  children as the weights, for the parity tests in all 20 places.
+- New: `schools/<service>_<mode>.json` (every school within reach),
+  `schools/zones.json`, `schools/zone_outlines_<service>.json`,
+  `schools/stops.json`; `cells.json` `nearest_mode`, `ties`, `ptr` and
+  `ages`; `summary.json` `meta.schools`, `meta.ages`, `meta.pt_or_walk`,
+  `meta.formats`; downloads `team_<place>_schools.csv`,
+  `team_<place>_school_zones.csv`, `team_<place>_school_stops.csv`.
+- `team_<place>_h3.csv`: the 0.11.0 columns keep their names, but school
+  columns now come after tertiary, so read columns by name. `t_*_pt`,
+  `jobs*_pt` and `costaccess_*` now hold public transport or walking. The
+  new columns are at the end: R5's own public transport times (`_r5`), jobs
+  and fares on foot (`_z0`) and children by age (`age_`).
+- Phone downloads: opening Auckland loads 3.75 MB (brotli), 0.77 MB more
+  than 0.11.0, mostly children by age, R5's own times and the no-fare layers;
+  picking a school service under In zone then loads 0.78 MB (secondary) to
+  1.67 MB (primary) of zones and school lists, which 0.11.0 did not load.
 
-What changed in the published figures, from the 0.11.0 site to the 0.12.0
-build: the share of people within each school standard (all hexagons), before
-and after, and how many hexagons have a new time. One figure means no change
-to a tenth of a percent.
+### Checks
 
-- Intermediate rises in Auckland and Hamilton, from the type fix. Taupō and
-  Tokoroa read the same Waikato directory, but its Year 7–10 schools are in
-  and around Hamilton.
-- Auckland primary: Te Wharekura o Tāmaki ki te Tonga opened in October and
-  Kadimah School's point moved 230 m. Auckland secondary by public transport:
-  Nova Innovation College, a new private school.
-- Dunedin primary and intermediate fall: Taieri Beach School is no longer in
-  the directory. Tauranga primary falls: the Ministry moved Te Kura o
-  Manunui's point 186 m.
-- Everything else in the table is the limit fix.
-- The education access score, and so the all-opportunities score, moves in
-  some hexagons in every place, because school rolls weight it and are now at
-  1 October 2026. In Auckland 3,491 of 29,801 hexagons change by public
-  transport, two in three by one point, more near schools added or moved.
+- The page's figures equal the build's for every choice, school service and
+  way in all 20 places, to a millionth of a share (`scripts/school_golden.py`,
+  `tests/web/schools_parity.test.mjs`).
+- Every reroute was checked by routing 300 hexagons again in a fresh process;
+  every pair matched.
+- Fresh r5py runs at the documented settings reproduce the published walking,
+  R5 and public-transport-or-walking minutes, spreads and job counts for the
+  pairs checked in the review.
 
-| Place | School | Any way | Walk | Low-stress bike | PT | Hexagons changed (most for one way) | Over 60, now blank (most for one way) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Auckland | Primary | 84.2% → 84.3% | 74.5% → 74.6% | 79.6% → 79.7% | 73.6% | 92 | 58 |
-| Auckland | Intermediate | 80.1% → 80.3% | 67.4% → 68.1% | 75.0% → 75.2% | 62.0% → 63.1% | 274 | 49 |
-| Auckland | Secondary | 89.0% → 89.1% | 74.3% | 84.7% | 79.8% | 32 | 26 |
-| Blenheim | Primary | 90.0% | 64.7% | 89.6% | 64.1% | 4 | 4 |
-| Blenheim | Intermediate | 89.3% | 65.0% | 89.2% | 49.8% | 6 | 6 |
-| Blenheim | Secondary | 92.0% | 81.4% | 92.0% | 36.4% | 7 | 7 |
-| Christchurch | Primary | 90.2% | 71.7% | 90.1% | 72.0% | 135 | 135 |
-| Christchurch | Intermediate | 92.4% | 78.8% | 92.2% | 74.7% | 145 | 145 |
-| Christchurch | Secondary | 85.0% | 66.7% | 83.9% | 71.5% | 15 | 15 |
-| Dunedin | Primary | 87.0% → 86.9% | 70.2% → 70.1% | 86.2% → 86.0% | 71.0% → 70.8% | 33 | 3 |
-| Dunedin | Intermediate | 82.5% → 82.3% | 63.6% → 63.4% | 80.2% → 80.0% | 57.6% → 57.5% | 32 | 2 |
-| Dunedin | Secondary | 78.4% | 66.2% | 75.7% | 67.7% | 0 | 0 |
-| Gisborne | Primary | 88.3% | 73.0% | 88.1% | 72.3% | 27 | 27 |
-| Gisborne | Intermediate | 78.3% | 65.5% | 78.0% | 54.8% | 27 | 27 |
-| Gisborne | Secondary | 84.7% | 62.3% | 84.3% | 39.6% | 40 | 40 |
-| Hamilton | Primary | 83.7% | 61.4% | 83.2% | 59.6% | 121 | 121 |
-| Hamilton | Intermediate | 81.6% → 82.0% | 56.9% → 60.0% | 81.4% → 81.7% | 48.2% → 51.2% | 491 | 145 |
-| Hamilton | Secondary | 81.6% | 62.3% | 81.5% | 58.7% | 18 | 18 |
-| Invercargill | Primary | 88.5% | 73.8% | 88.5% | 72.6% | 11 | 11 |
-| Invercargill | Intermediate | 78.0% | 68.4% | 77.8% | 53.5% | 8 | 8 |
-| Invercargill | Secondary | 81.8% | 69.1% | 81.7% | 53.8% | 2 | 2 |
-| Napier–Hastings | Primary | 85.9% | 73.8% | 85.7% | 73.0% | 93 | 93 |
-| Napier–Hastings | Intermediate | 85.1% | 70.6% | 84.9% | 56.0% | 79 | 79 |
-| Napier–Hastings | Secondary | 88.2% | 84.3% | 88.0% | 64.7% | 26 | 26 |
-| Nelson | Primary | 82.9% | 52.9% | 82.8% | 51.2% | 17 | 17 |
-| Nelson | Intermediate | 79.4% | 46.0% | 79.2% | 30.2% | 10 | 10 |
-| Nelson | Secondary | 77.2% | 59.4% | 76.9% | 38.1% | 0 | 0 |
-| New Plymouth | Primary | 78.8% | 61.9% | 77.2% | 61.3% | 105 | 105 |
-| New Plymouth | Intermediate | 74.3% | 59.7% | 73.7% | 38.7% | 110 | 110 |
-| New Plymouth | Secondary | 68.4% | 57.4% | 67.4% | 36.8% | 41 | 41 |
-| Palmerston North | Primary | 83.8% | 69.7% | 83.4% | 69.2% | 46 | 46 |
-| Palmerston North | Intermediate | 82.5% | 63.3% | 82.1% | 58.9% | 46 | 46 |
-| Palmerston North | Secondary | 83.2% | 67.1% | 81.3% | 70.6% | 35 | 35 |
-| Queenstown | Primary | 68.2% | 40.1% | 67.3% | 40.9% | 0 | 0 |
-| Queenstown | Intermediate | 75.3% | 51.0% | 75.1% | 44.4% | 0 | 0 |
-| Queenstown | Secondary | 19.0% | 9.2% | 14.7% | 15.4% | 0 | 0 |
-| Rotorua | Primary | 88.1% | 72.7% | 87.9% | 71.1% | 95 | 95 |
-| Rotorua | Intermediate | 80.2% | 55.4% | 80.1% | 41.3% | 95 | 95 |
-| Rotorua | Secondary | 83.1% | 69.3% | 82.6% | 66.8% | 12 | 12 |
-| Taupō | Primary | 74.0% | 60.0% | 73.8% | 59.6% | 0 | 0 |
-| Taupō | Intermediate | 66.5% | 55.1% | 66.5% | 45.2% | 1 | 1 |
-| Taupō | Secondary | 74.4% | 59.2% | 74.4% | 21.6% | 0 | 0 |
-| Tauranga | Primary | 75.4% → 74.5% | 52.7% → 52.4% | 74.5% → 73.6% | 51.8% → 51.4% | 41 | 7 |
-| Tauranga | Intermediate | 58.3% | 27.4% | 56.8% | 23.3% | 11 | 11 |
-| Tauranga | Secondary | 74.7% | 43.4% | 72.1% | 47.4% | 7 | 7 |
-| Tokoroa | Primary | 88.7% | 85.9% | 88.7% | 85.8% | 0 | 0 |
-| Tokoroa | Intermediate | 77.7% | 71.3% | 77.6% | 64.5% | 0 | 0 |
-| Tokoroa | Secondary | 89.5% | 87.2% | 89.5% | 57.9% | 0 | 0 |
-| Wellington | Primary | 87.5% | 70.9% | 86.5% | 70.2% | 55 | 55 |
-| Wellington | Intermediate | 85.9% | 71.5% | 84.3% | 65.4% | 46 | 46 |
-| Wellington | Secondary | 83.6% | 63.7% | 78.7% | 72.2% | 29 | 29 |
-| Whakatāne | Primary | 70.0% | 61.1% | 69.3% | 60.6% | 22 | 22 |
-| Whakatāne | Intermediate | 69.3% | 62.6% | 68.6% | 51.8% | 23 | 23 |
-| Whakatāne | Secondary | 69.9% | 63.6% | 69.6% | 35.3% | 0 | 0 |
-| Whanganui | Primary | 87.6% | 73.3% | 87.2% | 72.1% | 50 | 50 |
-| Whanganui | Intermediate | 77.8% | 65.1% | 77.5% | 54.2% | 50 | 50 |
-| Whanganui | Secondary | 84.4% | 75.1% | 83.8% | 66.6% | 5 | 5 |
-| Whangārei | Primary | 60.5% | 46.2% | 59.4% | 45.7% | 126 | 126 |
-| Whangārei | Intermediate | 63.0% | 47.2% | 62.5% | 34.0% | 70 | 70 |
-| Whangārei | Secondary | 58.8% | 50.0% | 57.8% | 33.2% | 25 | 25 |
+### What changed in the published figures
 
-Other services, times over 60 now blank (hexagon and mode pairs): Auckland 341; Blenheim 14; Christchurch 276; Dunedin 58; Gisborne 86; Hamilton 403; Invercargill 115; Napier–Hastings 137; Nelson 18; New Plymouth 60; Palmerston North 146; Queenstown 4; Rotorua 29; Taupō 11; Tauranga 24; Tokoroa 8; Wellington 191; Whakatāne 16; Whanganui 20; Whangārei 184.
+Share of the place within each standard, as the page shows it by default: 0.11.0 counts all residents and every school; 0.12.0 counts children of the service's ages for schools and early childhood, schools under In zone (girls and boys together). One figure means no change to a tenth of a percent. 
 
-Other services' times are unchanged except where they were over 60 minutes.
+**Auckland**
+
+| Service | Walk | Low-stress bike | Public transport (0.12.0: or on foot) | Best without a car |
+| --- | --- | --- | --- | --- |
+| Supermarket | 61.2% | 72.8% | 58.8% → 67.2% | 77.6% |
+| GP | 75.0% | 81.5% | 71.0% → 78.8% | 85.5% |
+| Pharmacy | 76.3% | 81.8% | 72.3% → 80.0% | 85.7% |
+| Library | 41.1% | 55.3% | 44.3% → 50.5% | 62.7% |
+| Bank or post | 49.9% | 64.8% | 52.7% → 59.8% | 71.6% |
+| Early childhood | 88.3% → 90.3% | 89.5% → 91.4% | 87.8% → 90.5% | 91.4% → 93.1% |
+| Primary | 74.5% → 68.5% | 79.6% → 71.9% | 73.6% → 69.2% | 84.2% → 77.5% |
+| Intermediate | 67.4% → 50.4% | 75.0% → 58.9% | 62.0% → 54.0% | 80.1% → 64.3% |
+| Secondary | 74.3% → 56.4% | 84.7% → 68.2% | 79.8% → 71.1% | 89.0% → 78.4% |
+| Tertiary | 40.5% | 62.1% | 70.6% → 70.9% | 74.8% |
+| Trades training | 33.5% | 54.5% | 62.8% → 63.3% | 69.8% |
+
+Auckland jobs within 45 minutes for a typical resident by public transport: 42,600 in 0.11.0; by public transport or on foot 43,200.
+
+**Every place: schools and early childhood (best without a car, and public transport or on foot)**
+
+| Place | Early childhood | Primary | Intermediate | Secondary | Jobs, typical resident, 45 min |
+| --- | --- | --- | --- | --- | --- |
+| Auckland | 91→93 / 88→90 | 84→78 / 74→69 | 80→64 / 62→54 | 89→78 / 80→71 | 42,600 → 43,200 |
+| Wellington | 92→92 / 80→81 | 87→83 / 70→64 | 86→72 / 65→58 | 84→64 / 72→56 | 17,200 → 17,700 |
+| Christchurch | 92→93 / 85→88 | 90→87 / 72→64 | 92→86 / 75→69 | 85→82 / 72→66 | 59,400 → 63,100 |
+| Hamilton | 87→89 / 81→84 | 84→76 / 60→53 | 82→69 / 48→43 | 82→71 / 59→52 | 24,000 → 26,700 |
+| Tauranga | 88→89 / 77→80 | 75→69 / 52→49 | 58→48 / 23→26 | 75→60 / 47→44 | 10,600 → 12,300 |
+| Dunedin | 87→86 / 78→78 | 87→83 / 71→64 | 82→74 / 58→52 | 78→63 / 68→54 | 33,200 → 33,700 |
+| Napier–Hastings | 89→92 / 79→86 | 86→86 / 73→73 | 85→76 / 56→51 | 88→81 / 65→57 | 9,800 → 15,100 |
+| Palmerston North | 86→87 / 79→81 | 84→77 / 69→62 | 83→71 / 59→51 | 83→77 / 71→65 | 37,800 → 38,600 |
+| Nelson | 85→87 / 67→73 | 83→83 / 51→54 | 79→73 / 30→39 | 77→74 / 38→51 | 7,500 → 9,800 |
+| Whangārei | 70→75 / 61→67 | 60→59 / 46→42 | 63→55 / 34→40 | 59→45 / 33→37 | 1,100 → 3,000 |
+| New Plymouth | 82→83 / 72→74 | 79→76 / 61→58 | 74→45 / 39→34 | 68→54 / 37→37 | 3,800 → 6,500 |
+| Rotorua | 90→92 / 79→83 | 88→87 / 71→66 | 80→69 / 41→35 | 83→81 / 67→53 | 17,900 → 19,100 |
+| Invercargill | 89→91 / 81→83 | 89→86 / 73→62 | 78→45 / 54→28 | 82→64 / 54→37 | 8,700 → 10,600 |
+| Gisborne | 88→90 / 79→83 | 88→86 / 72→64 | 78→56 / 55→38 | 85→60 / 40→45 | 2,200 → 10,100 |
+| Whanganui | 87→90 / 79→82 | 88→77 / 72→55 | 78→43 / 54→23 | 84→66 / 67→46 | 9,800 → 10,400 |
+| Taupō | 78→83 / 63→70 | 74→64 / 60→48 | 66→44 / 45→38 | 74→71 / 22→56 | 1,000 → 7,000 |
+| Queenstown | 66→73 / 54→64 | 68→69 / 41→39 | 75→78 / 44→53 | 19→9 / 15→7 | 3,600 → 3,800 |
+| Whakatāne | 80→84 / 70→77 | 70→66 / 61→53 | 69→68 / 52→44 | 70→68 / 35→57 | 1,500 → 6,400 |
+| Blenheim | 92→93 / 80→82 | 90→81 / 64→59 | 89→62 / 50→35 | 92→72 / 36→23 | 900 → 10,400 |
+| Tokoroa | 90→91 / 87→88 | 89→89 / 86→84 | 78→75 / 64→65 | 90→91 / 58→88 | 400 → 2,600 |
+
+In each cell, best without a car then public transport, %, 0.11.0 → 0.12.0. Most of the fall in the school figures is the default choice: In zone leaves out the schools a child cannot count on (integrated, private, charter, kura, out of zone, designated character), and the stage rule in Albany, Ormiston and Rototuna. Public transport rises everywhere for the other services (every place: supermarket by 3 to 22 points, GP 6 to 27) because the walk is taken where it is quicker; in small towns the jobs figure is mostly jobs on foot.
+
+### Also in 0.12.0
 
 - With `?mate=1` in the address, an Auckland hexagon's card has a section from
   MATE: each mobility profile's reach on foot and by public transport, what is

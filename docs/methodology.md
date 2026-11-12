@@ -71,10 +71,15 @@ are. A suppressed band takes its SA2's share of residents. An even split of
 the bands would count several times too many 13–17-year-olds where students
 fill the 15–19 band: Campus North, Dunedin, had 1,623 people aged 15–19 in
 2023; its 2018 shape puts 9% of them at 15 to 17, so it counts 149 aged
-13–17, where an even split would count 979. Ages are on census day, 7 March 2023, and
-stand for school years; some 13-year-olds are in Year 8 and some 17-year-olds
-have left school. Every other service, and every all-residents column in the
-downloads, still counts everyone. [`schools.md`](schools.md) has the rule
+13–17, where an even split would count 979. Ages are on census day, 7 March
+2023, and stand for school years. Census day is early in the school year, so
+about a third of Year 7 and of Year 9 students are counted with the age group
+below, and some 17-year-olds have left school. One school counts the ages
+its own years cover (15–17 for a school that starts at Year 11, 13–14 for
+one that stops at Year 10), and at a girls' or a boys' school only girls or
+boys: the place's share of them at those ages in the 2018 Census, taken to
+live where the others do. Every other service, and every all-residents
+column in the downloads, still counts everyone. [`schools.md`](schools.md) has the rule
 and the checks against Stats NZ's totals.
 
 **Where residents live inside a hexagon.** A hexagon has one travel time,
@@ -119,7 +124,7 @@ each have a ward of the same name have the council added to it.
 | Trades training | The same list | sites whose teaching is mainly trades |
 | Primary school | Ministry of Education school directory, 12 November 2026 | open contributing, full primary and composite schools |
 | Intermediate school | Ministry of Education school directory, 12 November 2026 | open schools that teach Years 7–8, including Year 7–10 schools |
-| Secondary school | Ministry of Education school directory, 12 November 2026 | open schools that teach Years 9 and up |
+| Secondary school | Ministry of Education school directory, 12 November 2026 | open schools that teach any of Years 9 to 13, including Year 7–10 and Year 1–10 schools for Years 9 and 10 |
 | Jobs | Stats NZ business demography, 2024 | employee counts by SA2, spread over hexagons by area |
 
 A service mapped twice in OpenStreetMap, once as a point and once as a
@@ -136,6 +141,37 @@ Every place reads one dated copy of the school directory, and each school
 carries its kind (state, integrated, private, charter), teaching language, who
 it takes at each service's years, roll and enrolment scheme;
 [`schools.md`](schools.md) has the rules.
+
+**School map points.** Every school's map point in the directory was checked
+against its grounds in LINZ NZ Facilities and in OpenStreetMap, and against
+the streets. A point is moved only when it is more than 100 m outside the
+school's own LINZ grounds, the two records of the grounds agree, and the
+point is inside no school's grounds; it then goes 10 m inside the grounds.
+That moved three schools (Te Aute College, Te Kura aa Iwi o Ngaati Kauwhata,
+Porirua Montessori), which were routed again. Every other point that looked
+wrong is listed for a person to check and left as the Ministry has it,
+Mt Albert Grammar School's among them (its point is inside its grounds, by
+the Alberton Avenue drive that Google Maps routes to).
+
+**Stops near a school.** For each school, the stops and stations within a
+15-minute walk of its map point, on the street network at 4.8 km/h, are
+listed with the routes and the trips that set down there arriving from 7 to
+9am on the routing day, from the place's timetable. At the school end
+students get off, so a school bus that ends at the school's own stop counts.
+This says what is near the school, not which stop the quickest trip uses.
+
+**Secondary school in two stages.** A Year 7–10 (or 1–10) school stops at
+Year 10 and a Year 11–15 school starts at Year 11 (Auckland and Hamilton
+have both). All counts any school that teaches any of Years 9 to 13. State
+and In zone count a hexagon only when a student in Years 9–10 and one in
+Years 11–13 can each reach a school that teaches them, and take the slower
+time, as they do for girls and boys.
+
+**Designated character schools.** In zone leaves out designated character
+schools (Education and Training Act 2020, s 204), whose boards may decline a
+student whose family does not accept the school's character: 15 schools in
+the twenty places, each checked against its Gazette notice
+(`configs/schools/attributes.csv`). State still counts them.
 
 Jobs are summed to H3 resolution 8 (about 0.74 km²) before routing. This keeps
 public transport routing to a manageable size; the jobs data is published by
@@ -498,8 +534,14 @@ at the morning peak for that many zones, whatever time is picked elsewhere,
 after the network's daily and weekly caps. That is set against a week's
 income. Homes where public transport reaches almost no jobs within 45 minutes
 are shown apart; homes outside the fare zones are left out rather than charged
-the top fare. Where the network charges one flat fare, the zones do not matter
-and the burden is the week's flat fares against income.
+the top fare. From 0.12.0 public transport takes the walk where it is
+quicker, so a home where half the jobs in reach are a walk away has a typical
+commute on foot: it pays no fare and is left out of the burden, as a walk to
+a service is. Where the network charges one flat fare, the zones do not matter
+and the burden is the week's flat fares against income. Under a school
+choice other than All (State, In zone, One school) fares are not worked out:
+the priced layers count every school, so the fare and fare burden maps and
+the fare budget are off for that service.
 
 ## 8. How robust an answer is
 
@@ -650,11 +692,17 @@ first. A local study is still needed to design one.
   schools the site can count state schools only, the state schools that must
   take a child living in each hexagon (In zone, from the Ministry's enrolment
   zones), or one school. Places a school offers outside its zone by ballot,
-  and the rules integrated schools and kura enrol by, are not modelled.
-- School trips start at the hexagon centre and end at the Ministry's map point
-  for the school, not the gate students use, and leave at any minute from 7
-  to 9am rather than to arrive by the bell. Auckland's open timetable has no
-  school buses.
+  and the rules integrated schools, kura and designated character schools
+  enrol by, are not modelled; In zone leaves those schools out.
+- In zone gives each hexagon the zones most of its residents live in. Where a
+  zone line splits a hexagon, the children living outside those zones are
+  counted with it all the same (meta.schools.zones `children_outside_set`;
+  the counting line gives the number).
+- School trips start at the hexagon centre and end at the school's map point,
+  the Ministry's or, for three schools whose point was well outside their
+  grounds, a point moved inside them by rule (schools.md), not the gate
+  students use. They leave at any minute from 7 to 9am rather than to arrive
+  by the bell. Auckland's open timetable has no school buses.
 - Travel times come from timetables and street data, not observed journeys.
   Reliability, crowding and missed connections are not included.
 - Walking and cycling allow for hills, but not lighting, footpath condition,

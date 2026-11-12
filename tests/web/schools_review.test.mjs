@@ -11,7 +11,7 @@ import { MODES, PT_SHORT_OR_WALK, setTransit, transit } from '../../web/js/forma
 import { jobsTile, rowWords } from '../../web/js/place.js';
 import {
   ALL_CHOICE, cardLines, chooseSchools, countingLine, decodeReach, decodeStops, integratedZoneNote, isInZoneSchool, isState, stagesFor,
-  stopLine, stopsCsvLines, stopsIntro, teachesStage,
+  stopLine, stopsCsvLines, stopsIntro, tagOf, teachesStage,
 } from '../../web/js/schools.js';
 
 const S = 'secondary_school';
@@ -67,6 +67,11 @@ test('secondary school in two stages: a Years 9–10 and a Years 11–13 student
   assert.equal(zone.near.walk[0], SENIOR);
   assert.equal(zone.best[0], 15, 'best is the slowest of each group’s own fastest');
 
+  // Under All a junior high can be the nearest for a 16-year-old: its name says its years.
+  assert.equal(tagOf(D[JUNIOR], S, { years: true }), 'Years 7–10');
+  assert.equal(tagOf(D[SENIOR], S, { years: true }), 'Years 11–13');
+  assert.equal(tagOf(D[COLLEGE], S, { years: true }), '');
+  assert.equal(tagOf(D[JUNIOR], S), '', 'without years the tag is kind, language and sex only');
   const lines = cardLines({ destinations: D, service: S, choice: { ...ALL_CHOICE, kind: 'zone' }, reach, result: zone, maxMinutes: 60 }, 'walk', 0, [SENIOR]);
   assert.match(lines.join(' '), /For a girl in Years 9–10: Albany Junior High School, 10 min on foot\. For a girl in Years 11–13: Albany Senior High School, 15 min on foot\./);
 });

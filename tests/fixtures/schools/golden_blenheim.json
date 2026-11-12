@@ -964,32 +964,32 @@
     "walk": {
      "share": 0.551192,
      "share_urban": 0.610842,
-     "people_within": 936.8,
-     "people": 1699.6
+     "people_within": 476.2,
+     "people": 863.9
     },
     "bike_low_stress": {
      "share": 0.861361,
      "share_urban": 0.939111,
-     "people_within": 1464.0,
-     "people": 1699.6
+     "people_within": 744.1,
+     "people": 863.9
     },
     "bike": {
      "share": 0.947446,
      "share_urban": 0.996257,
-     "people_within": 1610.3,
-     "people": 1699.6
+     "people_within": 818.5,
+     "people": 863.9
     },
     "pt": {
      "share": 0.551192,
      "share_urban": 0.610842,
-     "people_within": 936.8,
-     "people": 1699.6
+     "people_within": 476.2,
+     "people": 863.9
     },
     "best": {
      "share": 0.861361,
      "share_urban": 0.939111,
-     "people_within": 1464.0,
-     "people": 1699.6
+     "people_within": 744.1,
+     "people": 863.9
     }
    }
   },
@@ -998,32 +998,32 @@
     "walk": {
      "share": 0.551192,
      "share_urban": 0.610842,
-     "people_within": 936.8,
-     "people": 1699.6
+     "people_within": 476.2,
+     "people": 863.9
     },
     "bike_low_stress": {
      "share": 0.861361,
      "share_urban": 0.939111,
-     "people_within": 1464.0,
-     "people": 1699.6
+     "people_within": 744.1,
+     "people": 863.9
     },
     "bike": {
      "share": 0.947446,
      "share_urban": 0.996257,
-     "people_within": 1610.3,
-     "people": 1699.6
+     "people_within": 818.5,
+     "people": 863.9
     },
     "pt": {
      "share": 0.551192,
      "share_urban": 0.610842,
-     "people_within": 936.8,
-     "people": 1699.6
+     "people_within": 476.2,
+     "people": 863.9
     },
     "best": {
      "share": 0.861361,
      "share_urban": 0.939111,
-     "people_within": 1464.0,
-     "people": 1699.6
+     "people_within": 744.1,
+     "people": 863.9
     }
    }
   },
@@ -1032,32 +1032,32 @@
     "walk": {
      "share": 0.405292,
      "share_urban": 0.433986,
-     "people_within": 688.8,
-     "people": 1699.6
+     "people_within": 338.7,
+     "people": 835.7
     },
     "bike_low_stress": {
      "share": 0.751199,
      "share_urban": 0.810233,
-     "people_within": 1276.7,
-     "people": 1699.6
+     "people_within": 627.8,
+     "people": 835.7
     },
     "bike": {
      "share": 0.959531,
      "share_urban": 0.993512,
-     "people_within": 1630.8,
-     "people": 1699.6
+     "people_within": 801.9,
+     "people": 835.7
     },
     "pt": {
      "share": 0.405292,
      "share_urban": 0.433986,
-     "people_within": 688.8,
-     "people": 1699.6
+     "people_within": 338.7,
+     "people": 835.7
     },
     "best": {
      "share": 0.751199,
      "share_urban": 0.810233,
-     "people_within": 1276.7,
-     "people": 1699.6
+     "people_within": 627.8,
+     "people": 835.7
     }
    }
   },
@@ -1066,32 +1066,32 @@
     "walk": {
      "share": 0.405292,
      "share_urban": 0.433986,
-     "people_within": 688.8,
-     "people": 1699.6
+     "people_within": 338.7,
+     "people": 835.7
     },
     "bike_low_stress": {
      "share": 0.751199,
      "share_urban": 0.810233,
-     "people_within": 1276.7,
-     "people": 1699.6
+     "people_within": 627.8,
+     "people": 835.7
     },
     "bike": {
      "share": 0.959531,
      "share_urban": 0.993512,
-     "people_within": 1630.8,
-     "people": 1699.6
+     "people_within": 801.9,
+     "people": 835.7
     },
     "pt": {
      "share": 0.405292,
      "share_urban": 0.433986,
-     "people_within": 688.8,
-     "people": 1699.6
+     "people_within": 338.7,
+     "people": 835.7
     },
     "best": {
      "share": 0.751199,
      "share_urban": 0.810233,
-     "people_within": 1276.7,
-     "people": 1699.6
+     "people_within": 627.8,
+     "people": 835.7
     }
    }
   }
@@ -3423,5 +3423,19 @@
    "problems": []
   },
   "ok": true
+ },
+ "one_weights": {
+  "one:2811": {
+   "primary_school": "5_10"
+  },
+  "one:2812": {
+   "intermediate_school": "11_12"
+  },
+  "one:288": {
+   "secondary_school": "13_17:boys"
+  },
+  "one:289": {
+   "secondary_school": "13_17:girls"
+  }
  }
 }

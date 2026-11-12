@@ -49,13 +49,13 @@ The street rule leaves out schools in the box that the street file does not
 reach, listed under `far_from_streets` in `destinations/schools_summary.json`
 and `meta.schools.directory`: Onewhero Area School, Meremere, Pukekawa and Te
 Kohanga schools south of Auckland's file (3 to 4 km from its last street), the
-Levin schools north of Wellington's (Horowhenua College 1.4 km), and 9 schools
-that round 1 had counted: Kawhia and Kio Kio (Hamilton), Coley Street
-(Palmerston North), Kawerau Putauaki (Rotorua), TKKM o Rotoiti (Tauranga),
-Mangakino (Tokoroa), Te Wharekura o Ruatoki, Tāwera Bilingual and Waimana
-(Whakatāne) and Mangamahu Primary (Whanganui). None of the 9 had a time on
-foot, by bike or by public transport from any hexagon; 4 had car times, to
-the edge of the street file. No other figure changes for them.
+Levin schools north of Wellington's (Horowhenua College 1.4 km), and 10
+schools in 7 places that round 1 had counted: Kawhia and Kio Kio (Hamilton),
+Coley Street (Palmerston North), Kawerau Putauaki (Rotorua), TKKM o Rotoiti
+(Tauranga), Mangakino (Tokoroa), Te Wharekura o Ruatoki, Tāwera Bilingual and
+Waimana (Whakatāne) and Mangamahu Primary (Whanganui). None of the 10 had a
+time on foot, by bike or by public transport from any hexagon; 4 had car
+times, to the edge of the street file. No other figure changes for them.
 
 Early childhood services still come from each place's regional file and are
 cut by `city_bounds` alone; the regional boundary rule here is for schools.
@@ -70,12 +70,38 @@ test fails otherwise.
 | --- | --- |
 | Primary | Contributing, Full Primary, Composite, Composite (Year 1-10) |
 | Intermediate | Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Year 7-10), Secondary (Year 7-10) |
-| Secondary | Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite |
+| Secondary | Secondary (Year 7-15), Secondary (Year 9-15), Secondary (Year 11-15), Composite, and for Years 9–10, Composite (Year 1-10), Restricted Composite (Year 7-10), Secondary (Year 7-10) |
 | None | Specialist School, Teen Parent Unit, Activity Centre, Correspondence School (enrolment by referral, or no site) |
 
 Before 0.12.0 every config spelt the Restricted Composite type "(Yr 7-10)",
-which matches nothing, and left out Secondary (Year 7-10). Both now count for
-intermediate only, since these schools stop at Year 10.
+which matches nothing, and left out Secondary (Year 7-10). Since the 0.12.0
+review the three types that stop at Year 10 count for secondary school too,
+for Years 9 and 10 (below, "Secondary school in two stages"): Albany Junior
+High, Ormiston Junior College, Mission Heights Junior College, South
+Auckland Middle School and Middle School West Auckland in Auckland, Rototuna
+Junior High, Berkley Normal Middle, Cambridge Middle and St Andrews Middle in
+Hamilton, and the Year 1–10 composite schools.
+
+### Secondary school in two stages
+
+Three schools start at Year 11 (Albany Senior High, Ormiston Senior College,
+Rototuna Senior High; Vanguard Military School by its attributes row), and
+the schools above stop at Year 10. A Year 9 or 10 student cannot enrol at
+the first, nor a Year 11 to 13 student at the second. So where a place has
+either kind (`schools.STAGES`, `stage_split`), State and In zone count a
+hexagon only when a student in Years 9–10 and one in Years 11–13 can each
+reach a school that teaches them, and take the slower time, as for girls and
+boys: with both, four students (a girl and a boy at each stage). Best takes
+each student's own fastest way. A school teaching Years 9 to 13 serves both,
+so nothing changes where every school does. All counts any school that
+teaches any of Years 9 to 13, stage aside, as it counts single-sex schools
+for everyone. Each school's zone is its zone for the first year it takes at
+secondary (Z2), for both stages. The page (`chooseSchools`) and the build
+(`choice_groups`, `choice_times`, the car short lists) do the same.
+
+One school counts the children of the ages its own years cover:
+13–14 (Years 9–10) for a school that stops at Year 10, 15–17 (13–17 less
+13–14) for one that starts at Year 11.
 
 ### What each school is
 
@@ -90,6 +116,7 @@ intermediate only, since these schools stop at Year 10.
 | `scheme` | Enrolment_Scheme | whether the school has an enrolment scheme (a home zone) |
 | `language_source` | how `language` was set | `directory`; `attributes` (a checked row in `configs/schools/attributes.csv`); `peak_body` (below) |
 | `region` | Regional_Council | the school's regional council, for the record of where schools come from |
+| `character` | a checked `Designated_Character` row in `configs/schools/attributes.csv` | `designated` for a designated character school; the directory has no field for it (below) |
 | `point`, `point_source`, `point_moved_m` | configs/schools/points.csv | `directory` or `corrected`, where the point came from, and how far it moved from the directory's |
 
 **No teaching language, a Māori-medium peak body.** A state school the
@@ -106,7 +133,30 @@ line now names it as Māori-medium "from its peak body"
 
 `configs/schools/attributes.csv` (moe, name, field, value, source,
 checked_by, checked_on) replaces any directory field for one school, as the
-directory would write it, once a person has checked it. It has no rows.
+directory would write it, once a person has checked it. Since the 0.12.0
+review it has 17 rows, each with its source, checked on 13 November 2026 and
+for Tim Welch to confirm:
+
+- **Designated character schools** (field `Designated_Character`, not a
+  directory column): 15 state schools in the twenty places taught in English
+  or bilingually, found from NZ Gazette notices (gazette.govt.nz, searched
+  for "designated character school"; Māori-medium kura are already out of
+  State and In zone) and checked notice by notice: Hagley College (336) and
+  Ao Tawhiti Unlimited Discovery (683), Christchurch; Kia Aroha Campus (631),
+  Vanguard Military School (854), Pacific Advance Secondary School (874),
+  South Auckland Middle School (876), Middle School West Auckland (877) and
+  Rise UP Academy (879), Auckland; Tai Wānanga (632), Hamilton; Te
+  Rangihakahaka Centre for Science and Technology (871) and Whangamarino
+  School (2083), Rotorua; Te Aratika Academy (873), Napier and Hastings; Te
+  Kura o Te Paroa (1888), Whakatāne; Manutuke School (2602), Gisborne; Te
+  Kāpehu Whetū (3619), Whangārei. South Auckland Middle School says it has
+  applied to become an ordinary state school; until the directory or the
+  Gazette says so it stays on the list. The list may not be complete: the
+  Gazette search returns 782 notices, and the ones read were those whose
+  titles name a designation.
+- **Vanguard Military School's years** (field `Org_Type`, Secondary (Year
+  11-15)): the directory gives Years 9–15; its enrolment page says it caters
+  for Years 11, 12 and 13.
 
 ## Where a school trip ends
 
@@ -227,8 +277,12 @@ school by school and hexagon by hexagon, for every place and service
 
 - **Pairs.** For each hexagon and school, minutes = min(R5's public transport
   minutes, walking minutes). At the slower walking pace (`pt_slow`) the walk
-  is the walking time × 4.8 / 3.6, rounded down. A pair where walking is at
-  least as quick is a walk: no fare, no bus or train.
+  is the walking time × 4.8 / 3.6, rounded down. Worked out from whole
+  minutes, it is often a minute quicker than a walk R5 routes at 3.6 km/h:
+  on 289 Auckland pairs routed both ways in the 0.12.0 review, a minute
+  quicker in 124, the same in 148 and a minute slower in 17
+  (`meta.pt_or_walk.slow_note`). A pair where walking is at least as quick is
+  a walk: no fare, no bus or train.
 - **Spread.** For every departure minute the trip is the quicker of the bus
   leaving then and the walk, which does not depend on the clock. R5's
   percentile is a position in the sorted minutes, and taking the quicker of
@@ -264,9 +318,9 @@ from 63.1% to 72.4% within 20 minutes; Blenheim secondary from 36.4% to
 `team schools reroute` routes only schools that were added, moved or removed
 since the runs were routed (docs/running.md), so every other school's
 minutes stay as published. In 0.12.0 it routed the 60 schools the regional
-boundary rule added and the 3 points rule D5-1 moved, and dropped the 13
-schools left out for being off the street file, in 11 places, for every
-school mode including car. Each reroute ended with 300 sampled hexagons
+boundary rule added and the 3 points rule D5-1 moved, and dropped the 10
+schools that round 1 had counted and the street rule leaves out, in 7
+places, for every school mode including car. Each reroute ended with 300 sampled hexagons
 routed to every school in a fresh process; every pair matched
 (`verified` in each run's manifest), and `check_school_runs.py --before`
 found every other school's pairs unchanged.
@@ -279,15 +333,24 @@ For each school, every stop or platform in the place's timetable within
 network and heights, 4.8 km/h, whole minutes rounded down. Stops with a walk
 of 15 minutes or less are listed, quickest first. Platforms with a parent
 station are listed once, as the station, at the walk to its quickest
-platform. For each stop: the routes and trips with a departure from 07:00:00
-to 08:59:59 on Tuesday 15 September 2026, the day and window school trips are
+platform, with the station's stop number. For each stop: the routes and
+trips that set down there (`drop_off_type` not 1) arriving from 07:00:00 to
+08:59:59 on Tuesday 15 September 2026, the day and window school trips are
 routed in, counting the services that run that day by `calendar.txt` and
 `calendar_dates.txt` (a trip of the day before past midnight counts too), and
-for each route its short name, mode (`route_type`), headsigns and trips. A stop
-is listed whether or not the median trip uses it: this is what is near the
-school, not how the median trip gets there. Code:
+for each route its short name, mode (`route_type`), headsigns and trips. At
+the school end students get off, so a school bus that ends at the school's
+own stop counts (Metlink's route 402 at Tawa College's stop 3959, 08:23), and
+a train counts as it arrives. Before the 0.12.0 review the list counted
+boardings (departures with `pickup_type` not 1), which left out every trip
+that ends at the stop; the boardings are kept as `board` in stops.json and
+`trips_boarding_7_9` in the CSV. A route is one short name and mode, however
+many `route_id`s the feed gives it (Otago's route 1 has one for each
+direction). A stop is listed whether or not the median trip uses it: this is
+what is near the school, not how the median trip gets there. Code:
 [`src/team/school_stops.py`](../src/team/school_stops.py); `team schools stops`
-routes the walks.
+routes the walks, and `team schools stops --recount` counts the trips again
+from the feed without routing them.
 
 A stop no trip in the feed stops at, on any day, is listed with `served`
 false. Near Mt Albert Grammar School 32 stops are within a 15-minute walk of
@@ -295,10 +358,12 @@ its point. The nearest, the stop named Mount Albert Grammar School (1427), is a
 minute's walk (95 m), but no trip in Auckland Transport's open timetable stops
 there on any day; it may be for the school's dedicated buses, which that
 timetable leaves out. The Marist College stop (1429, 5 minutes) is the same.
-The nearest stops with trips between 7 and 9am are Owairaka/Mount Albert on
-Owairaka Avenue (8816 and 8823, route 66, 7 and 8 minutes, 8 trips each) and
-Ferndale House on New North Road (8226 and 8229, routes 22N, 22R, OUT and
-209, 7 and 8 minutes, 17 and 36 trips).
+The nearest stops with trips arriving between 7 and 9am are
+Owairaka/Mount Albert on Owairaka Avenue (8816 and 8823, route 66, 7 and 8
+minutes) and Ferndale House on New North Road (8226 and 8229, routes 22N,
+22R, OUT and 209, 7 and 8 minutes). Three bus interchange bays further out
+are each called St Lukes in Auckland Transport's feed (stops 11838, 11512
+and 11287, 12 to 14 minutes); the list gives each its number.
 
 ### Checks
 
@@ -336,7 +401,7 @@ Ferndale House on New North Road (8226 and 8229, routes 22N, 22R, OUT and
 | --- | --- |
 | All | every school in the directory that teaches the service's years: today's measure |
 | State | state schools taught in English: not integrated, private, charter, or a school where all students are taught in te reo Māori or a Pacific language. A school whose teaching language is not given is left out and counted as such. Home zones are not applied: a zoned school counts for everyone, in or out of its zone, and the line under the headline says so. |
-| In zone | state schools taught in English that must take a child living in the hexagon: those whose home zone holds the home, and those with no zone, which must take any student who applies (below) |
+| In zone | state schools taught in English that must take a child living in the hexagon: those whose home zone holds the home, and those with no zone, which must take any student who applies (below). Designated character schools are left out. |
 | One school | that school alone; see below |
 
 Under State and In zone, a second row picks who is counted:
@@ -365,7 +430,29 @@ children aged 0–4.
   file): the headline is the share of the children living in its zone who
   are within the standard of it by the way shown. A hexagon a zone line
   crosses counts the share of its children living in the zone. Who misses
-  out and What would help are for those children.
+  out and What would help are for those children. For a state-integrated
+  school the headline, card and CSV add that living in its zone does not by
+  itself give a right to enrol: it takes children whose families accept its
+  special character first.
+- **A zone partly outside the place.** A school over a regional boundary can
+  have most of its zone outside the place's hexagons (Tuakau College for
+  Auckland). zones.json gives each zone's share of the homes inside the place
+  (`inside`, by current address points, scaled by the share of the zone's
+  area inside the address file's extent) where it is under 99.5%. Under 90%,
+  the headline says "living in the part of its zone inside Auckland". A zone
+  holding none of the place's homes (Putāruru College for Tauranga) is said
+  as such: "Its zone lies outside Tauranga and Western Bay, where TEAM has no
+  homes", and everyone is counted, as for a school with no zone.
+- **Who is counted.** The children of the ages the school's own years cover:
+  13–17 for a Years 9–15 school, 15–17 for one that starts at Year 11, 13–14
+  for one that stops at Year 10. A girls' or a boys' school counts girls (or
+  boys) only: the 2023 Census gives children by age for each block, not by
+  sex, so they are the place's share of girls (or boys) of those ages in the
+  2018 Census (`meta.ages.sex`, from the 2018 SA2s the place's SA1s fall in;
+  49% of 13–17-year-olds in Auckland are girls), taken to live where the
+  others of their age do. The share of them within the standard is then the
+  same as for all children; the number is not. The headline and the CSV
+  header say so.
 - **A school without a zone** (no enrolment scheme, or a scheme with no
   usable map): there is no catchment to give a share of, so the headline is
   the number of children within the standard of it, and Who misses out and
@@ -435,7 +522,10 @@ on. State integrated schools prefer children whose parents have a connection
 with the school's special character (Schedule 6, clause 26), and the boards
 of a Kura Kaupapa Māori and of a designated character school may refuse to
 enrol a student whose parents do not accept the school's character
-(sections 201(9) and 204(5)), so they are not in In zone.
+(sections 201(9) and 204(5)), so they are not in In zone. The directory
+does not flag designated character schools, so they are listed by hand, each
+checked against its Gazette notice (`attributes.csv`, above); 15 are in the
+twenty places. Kura are already out of In zone as Māori-medium.
 
 ### Rules
 
@@ -566,7 +656,14 @@ taught in English only; before schools across a regional boundary are added):
   Of those children, 14,247 aged 5–10 (11% of Auckland's), 2,797 aged 11–12
   (6%) and 3,993 aged 13–17 (4%) live outside the zone set their hexagon is
   counted in (`meta.schools.zones`, `children_outside_set`): the error the
-  one-set rule makes, which One school's shares do not.
+  one-set rule makes, which One school's shares do not. The counting line
+  under In zone gives the number. D1 asked for a hexagon a zone line cuts to
+  be split by its residents' shares; In zone does not do that yet, because a
+  hexagon has one time on the map, the card, the areas and Who misses out.
+  Its effect on the headline figures, every place and service, is measured
+  by `scripts/zone_split_effect.py` from `zones/split_sets.json` (each split
+  hexagon's sets and their shares of its residents) and is an open decision
+  for Tim (below, "Open decisions").
 - **St Lukes** (hexagon 89bb50021a3ffff, on the councillors' slide): wholly
   in Mt Albert Grammar School's zone. For intermediate it is in Kowhai
   Intermediate's zone and 18% of its area is in Balmoral School's Zone B,
@@ -623,7 +720,9 @@ students fill the 15–19 band. Campus North, Dunedin, had 1,623 people aged
 aged 13–17, where an even split would count 979.
 
 **Assumptions.** Ages are on census day, 7 March 2023, and stand for school
-years: some 13-year-olds are in Year 8 and some 17-year-olds have left
+years. Census day is early in the school year, so about a third of Year 7 and
+of Year 9 students are counted with the age group below (a Year 9 student
+born from March to June was still 12), and some 17-year-olds have left
 school. Inside a hexagon children live where residents do. Group shares
 (Māori, Pacific, low income and so on) are for all ages in the census block.
 
@@ -739,7 +838,8 @@ Read when In zone or One school is chosen. Cell `i`'s entries are positions
  source: {file, version, downloaded, sha256, licence, url},
  reference_date: "2026-11-12", rule,
  schools: {"<dest>": {moe, status, from, next: {from} | null, polygons: {service: [PolyID]},
-                      date_unknown (when true), map_from (not_applied only)}},
+                      date_unknown (when true), map_from (not_applied only),
+                      inside: {service: share of the zone's homes inside the place} (under 0.995 only)}},
  in:    {service: {o, d}},        the hexagon's In zone set: zoned state schools taught in English
  share: {service: {o, d, w}},     every zoned school (any kind) holding residents of the cell, w to 3 dp
  split: {service: [cell]}}        residents in more than one set
@@ -755,7 +855,9 @@ service, simplified by 5 m in NZTM keeping its shape's topology, in WGS84 to
 5 decimals. Loaded for One school.
 
 `cells.json` `ages`: `{"0_4": [...], "5_10": [...], "11_12": [...], "13_17":
-[...]}`, children per hexagon to two decimals.
+[...], "13_14": [...]}`, children per hexagon to two decimals; 13_14 is for
+a secondary school that stops at Year 10, and 15–17 is 13_17 less 13_14.
+`meta.ages.sex.girls` gives the place's share of girls in each group.
 
 ### `schools/stops.json`
 
@@ -763,9 +865,10 @@ Loaded only under One school.
 
 ```text
 {format: 1, date: "2026-09-15", window: ["07:00", "08:59"], max_walk_minutes: 15, gtfs: "<file>",
- stops: [{id, code, name, station, lat, lon}],          one table for the place; station: platforms grouped
+ counts: "arrivals",                                   trips set down there, arriving in the window
+ stops: [{id, code, name, station, lat, lon, served}],  one table for the place; station: platforms grouped
  schools: {"<destination index>": [{s: stop position, walk: minutes, metres: straight line,
-                                     routes: [{route, mode, headsigns: [...], trips}], trips}]}}
+                                     routes: [{route, mode, headsigns: [...], trips}], trips, board}]}}
 ```
 
 Every school has an entry; a school with no stop within a 15-minute walk has
@@ -784,9 +887,13 @@ any of its residents, the share of its residents in the zone
 (`residents_share`) and whether the zone is in the hexagon's In zone set
 (`in_zone_set`). `team_<place>_school_stops.csv`: `moe, school, stop_id,
 stop_code, stop_name, station, mode, walk_minutes, straight_m, routes,
-trips_7_9`, one row per school and stop. `team_<place>_h3.csv` and `.gpkg`
-add `age_0_4`, `age_5_10`, `age_11_12` and `age_13_17` beside `population`,
-and keep R5's own public transport times as columns ending `_r5`.
+trips_arriving_7_9, trips_boarding_7_9, served_any_day`, one row per school
+and stop. `team_<place>_h3.csv` and `.gpkg` add `age_0_4`, `age_5_10`,
+`age_11_12`, `age_13_17` and `age_13_14`, R5's own public transport times
+(columns ending `_r5`) and the jobs and fares on foot (`_z0`), all at the end
+of the file so the 0.11 columns stay together. Read columns by name: the
+school columns moved after tertiary in 0.12.0, and `t_*_pt`, `jobs*_pt` and
+`costaccess_*` now hold public transport or walking.
 
 ## The page
 
@@ -808,9 +915,9 @@ build's rules exactly:
   the counting line says so. A school that does not say whether it is co-ed
   counts for neither girls nor boys (Nova Innovation College, a private
   school, so State is not affected).
-- **Car.** A short car list answers All and State only. Under One school the
-  page has no car times and shows Best instead; the card's "Not counted" line
-  is left out by car.
+- **Car.** A short car list answers All, State and In zone (for each student
+  group, stages included). Under One school the page has no car times and
+  shows Best instead; the card's "Not counted" line is left out by car.
 - **On foot, for girls and boys together.** The public transport time shown
   is the slower student's. It is said as a walk ("No bus or train is
   quicker") only where, for each student whose time it is, walking takes as
@@ -832,9 +939,14 @@ and the schools named for the hexagons given, and checks that the files agree
 (the school named is the first in the reach list, its minutes are the time
 shown, tied schools have the same minutes, no time is over 60). Auckland's
 covers the slide hexagon and the hexagons around MAGS, with MAGS, Marist,
-TKKM o Nga Maungarongo, Western Springs College, Auckland Grammar and Epsom
-Girls Grammar as one school each; Wellington's and Blenheim's cover two
-hexagons and three and two schools.
+TKKM o Nga Maungarongo, Western Springs College, Auckland Grammar, Epsom
+Girls Grammar, Auckland Girls' Grammar, Albany Junior and Senior High,
+Tuakau College and King's College as one school each, and a Schnapper Rock
+hexagon for the two stages; Hamilton's has Rototuna Senior and Junior High
+and Tai Wānanga; Wellington's and Blenheim's cover two hexagons and three
+and two schools. One school's weights follow the page (`one_school_weights`:
+the school's own ages and, at a single-sex school, its sex), and the file
+lists the key each school used (`one_weights`).
 
 `tests/web/schools_parity.test.mjs` works the same figures out with the
 page's code and must match every one, to 1e-6 of a share. It also rebuilds All
@@ -883,6 +995,30 @@ are not counted wherever none were found.
   the `#`, reloads the page, so the figures match the link.
 - **Search.** "Mount" finds "Mt", "Saint" finds "St", and initials find a
   school (MAGS, EGGS, AGS).
+
+## Open decisions
+
+For Tim Welch to settle before or after the release:
+
+- **The default choice.** In zone (`DEFAULT_SCHOOL_CHOICE`); All is one
+  line away.
+- **Splitting a hexagon by where its children live (D1).** In zone gives a
+  split hexagon the zones most of its residents live in. Counting each child
+  in their own zones, by the sets and shares in `zones/split_sets.json`
+  (`scripts/zone_split_effect.py`), moves the In zone headlines by at most a
+  point: Auckland primary by public transport 69.2% to 68.5% (2,970 children
+  change sides), intermediate 54.0% to 53.8%, secondary 71.1% to 70.9%;
+  across the twenty places, from 0.9 points lower to 1.0 higher. Doing it on
+  the page needs a hexagon to hold more than one time, for the map, the
+  card, the areas and Who misses out.
+- **Designated character schools.** The list was made from Gazette notices
+  and may miss one; Hagley College, the largest, is in Christchurch's city
+  centre.
+- **Fares under a school choice** are off; In zone fares would need priced
+  layers for each choice.
+- **Download size on a phone.** Opening Auckland loads about 3.75 MB
+  (brotli), 0.77 MB more than 0.11.0; In zone secondary school adds 0.78 MB
+  and primary 1.67 MB, loaded when the service is picked.
 
 ## Not in this release
 

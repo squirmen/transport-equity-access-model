@@ -97,10 +97,37 @@ def test_every_reroute_was_checked_against_a_fresh_routing(name):
 @pytest.mark.skipif(BUILDS is None or CACHES is None or BACKUP is None, reason="set TEAM_BUILDS, TEAM_CACHES and TEAM_REROUTE_BACKUP")
 @pytest.mark.parametrize("name", PLACES)
 def test_reroute_leaves_every_other_school_alone(name):
+    settings = place(name)
     if not (BACKUP / name).exists():
-        pytest.skip(f"{name} had no school to re-route")
-    report = routing.compare_reroute(place(name), BACKUP / name)
+        # No copy: then no school run here may have been re-routed.
+        for dataset, mode_id, window in routing.school_runs(settings):
+            tag = routing.run_tag(dataset, mode_id, window, window is not None)
+            record = json.loads((settings.output_dir / "routing" / f"{tag}.json").read_text())
+            assert not record.get("rerouted"), f"{name} {tag} was re-routed but has no copy from before"
+        return
+    report = routing.compare_reroute(settings, BACKUP / name)
     assert report["identical"], json.dumps(report["runs"])
+
+
+@needs_builds
+@pytest.mark.parametrize("name", PLACES)
+def test_a_relabelled_school_keeps_its_minutes(name):
+    """A school that gained a service has, under it, exactly the pairs it has
+    under a service it already had (routing.relabel_schools)."""
+    settings = place(name)
+    for dataset, mode_id, window in routing.school_runs(settings):
+        tag = routing.run_tag(dataset, mode_id, window, window is not None)
+        record = json.loads((settings.output_dir / "routing" / f"{tag}.json").read_text())
+        if not record.get("relabelled"):
+            continue
+        pairs = schools.load_reach(settings, tag)
+        for school, change in record["relabelled"][-1]["schools"].items():
+            kept = [s for s in change["before"] if s in change["after"]]
+            for gained in [s for s in change["after"] if s not in change["before"]]:
+                a = pairs[(pairs["destination"] == school) & (pairs["service"] == kept[0])].drop(columns="service")
+                b = pairs[(pairs["destination"] == school) & (pairs["service"] == gained)].drop(columns="service")
+                key = ["origin"]
+                assert a.sort_values(key).reset_index(drop=True).equals(b.sort_values(key).reset_index(drop=True)), f"{tag} {school} {gained}"
 
 
 @pytest.mark.skipif(os.environ.get("TEAM_SLOW") != "1" or BUILDS is None, reason="routes with r5py; set TEAM_SLOW=1 and TEAM_BUILDS")

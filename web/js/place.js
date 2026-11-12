@@ -343,7 +343,7 @@ export function rowWords(data, i, service, standard, viewMode, zones = null, mor
   const label = (k) => {
     if (more?.label) return more.label(k);
     const dest = data.destinations?.[k];
-    const tag = allSchools ? tagOf(dest, service) : '';
+    const tag = allSchools ? tagOf(dest, service, { years: true }) : '';
     return `${dest?.name || 'unnamed'}${tag ? ` (${tag})` : ''}`;
   };
   let fastestLine = null;

@@ -1,7 +1,7 @@
 {
  "place": "napier_hastings",
  "version": "0.12.0",
- "built": "2026-11-12",
+ "built": "2026-11-13",
  "directory": "moe_schools_directory_2026-11-12.csv",
  "people": 143379.7,
  "urban_people": 127450.9,
@@ -566,9 +566,9 @@
      "people": 10270.1
     },
     "bike": {
-     "share": 0.883497,
+     "share": 0.883476,
      "share_urban": 0.945626,
-     "people_within": 9073.6,
+     "people_within": 9073.4,
      "people": 10270.1
     },
     "pt": {
@@ -786,39 +786,39 @@
    },
    "secondary_school": {
     "walk": {
-     "share": 0.638451,
-     "share_urban": 0.689541,
-     "people_within": 6557.0,
+     "share": 0.632283,
+     "share_urban": 0.689298,
+     "people_within": 6493.6,
      "people": 10270.1
     },
     "bike_low_stress": {
-     "share": 0.82099,
+     "share": 0.814857,
      "share_urban": 0.883182,
-     "people_within": 8431.7,
+     "people_within": 8368.7,
      "people": 10270.1
     },
     "bike": {
-     "share": 0.892303,
+     "share": 0.885968,
      "share_urban": 0.945891,
-     "people_within": 9164.1,
+     "people_within": 9099.0,
      "people": 10270.1
     },
     "pt": {
-     "share": 0.648531,
-     "share_urban": 0.700431,
-     "people_within": 6660.5,
+     "share": 0.642363,
+     "share_urban": 0.700187,
+     "people_within": 6597.1,
      "people": 10270.1
     },
     "car": {
-     "share": 0.999396,
+     "share": 0.99939,
      "share_urban": 0.999891,
      "people_within": 10263.9,
      "people": 10270.1
     },
     "best": {
-     "share": 0.824665,
+     "share": 0.818408,
      "share_urban": 0.886446,
-     "people_within": 8469.4,
+     "people_within": 8405.2,
      "people": 10270.1
     }
    }

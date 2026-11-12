@@ -1052,7 +1052,7 @@ function schoolCard() {
     nearestLabel: words.nearestLabel || null,
     label: (d) => {
       const dest = data.destinations[d];
-      const tag = !choice ? tagOf(dest, service) : '';
+      const tag = !choice ? tagOf(dest, service, { years: true }) : '';
       return `${dest?.name || 'unnamed'}${tag ? ` (${tag})` : ''}`;
     },
     lines: (mode, i, named, shownMinutes) => {
@@ -1132,7 +1132,7 @@ function renderSchoolsField() {
   renderSchools(root, {
     ...model,
     remember: (q) => { schoolUi.query = q; },
-    find: (q) => findSchools(data.destinations, service, q).map((k) => [k, data.destinations[k].name, tagOf(data.destinations[k], service)]),
+    find: (q) => findSchools(data.destinations, service, q).map((k) => [k, data.destinations[k].name, tagOf(data.destinations[k], service, { years: true })]),
     moeOf: (k) => data.destinations[k].moe,
   }, set);
 }
@@ -1818,6 +1818,10 @@ function burdenModel() {
     const column = paymentKey(meta, state.payment, hour, weekday);
     return freeTravel(meta, state.profile, hour, weekday) ? 0 : (fare(meta, z, state.profile, column) * 2 * days) / 7;
   }) : null;
+  // Homes whose trip is a walk, with no fare (z0): the commute where half the
+  // jobs in reach are a walk away, or a service no bus or train beats walking to.
+  let walking = 0;
+  for (let i = 0; i < data.n; i += 1) if (zones[i] === 0 && weights[i] > 0) walking += weights[i];
   for (let i = 0; i < data.n; i += 1) {
     if (!(weights[i] > 0) || !Number.isFinite(burden[i])) continue;
     paying += weights[i];
@@ -1831,6 +1835,7 @@ function burdenModel() {
     tooltip: (i) => {
       if (commute) {
         if (classes[i] === 5) return ['Public transport reaches almost no jobs within 45 min'];
+        if (zones[i] === 0) return ['Commuting: half the jobs within 45 min are a walk away, so no fare is needed'];
         if (zones[i] === -1) return ['Outside the fare zones, so not priced'];
         if (!Number.isFinite(burden[i])) return ['No income figure for this area'];
         if (burden[i] === 0) return ['Commuting: free for this traveller at the peak'];
@@ -1865,6 +1870,7 @@ function burdenModel() {
       overall: meanOf(burden, weights, null, 0),
       heavy,
       paying,
+      walking,
       byQuintile,
       byGroup,
       show: 'burden',

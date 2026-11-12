@@ -893,7 +893,9 @@ export function renderBurden(root, model, set) {
   const the = model.commute ? 'commuting by public transport' : `the fare to ${model.noun}`;
   let figure = '–';
   let text = model.commute
-    ? `Public transport reaches almost no jobs within 45 minutes${model.where ? ` of ${model.where}` : ''}.`
+    ? (model.walking > 0
+      ? `No fare is needed${model.where ? ` in ${model.where}` : ''}: half the jobs within 45 minutes of each home are a walk away.`
+      : `Public transport reaches almost no jobs within 45 minutes${model.where ? ` of ${model.where}` : ''}.`)
     : `Nobody ${model.where ? `in ${model.where}` : 'here'} needs public transport to reach ${model.noun} within ${model.standard} minutes, or it can't get there in time.`;
   if (Number.isFinite(ratio)) {
     figure = `${ratio.toFixed(1)}×`;

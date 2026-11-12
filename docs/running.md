@@ -121,6 +121,20 @@ two hours in two processes, nearly all of it by car, on a machine running
 another build. The other ten places took from under a minute, where schools were only
 removed, to 25 minutes (Wellington, eight schools).
 
+A school that only gains or loses a service, its points unchanged (in the
+0.12.0 review the Years 7–10 schools, counted for secondary school from
+then on), needs no routing: its minutes do not depend on the service.
+`schools relabel` copies its cached pairs to each service it gained, drops
+those of any it lost, works each batch summary out again and writes the run
+and manifest with the new membership and a `relabelled` record. It refuses a
+school that was added, removed or moved.
+
+```sh
+team --config CONFIG --data-root DATA --out OUT destinations --only schools
+team --config CONFIG --data-root DATA --out OUT schools relabel --reason "why"
+team --config CONFIG --data-root DATA --out OUT plan                          # nothing to do
+```
+
 #### Stops near schools and the map point check
 
 ```sh
@@ -134,7 +148,9 @@ PYTHONPATH=src python scripts/school_points_audit.py --data-root DATA --out-root
 `schools stops` writes `destinations/school_stops.parquet` and
 `school_snap.json`, which the build turns into `data/schools/stops.json` and
 the stops CSV; run it before `team build`, and `audit-points` after it so
-the audit has R5's link distances. [`schools.md`](schools.md) has the rules.
+the audit has R5's link distances. `schools stops --recount` counts the
+trips at the stops already listed again from the feed, without routing the
+walks (about 20 seconds for Wellington, a few minutes for Auckland). [`schools.md`](schools.md) has the rules.
 
 Review sheets for school entrances, for a person to check:
 

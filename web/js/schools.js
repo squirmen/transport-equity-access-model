@@ -266,7 +266,7 @@ export function groupOf(dest) {
 /** How a school differs from a state, English-medium, co-ed school, for a tag
  *  after its name: "state, Māori-medium", "state-integrated, girls' school".
  *  Empty for a school that does not differ. */
-export function tagOf(dest, service) {
+export function tagOf(dest, service, { years = false } = {}) {
   if (!dest || !dest.kind) return '';
   const bits = [];
   const sex = sexOf(dest, service);
@@ -275,6 +275,12 @@ export function tagOf(dest, service) {
   if (dest.kind !== 'state' || other || SEX_WORD[sex]) bits.push(KIND_WORD[dest.kind] || dest.kind);
   if (other) bits.push(OTHER_MEDIUM[medium || 'unknown']);
   if (SEX_WORD[sex]) bits.push(SEX_WORD[sex]);
+  // A secondary school that teaches one stage only, where a name is shown:
+  // under All a junior high can be the nearest for a 16-year-old.
+  if (years && STAGES[service] && Array.isArray(dest.years)) {
+    const one = Object.keys(STAGES[service]).filter((st) => teachesStage(dest, service, st));
+    if (one.length === 1) bits.push(`Years ${dest.years[0]}–${Math.min(13, Number(dest.years[1]))}`);
+  }
   return bits.join(', ');
 }
 

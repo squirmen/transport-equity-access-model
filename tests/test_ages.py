@@ -176,7 +176,9 @@ def test_named_hexagons_have_children():
         for group in ages.GROUPS:
             assert 0 < cells["ages"][group][i] < pop, (place, cell, group)
         if f"{place}/{cell}" in NAMED:
-            assert {g: cells["ages"][g][i] for g in ages.GROUPS} == pytest.approx(NAMED[f"{place}/{cell}"], abs=0.11)
+            named = NAMED[f"{place}/{cell}"]
+            assert {g: cells["ages"][g][i] for g in named} == pytest.approx(named, abs=0.11)
+            assert cells["ages"]["13_14"][i] <= cells["ages"]["13_17"][i]
 
 
 @needs_site

@@ -183,14 +183,16 @@ def main() -> int:
                 d = next(k for k, x in enumerate(dests) if x.get("moe") == int(choice.split(":")[1]) and service in x["services"])
                 if zoned(d, service):
                     inside = schools.zone_share(zones, service, d, n)
-                    w = weights * inside
+                    w = w * inside
                     out["one_zone"].setdefault(choice, {})[service] = {
                         "weights_in_zone": round(float(w.sum()), 1), "residents_in_zone": round(float((pop * inside).sum()), 1)}
             block = {}
             for mode, minutes in times.items():
                 share, total = schools.share_within(minutes, w, standard)
                 share_u, total_u = schools.share_within(minutes, w * urban, standard)
-                block[mode] = {"share": round(share, 6), "share_urban": round(share_u, 6),
+                # A school with no children in its zone's urban part (Tuakau College) has no urban share.
+                block[mode] = {"share": round(share, 6) if np.isfinite(share) else None,
+                               "share_urban": round(share_u, 6) if np.isfinite(share_u) else None,
                                "people_within": round(share * total, 1), "people": round(total, 1)}
             out["figures"].setdefault(key, {})[service] = block
             if who == "everyone":
