@@ -57,7 +57,7 @@ function schoolsHelp(meta) {
   } else if (s.zones) {
     choices.push(`In zone: the state schools whose home zone covers at least half of a hexagon, and the state schools with no enrolment scheme. Zones are the Ministry of Education's, as at ${dated(s.zones) || 'the date in the build'}.`);
   }
-  choices.push(`One school: minutes to one school, found by name or by clicking its pin. ${zoneFile
+  choices.push(`One school: minutes to one school, picked with Find a school, from its pin or from a school named on the card. ${zoneFile
     ? 'For a school with a home zone, the headline is the share of those living in its zone who are within the standard of it, each hexagon counted by the share of its residents inside the zone, and its zone is outlined on the map. Who misses out and What would help count them too. Where part of the zone lies outside this place, only the part inside it is counted, and the headline says so. Living in a state-integrated school\'s zone does not by itself give a right to enrol: it takes children whose families accept its special character first. A school with no home zone has no catchment to give a share of, so the headline is how many live within the standard of it, and those two tabs are off. One school counts the children of the ages its own years cover (15 to 17 for a school that starts at Year 11), and for a girls\' or a boys\' school only girls or boys: the place\'s share of them in the 2018 Census, taken to live where the others do.'
     : s.zones
       ? 'With Only those living in its zone ticked, the figures count the people in its zone and nobody else. Without it, they count everyone, as below.'
@@ -68,6 +68,7 @@ function schoolsHelp(meta) {
   const listed = dated(s.directory);
   const points = s.points;
   const moved = points && Array.isArray(points.moved) ? points.moved.length : null;
+  const kept = points && Array.isArray(points.kept) ? points.kept.length : 0;
   const paras = [
     el('h3', null, 'Schools'),
     para(`For primary, intermediate and secondary schools, the Schools row under Getting to sets which schools count. ${DEFAULT_SCHOOL_CHOICE === 'zone'
@@ -87,7 +88,7 @@ function schoolsHelp(meta) {
       + (s.roll_date ? ` Rolls are at ${dated(s.roll_date)}.` : '')),
   ];
   if (points && moved != null) {
-    paras.push(para(`School points: a point is moved only when it is more than 100 m outside the school's own grounds in LINZ's NZ Facilities and the school's grounds in OpenStreetMap match LINZ's, and the point is inside no school's grounds; it then goes inside the grounds, 10 m in from the edge. ${moved === 0 ? 'No school here was moved.' : `${moved} ${moved === 1 ? 'school here was' : 'schools here were'} moved, and the card says so.`} Other points that looked wrong were listed for checking and not changed.`));
+    paras.push(para(`School points: a school's map point is moved into its grounds when it is more than 100 m outside its grounds in LINZ's NZ Facilities, its grounds in OpenStreetMap match LINZ's, and the point is inside no school's grounds; it then goes 10 m in from the edge. A point is also moved when a check of the school's address, website and aerial photos found it in the wrong place. ${moved === 0 ? 'No school here was moved.' : `${moved} ${moved === 1 ? 'school here was' : 'schools here were'} moved, and the card says so.`}${kept ? ` ${kept} ${kept === 1 ? 'point was' : 'points were'} checked this way and found right.` : ''} Other points that looked wrong are listed for checking and left as the Ministry has them.`));
   }
   if (zoneFile) paras.push(para("The zones were checked against Eagle Technology's copy of them; nothing from it is published."));
   paras.push(para('Fare budgets and the fare maps are worked out for all schools only, so under State, In zone and One school they are off. A school link made for a fare before this release opens on All. Rows on the card for a school service not on screen count all schools, and say so.'));

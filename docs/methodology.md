@@ -148,10 +148,14 @@ the streets. A point is moved only when it is more than 100 m outside the
 school's own LINZ grounds, the two records of the grounds agree, and the
 point is inside no school's grounds; it then goes 10 m inside the grounds.
 That moved three schools (Te Aute College, Te Kura aa Iwi o Ngaati Kauwhata,
-Porirua Montessori), which were routed again. Every other point that looked
-wrong is listed for a person to check and left as the Ministry has it,
-Mt Albert Grammar School's among them (its point is inside its grounds, by
-the Alberton Avenue drive that Google Maps routes to).
+Porirua Montessori), which were routed again. In 0.12.1 the 20 other points
+more than 50 m outside their LINZ grounds were checked by hand against the
+school's street address, its two records of grounds, its website and aerial
+photos: 14 moved into the grounds and were routed again, and 6 were found
+right and kept ([`schools.md`](schools.md), Points checked by hand). Every
+other point that looked wrong is listed for a person to check and left as
+the Ministry has it, Mt Albert Grammar School's among them (its point is
+inside its grounds, by the Alberton Avenue drive that Google Maps routes to).
 
 **Stops near a school.** For each school, the stops and stations within a
 15-minute walk of its map point, on the street network at 4.8 km/h, are
