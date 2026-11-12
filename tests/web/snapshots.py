@@ -97,6 +97,22 @@ def desktop(page: Page, out: Path) -> None:
     page.click("#about-open")
     settle(page)
     page.screenshot(path=out / "desktop-10-about.png")
+    page.keyboard.press("Escape")
+    symbols(page, out)
+
+
+def symbols(page: Page, out: Path) -> None:
+    """One school with its stops and the Stops layer, on each basemap: the map's symbols and the key's rows for them."""
+    base = page.url.split("#")[0]
+    for basemap in ("light", "streets", "satellite"):
+        page.goto("about:blank")
+        page.goto(f"{base}#s=secondary_school&m=best&sch=one:9030&b={basemap}")
+        ready(page)
+        page.click("#open-layers")
+        page.check("#layer-stops")
+        page.click("#open-layers")
+        settle(page, 1200)
+        page.screenshot(path=out / f"desktop-11-symbols-{basemap}.png")
 
 
 def phone(page: Page, out: Path) -> None:
@@ -128,7 +144,9 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=args.chromium) if args.chromium else playwright.chromium.launch()
+        # SwiftShader's WebGL draws the map where there is no GPU.
+        gl = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
+        browser = playwright.chromium.launch(executable_path=args.chromium, args=gl) if args.chromium else playwright.chromium.launch(args=gl)
         for name, viewport, mobile, script in (
             ("desktop", {"width": 1280, "height": 800}, False, desktop),
             ("phone", {"width": 390, "height": 844}, True, phone),
@@ -138,7 +156,8 @@ def main() -> int:
             # The fixture is one place on its own, with no list of places;
             # the picker's request for that list is the one miss expected.
             missing = []
-            page.on("response", lambda r, m=missing: m.append(r.url) if r.status >= 400 and not r.url.endswith("/cities.json") else None)
+            # Nor has it transit.json, which only names the Stops layer's stops.
+            page.on("response", lambda r, m=missing: m.append(r.url) if r.status >= 400 and not r.url.endswith(("/cities.json", "/transit.json")) else None)
             page.on("console", lambda msg, n=name: problems.append(f"{n}: console {msg.type}: {msg.text}")
                     if msg.type == "error" and "Failed to load resource" not in msg.text else None)
             page.on("pageerror", lambda err, n=name: problems.append(f"{n}: page error: {err}"))

@@ -13,6 +13,7 @@
 // Nothing here touches the page, so every rule can be tested in Node.
 
 import { count } from './format.js';
+import { rowMode, stopSymbolOf } from './symbols.js';
 
 export const SCHOOL_SERVICES = ['primary_school', 'intermediate_school', 'secondary_school'];
 export const KINDS = ['all', 'state', 'zone', 'one'];
@@ -123,12 +124,14 @@ export function readSchoolsMeta(meta) {
 // ---------------------------------------------------------------- links
 
 /** The choice in a link: sch=all, sch=state, sch=zone or sch=one:<Ministry
- *  number>; stu=girls or stu=boys; sz=0 when One school counts everyone
- *  rather than only its zone. A link without sch, or with one this page does
- *  not know, opens `fallback` (DEFAULT_SCHOOL_CHOICE). */
+ *  number>, or sch=one for One school with none picked yet; stu=girls or
+ *  stu=boys; sz=0 when One school counts everyone rather than only its zone.
+ *  A link without sch, or with one this page does not know, opens
+ *  `fallback` (DEFAULT_SCHOOL_CHOICE). */
 export function readChoice(sch, stu, sz, fallback = DEFAULT_SCHOOL_CHOICE) {
   const out = { ...ALL_CHOICE, kind: ['all', 'state', 'zone'].includes(fallback) ? fallback : 'all' };
   if (sch === 'all' || sch === 'state' || sch === 'zone') out.kind = sch;
+  if (sch === 'one') out.kind = 'one';
   const one = /^one:(\d{1,7})$/.exec(sch || '');
   if (one) {
     out.kind = 'one';
@@ -145,7 +148,7 @@ export function choiceParams(choice) {
   const out = [];
   if (!choice || choice.kind === 'all') return [['sch', 'all']];
   if (choice.kind === 'one') {
-    if (choice.moe == null) return out;
+    if (choice.moe == null) return [['sch', 'one']];
     out.push(['sch', `one:${choice.moe}`]);
     if (choice.zoneOnly === false) out.push(['sz', '0']);
     return out;
@@ -282,6 +285,50 @@ export function tagOf(dest, service, { years = false } = {}) {
     if (one.length === 1) bits.push(`Years ${dest.years[0]}–${Math.min(13, Number(dest.years[1]))}`);
   }
   return bits.join(', ');
+}
+
+/** What a school is, for its pin's tooltip and popup: "Secondary school ·
+ *  state · co-ed · Years 9–15". `name` is the service's short name. */
+export function schoolKindLine(dest, service, name) {
+  if (!dest) return '';
+  const bits = [name];
+  if (dest.kind) bits.push(KIND_WORD[dest.kind] || dest.kind);
+  const sex = sexOf(dest, service);
+  bits.push(sex === 'co-ed' ? 'co-ed' : SEX_WORD[sex] || null);
+  const medium = mediumOf(dest);
+  if (dest.kind && medium !== 'english') bits.push(OTHER_MEDIUM[medium || 'unknown']);
+  const years = Array.isArray(dest.years) ? dest.years : String(dest.years || '').match(/\d+/g);
+  if (years && years.length >= 2) bits.push(`Years ${years[0]}–${years[years.length - 1]}`);
+  return bits.filter(Boolean).join(' · ');
+}
+
+/** Why State or In zone leaves a school out, for its pin: "state-integrated",
+ *  "taught in te reo Māori or a Pacific language", "a designated character
+ *  school", "a girls' school"; '' where it is counted. */
+export function notCountedReason(dest, service, choice) {
+  if (!dest) return '';
+  if (dest.kind !== 'state') return KIND_WORD[dest.kind] || dest.kind || 'kind not recorded';
+  const medium = mediumOf(dest);
+  if (medium !== 'english') {
+    if (medium === 'maori') return 'taught in te reo Māori';
+    if (medium === 'pacific') return 'taught in a Pacific language';
+    return 'taught in te reo Māori or a Pacific language';
+  }
+  if (choice && choice.kind === 'zone' && isDesignated(dest)) return 'a designated character school';
+  if (choice && !admits(dest, service, choice.students)) {
+    const sex = sexOf(dest, service);
+    return SEX_WORD[sex] ? `a ${SEX_WORD[sex]}` : 'co-ed or single-sex not recorded';
+  }
+  return '';
+}
+
+/** A line for a school whose map point was moved, or not checked: "Map
+ *  point moved 250 m into its grounds". Null for one left as it was. */
+export function pointLine(dest, moved = null) {
+  if (!dest) return null;
+  if (dest.point === 'corrected') return Number(moved) > 0 ? `Map point moved ${distance(Number(moved) / 1000)} into its grounds.` : 'Map point moved into its grounds.';
+  if (dest.point === 'unchecked' || dest.point === 'doubtful') return 'Map point not checked.';
+  return null;
 }
 
 /** Whether a school is counted under a choice, setting zones aside. In zone
@@ -1389,7 +1436,11 @@ export function nearestPhrase(reachByMode, mode, i, ok, { destinations, maxMinut
  *  `mode` in hexagon i. Returns a list of sentences. */
 export function cardLines(ctx, mode, i, named = []) {
   const { destinations, service, choice, reach = {}, result = null, zones = null, maxMinutes = 60 } = ctx;
-  const label = (d) => destinations[d]?.name || 'unnamed';
+  // Every school named, kept in ctx.linked where given, so the card can make each name a link.
+  const label = (d) => {
+    if (Array.isArray(ctx.linked) && d != null && d >= 0 && !ctx.linked.includes(d)) ctx.linked.push(d);
+    return destinations[d]?.name || 'unnamed';
+  };
   const lines = [];
   const real = mode && mode !== 'best' ? (mode === 'walk_slow' ? 'walk' : mode) : null;
   // Whether school buses are in the timetable differs by place (meta.schools.school_buses).
@@ -1402,11 +1453,11 @@ export function cardLines(ctx, mode, i, named = []) {
     const odd = named.filter((d) => tagOf(destinations[d], service));
     if (real && odd.length && reach[real]) {
       const state = (students) => (d) => isState(destinations[d]) && admits(destinations[d], service, students);
-      const g = nearestPhrase(reach, real, i, state('girls'), { destinations, maxMinutes });
-      const b = nearestPhrase(reach, real, i, state('boys'), { destinations, maxMinutes });
+      const g = nearestPhrase(reach, real, i, state('girls'), { destinations, maxMinutes, label });
+      const b = nearestPhrase(reach, real, i, state('boys'), { destinations, maxMinutes, label });
       // None by public transport may still be a walk: say so.
       const none = (students) => {
-        const walk = real === 'pt' && reach.walk ? nearestPhrase(reach, 'walk', i, state(students), { destinations, maxMinutes }) : null;
+        const walk = real === 'pt' && reach.walk ? nearestPhrase(reach, 'walk', i, state(students), { destinations, maxMinutes, label }) : null;
         const base = `none within ${maxMinutes} min ${HOW[real] || ''}`.trim();
         return walk ? `${base}, though ${orList(walk.ds.map(label))} ${walk.ds.length > 1 ? 'are' : 'is'} ${Math.round(walk.m)} min on foot` : base;
       };
@@ -1461,7 +1512,7 @@ export function cardLines(ctx, mode, i, named = []) {
         return own === 'girls' || own === 'boys' ? sex === 'co-ed' || sex === own : sex === 'co-ed';
       };
       const ok = (k) => k !== d && isInZoneSchool(destinations[k]) && sameStudents(k);
-      const other = nearestPhrase(reach, real, i, ok, { destinations, maxMinutes });
+      const other = nearestPhrase(reach, real, i, ok, { destinations, maxMinutes, label });
       const whom = own === 'girls' ? ' that takes girls' : own === 'boys' ? ' that takes boys' : ', co-ed';
       lines.push(other ? `Nearest other state school taught in English${whom}: ${other.text}.` : `No other state school taught in English${whom} within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
     }
@@ -1659,20 +1710,28 @@ export function stopsSplit(stops, d) {
 }
 
 /** A station's mode, "train" or "ferry": the file's, or else its routes'. */
-function stationMode(row, stops) {
+export function stationMode(row, stops) {
   const stop = stops.stops[row.s] || {};
   if (stop.mode === 'train' || stop.mode === 'ferry') return stop.mode;
   const modes = (row.routes || []).map((r) => r.mode);
   return modes.includes('ferry') && !modes.includes('train') ? 'ferry' : 'train';
 }
 
-/** "train station", "ferry stops", "train stations and ferry stops". */
+/** "train station", "ferry terminals", "train stations and ferry terminals",
+ *  as the map's key names them. */
 export function stationNoun(rows, stops) {
   const modes = new Set(rows.map((row) => stationMode(row, stops)));
   const one = rows.length === 1;
-  if (modes.has('train') && modes.has('ferry')) return 'train stations and ferry stops';
-  if (modes.has('ferry')) return one ? 'ferry stop' : 'ferry stops';
+  if (modes.has('train') && modes.has('ferry')) return 'train stations and ferry terminals';
+  if (modes.has('ferry')) return one ? 'ferry terminal' : 'ferry terminals';
   return one ? 'train station' : 'train stations';
+}
+
+/** The key's symbol for a stop near a school: train-station, ferry-station,
+ *  bus-near (trips arriving in the window), bus-none, or station-none for a
+ *  station with no trips then (symbols.js keyRows). */
+export function stopSymbol(row, stops) {
+  return stopSymbolOf([row], stops).sym;
 }
 
 /** The line above the far stations: "Nearest train stations, beyond a 15-minute walk". */
@@ -1758,6 +1817,34 @@ export function stopLine(row, stops) {
       : stop.served === false ? 'no trips on any day in the timetable used' : `no trips${arriving} ${hours} in the timetable used`,
     shown || null,
   ].filter(Boolean).join(' · ');
+}
+
+/** What the map says about one or more stops near a school (one symbol,
+ *  two stops either side of a road below the zoom where they part), when
+ *  hovered or tapped: { title, lines }. "Ferndale House (stops 8226 and
+ *  8229)", "2 bus stops · 7–8 min walk to the school", "53 trips arriving
+ *  7–9am: OUT, 22N, 22R, 209". */
+export function nearStopWords(rows, stops) {
+  const list = rows.filter((row) => row && stops.stops[row.s]);
+  if (!list.length) return null;
+  const quickest = list.reduce((a, b) => (b.walk < a.walk ? b : a));
+  const stop = stops.stops[quickest.s];
+  const codes = [...new Set(list.map((row) => stops.stops[row.s].code).filter(Boolean))];
+  const title = `${stopTitle(stop)}${codes.length ? ` (${codes.length > 1 ? 'stops' : 'stop'} ${andList(codes)})` : ''}`;
+  const mode = list.map((row) => rowMode(row, stops)).find((m) => m !== 'bus') || 'bus';
+  const what = mode === 'train' ? 'Train station' : mode === 'ferry' ? 'Ferry terminal' : list.length > 1 ? `${list.length} bus stops` : 'Bus stop';
+  const walks = [...new Set(list.map((row) => Number(row.walk)))].sort((a, b) => a - b);
+  const walk = walks.length > 1 ? `${walks[0]}–${walks[walks.length - 1]}` : `${walks[0]}`;
+  const metres = list.length === 1 && Number.isFinite(Number(quickest.metres)) ? ` (${thousands(Math.round(quickest.metres))} m)` : '';
+  const trips = list.reduce((a, row) => a + (Number(row.trips) || 0), 0);
+  const routes = [...new Set(list.flatMap((row) => (row.routes || []).map((r) => r.route)).filter(Boolean))];
+  const shown = routes.length > 6 ? `${routes.slice(0, 6).join(', ')} and ${routes.length - 6} more` : routes.join(', ');
+  const arriving = stops.counts === 'arrivals' ? ' arriving' : '';
+  const hours = stopHours(stops);
+  const tripLine = trips
+    ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'}${arriving} ${hours}${shown ? `: ${shown}` : ''}`
+    : list.every((row) => stops.stops[row.s].served === false) ? 'No trips on any day in the timetable used' : `No trips${arriving} ${hours}`;
+  return { title, mode, lines: [`${what} · ${walk} min walk to the school${metres}`, tripLine] };
 }
 
 /** The lines the One school CSV starts with about the stops. */
