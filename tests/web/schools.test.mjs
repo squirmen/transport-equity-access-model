@@ -4,11 +4,11 @@ import test from 'node:test';
 
 import { setCellMask, setUrban, times } from '../../web/js/data.js';
 import { setServices } from '../../web/js/panel.js';
-import { namedFor, serviceVerdict, tripWords, verdictLine } from '../../web/js/place.js';
+import { namedFor, serviceVerdict, tooltipLines, tripWords, verdictLine } from '../../web/js/place.js';
 import {
   admits, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeZones,
-  findSchools, groupCounts, groupOf, hasAttributes, isState, mediumOf, nearestAt, orderTies, readChoice, readSchoolsMeta, restoreData,
-  schoolFacts, schoolsCsv, sexOf, tagOf, zoneCells,
+  distance, findSchools, groupCounts, groupOf, hasAttributes, isState, mediumOf, nearestAt, NO_ZONES, orderTies, readChoice, readSchoolsMeta,
+  RESIDENTS, restoreData, schoolFacts, schoolsCsv, sexOf, tagOf, windowWords, zoneCells,
 } from '../../web/js/schools.js';
 
 const F = JSON.parse(readFileSync(new URL('./fixtures/schools/fixture.json', import.meta.url), 'utf8'));
@@ -254,7 +254,8 @@ function cardFor(data, choice, result) {
   const service = S;
   const words = choiceWords({ short: 'Secondary school', noun: 'a secondary school', plural: 'secondary schools' }, result ? choice : null,
     choice.kind === 'one' ? D[MAGS] : null);
-  const ctx = { destinations: D, service, choice, reach, result, zones: result ? zones : null, centres: F.centres, maxMinutes: 60, when: 'weekdays 7 to 9am' };
+  const ctx = { destinations: D, service, choice, reach, result, zones: result ? zones : null, centres: F.centres, maxMinutes: 60,
+    when: windowWords({ start: '07:00', minutes: 120 }, '2026-09-15') };
   return {
     short: words.short,
     one: Boolean(words.one),
@@ -269,10 +270,10 @@ test("the slide's card, All by public transport: the walk to TKKM, and the neare
   const band = verdictLine(data, 0, S, 30, 'pt', null, cardFor(data, { kind: 'all' }, null));
   assert.equal(band.strong, 'Secondary school: 9 min on foot. No bus or train is quicker.');
   assert.equal(band.rest, 'Nearest: TKKM o Nga Maungarongo (state, Māori-medium). '
-    + 'Nearest state school: Mt Albert Grammar School, 15 min on foot. The standard is 30 min.');
+    + 'Nearest state school taught in English: Mt Albert Grammar School, 15 min on foot. The standard is 30 min.');
   const bike = verdictLine(data, 0, S, 30, 'bike_low_stress', null, cardFor(data, { kind: 'all' }, null));
   assert.equal(bike.strong, 'Secondary school: 6 min by low-stress cycling.');
-  assert.match(bike.rest, /^Nearest: Marist College \(state-integrated, girls' school\)\. Nearest state school: Mt Albert Grammar School, 10 min by low-stress cycling\./);
+  assert.match(bike.rest, /^Nearest: Marist College \(state-integrated, girls' school\)\. Nearest state school taught in English: Mt Albert Grammar School, 10 min by low-stress cycling\./);
 });
 
 test("the slide's card under State, and the schools it leaves out", () => {
@@ -304,15 +305,19 @@ test('One school: its time by the way on screen, the spread, the zone and the ne
   assert.equal(band.strong, 'Mt Albert Grammar School: 15 min on foot. No bus or train is quicker.');
   // A walk takes the same time whenever you leave, so there is no spread to give.
   assert.equal(band.rest, 'This hexagon is in its zone. '
-    + 'Nearest other state school: Western Springs College-Ngā Puna o Waiōrea, 32 min by public transport. The standard is 30 min.');
+    + 'Nearest other state school taught in English: Western Springs College-Ngā Puna o Waiōrea, 32 min by public transport. '
+    + `Times go to the Ministry's map point for the school (the pin, ${distance(0.42)} away in a straight line), not to its nearest gate. The standard is 30 min.`);
   assert.doesNotMatch(band.rest, /Nearest: Mt Albert/, 'One school does not name itself again');
   const cut = verdictLine(data, 3, S, 30, 'pt', null, cardFor(data, choice, result));
-  assert.match(cut.rest, /Usually 25–33 min, depending on when you leave \(weekdays 7 to 9am, 10th to 90th percentile\)\./);
-  assert.match(cut.rest, /No other state school within 60 min by public transport\./);
+  // The spread is public transport's own, said after the walking time.
+  assert.match(cut.rest, /^Walking is quicker: 26 min\. By public transport, usually 25–33 min, depending on when you leave between 7am and 9am on Tuesday 15 September 2026 \(10th to 90th percentile\)\./);
+  assert.match(cut.rest, /No other state school taught in English within 60 min by public transport\./);
   assert.match(cut.rest, /Its zone line crosses this hexagon; at least half of it is in the zone\./);
-  assert.match(cut.rest, /Walking is quicker: 26 min\./);
   const out = verdictLine(data, 1, S, 30, 'pt', null, cardFor(data, choice, result));
-  assert.match(out.rest, /This hexagon is not in its zone\. Nearest other state school: Western Springs College-Ngā Puna o Waiōrea, 20 min by public transport\./);
+  assert.match(out.rest, /This hexagon is not in its zone\. Nearest other state school taught in English: Western Springs College-Ngā Puna o Waiōrea, 20 min by public transport\./);
+  // A school with checked entrances says so instead.
+  const gated = cardLines({ destinations: D.map((d, k) => (k === MAGS ? { ...d, routed_to: 2 } : d)), service: S, choice, reach, result, zones, centres: F.centres }, 'pt', 0, []);
+  assert.ok(!gated.some((l) => l.startsWith('Times go to')), gated.join(' | '));
 });
 
 test('ties are named together, and walking quicker is said', () => {
@@ -352,30 +357,43 @@ test('the counting line, with counts from the data', () => {
   const meta = readSchoolsMeta(F.meta);
   assert.equal(countingLine(D, S, { kind: 'all' }, { plural, meta }),
     'Counting all 9 secondary schools: 5 state, 1 state Māori-medium, 2 state-integrated and 1 private. '
-    + 'Single-sex schools count for everyone. School list as at 12 Nov 2026.');
+    + 'Single-sex schools count for everyone. Figures count all residents, not only school-age children. School list as at 12 Nov 2026.');
   assert.equal(countingLine(D, S, { kind: 'state', students: 'both' }, { plural }),
     'Counting 5 state secondary schools taught in English. Not counted: 2 state-integrated, 1 private and 1 Māori-medium. '
-    + 'Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two.');
+    + 'Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two. '
+    + 'Home zones are not applied: a school with a zone counts for everyone, in or out of it. '
+    + 'Figures count all residents, not only school-age children.');
+  for (const choice of [{ kind: 'all' }, { kind: 'state', students: 'girls' }, { kind: 'zone', students: 'both' }, { kind: 'one', moe: 69 }]) {
+    assert.ok(countingLine(D, S, choice, { plural, zones }).includes(RESIDENTS), `${choice.kind}: who is counted`);
+  }
+  assert.ok(countingLine(D, S, { kind: 'state', students: 'boys' }, { plural }).includes(NO_ZONES));
+  assert.ok(!countingLine(D, S, { kind: 'zone', students: 'both' }, { plural, zones }).includes(NO_ZONES), 'In zone applies them');
+  // One school with no zone in the build: everyone is counted, and it says so.
+  assert.equal(countingLine(D, S, { kind: 'one', moe: 69, zoneOnly: true }, { plural }),
+    'Counting Mt Albert Grammar School only. Its zone is not in this build, so people in and out of its zone are counted alike. '
+    + 'Figures count all residents, not only school-age children.');
   assert.match(countingLine(D, S, { kind: 'state', students: 'girls' }, { plural }), /Counting co-ed and girls' schools: 4 of the 5\./);
   assert.match(countingLine(D, S, { kind: 'zone', students: 'both' }, { plural, zones }),
     /^Counting state secondary schools taught in English whose zone covers at least half of the hexagon \(3 of the 5 have a zone\), and the 2 with no enrolment scheme\./);
   assert.match(countingLine(D, S, { kind: 'zone', students: 'both' }, { plural, zones }), /Zones as at 14 Jul 2026\./);
   assert.equal(countingLine(D, S, { kind: 'one', moe: 69, zoneOnly: true }, { plural, zones }),
-    'Counting Mt Albert Grammar School only. Only people living in its zone (in force from 6 Jun 2018) are counted.');
+    'Counting Mt Albert Grammar School only. Only people living in its zone (in force from 6 Jun 2018) are counted. '
+    + 'Figures count all residents, not only school-age children.');
   assert.equal(countingLine(D, S, { kind: 'one', moe: 69, zoneOnly: false }, { plural, zones }),
-    'Counting Mt Albert Grammar School only. Everyone is counted, not only its zone.');
+    'Counting Mt Albert Grammar School only. Everyone is counted, not only its zone. Figures count all residents, not only school-age children.');
 });
 
 test('names for headlines and the key', () => {
   const base = { short: 'Secondary school', noun: 'a secondary school', plural: 'secondary schools' };
   assert.equal(choiceWords(base, null).noun, 'a secondary school');
-  assert.equal(choiceWords(base, { kind: 'state', students: 'both' }).noun, 'a state secondary school');
-  assert.equal(choiceWords(base, { kind: 'state', students: 'girls' }).noun, 'a state secondary school that takes girls');
-  assert.equal(choiceWords(base, { kind: 'zone', students: 'both' }).noun, 'an in-zone state secondary school');
+  assert.equal(choiceWords(base, { kind: 'state', students: 'both' }).noun, 'a state secondary school taught in English');
+  assert.equal(choiceWords(base, { kind: 'state', students: 'girls' }).noun, 'a state secondary school taught in English that takes girls');
+  assert.equal(choiceWords(base, { kind: 'state', students: 'both' }).short, 'State secondary school');
+  assert.equal(choiceWords(base, { kind: 'zone', students: 'both' }).noun, 'an in-zone state secondary school taught in English');
   assert.equal(choiceWords(base, { kind: 'zone', students: 'both' }).short, 'In-zone state secondary school');
   assert.equal(choiceWords(base, { kind: 'one', moe: 69 }, D[MAGS]).noun, 'Mt Albert Grammar School');
   assert.equal(choiceWords({ short: 'Intermediate', noun: 'an intermediate school', plural: 'intermediate schools' }, { kind: 'state', students: 'both' }).noun,
-    'a state intermediate school');
+    'a state intermediate school taught in English');
 });
 
 test('facts about one school', () => {
@@ -394,6 +412,17 @@ test('finding a school by name or number', () => {
   assert.deepEqual(findSchools(D, S, '69'), [MAGS]);
   assert.deepEqual(findSchools(D, S, 'hill'), [], 'a GP is not a school');
   assert.deepEqual(findSchools(D, S, ''), []);
+  // The names people use: Mount for Mt, Saint for St, initials.
+  assert.deepEqual(findSchools(D, S, 'Mount Albert Grammar'), [MAGS]);
+  assert.deepEqual(findSchools(D, S, 'mount albert'), [MAGS, 5], 'Elim Christian College Mt Albert too, after');
+  assert.deepEqual(findSchools(D, S, 'MAGS'), [MAGS]);
+  assert.deepEqual(findSchools(D, S, 'mags'), [MAGS]);
+  assert.equal(findSchools(D, S, 'AGGS')[0], AGGS, "Auckland Girls' Grammar School");
+  const saint = [{ name: "St Mary's College", moe: 1, services: [S] }, { name: 'Mount Maunganui College', moe: 2, services: [S] }];
+  assert.deepEqual(findSchools(saint, S, "saint mary's"), [0]);
+  assert.deepEqual(findSchools(saint, S, 'saint marys'), [0]);
+  assert.deepEqual(findSchools(saint, S, 'mt maunganui'), [1], 'Mount in the name matches Mt typed');
+  assert.deepEqual(findSchools(saint, S, 'smc'), [0]);
 });
 
 test('the CSV: one row a counted hexagon, the choice and dates in its header', () => {
@@ -479,8 +508,67 @@ test('none within the hour by public transport, but a walk: the card says so', (
   const data = { t: { [S]: { walk: Float32Array.of(22), pt: Float32Array.of(NaN) } } };
   assert.equal(tripWords(data, S, 'pt', 0).quicker, 22, 'Walking is quicker: 22 min');
   const all = cardLines({ destinations: D, service: S, choice: { kind: 'all' }, reach: { walk, pt } }, 'pt', 0, [BOYS_HIGH]);
-  assert.ok(all.includes("Nearest state school for a girl: none within 60 min by public transport, though Auckland Girls' Grammar School is 22 min on foot."), all.join(' | '));
+  assert.ok(all.includes("Nearest state school taught in English, for a girl: none within 60 min by public transport, though Auckland Girls' Grammar School is 22 min on foot."), all.join(' | '));
   const state = chooseSchools({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt }, n: 1, standardModes: ['walk', 'pt'] });
   const lines = cardLines({ destinations: D, service: S, choice: { kind: 'state', students: 'both' }, reach: { walk, pt }, result: state }, 'pt', 0, []);
   assert.ok(lines.some((l) => l.startsWith("For a girl: none within 60 min by public transport, though Auckland Girls' Grammar School is 22 min on foot.")), lines.join(' | '));
+});
+
+// ---------------------------------------------------------------- review fixes, November 2026
+
+test('the tooltip says what the card says: a walk is a walk, and Best names the way', () => {
+  setServices({ services: { [S]: {} } });
+  const data = dataSet();
+  // All, public transport, at the slide hexagon: the 9 minutes are a walk.
+  const band = verdictLine(data, 0, S, 30, 'pt', null, cardFor(data, { kind: 'all' }, null));
+  assert.deepEqual(tooltipLines(data, 0, S, 30, 'pt', null, 'Secondary school'), [band.strong]);
+  assert.equal(band.strong, 'Secondary school: 9 min on foot. No bus or train is quicker.');
+  // Best: the way is named, not "best option".
+  const best = verdictLine(data, 0, S, 30, 'best');
+  assert.deepEqual(tooltipLines(data, 0, S, 30, 'best'), [best.strong]);
+  assert.equal(best.strong, 'Secondary school: 6 min by low-stress cycling.');
+  // Public transport slower than walking: the walk goes on the tooltip too.
+  const slow = verdictLine(data, 3, S, 30, 'pt');
+  assert.deepEqual(tooltipLines(data, 3, S, 30, 'pt'), [slow.strong, 'Walking is quicker: 26 min.']);
+  // One school MAGS.
+  const choice = { kind: 'one', moe: 69, students: 'both', zoneOnly: true };
+  const result = run(choice);
+  applyToData(data, S, result);
+  for (const [i, mode] of [[0, 'pt'], [3, 'pt'], [0, 'walk'], [4, 'best'], [2, 'pt']]) {
+    const card = verdictLine(data, i, S, 30, mode, null, cardFor(data, choice, result));
+    assert.equal(tooltipLines(data, i, S, 30, mode, null, 'Mt Albert Grammar School')[0], card.strong, `${i} ${mode}`);
+  }
+  // Every hexagon and way, under every choice: the first line is the card's.
+  for (const c of [{ kind: 'all' }, { kind: 'state', students: 'both' }, { kind: 'state', students: 'girls' }]) {
+    const d = dataSet();
+    const r = c.kind === 'all' ? null : run(c);
+    if (r) applyToData(d, S, r);
+    const words = cardFor(d, c, r);
+    for (let i = 0; i < N; i += 1) {
+      for (const mode of ['walk', 'bike_low_stress', 'pt', 'best']) {
+        assert.equal(tooltipLines(d, i, S, 30, mode, null, words.short)[0], verdictLine(d, i, S, 30, mode, null, words).strong, `${c.kind} ${i} ${mode}`);
+      }
+    }
+  }
+});
+
+test('when public transport was timed: one named day, not weekdays', () => {
+  assert.equal(windowWords({ start: '07:00', minutes: 120 }, '2026-09-15'), 'between 7am and 9am on Tuesday 15 September 2026');
+  assert.equal(windowWords({ start: '10:00', minutes: 120, date: '2026-09-19' }, '2026-09-15'), 'between 10am and midday on Saturday 19 September 2026');
+  assert.equal(windowWords({ start: '07:30', minutes: 60 }, null), 'between 7:30am and 8:30am');
+  assert.equal(windowWords(null, '2026-09-15'), null);
+});
+
+test('straight-line distances read to 10 m or a tenth of a kilometre', () => {
+  assert.equal(distance(0.252), '250 m');
+  assert.equal(distance(0.004), '10 m');
+  assert.equal(distance(1.234), '1.2 km');
+  assert.equal(distance(NaN), '');
+});
+
+test('the school bus line says dedicated school buses are left out', () => {
+  const lines = cardLines({ destinations: D, service: S, choice: { kind: 'one', moe: 69 }, reach, schoolBuses: false }, 'pt', 0, []);
+  assert.equal(lines[lines.length - 1], 'Dedicated school buses are not in the timetable used, so they are not counted.');
+  const none = cardLines({ destinations: D, service: S, choice: { kind: 'one', moe: 69 }, reach, schoolBuses: true }, 'pt', 0, []);
+  assert.ok(!none.some((l) => /school buses/i.test(l)));
 });

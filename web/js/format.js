@@ -42,7 +42,7 @@ export const MODE_NOTES = {
   walk_slow: 'Walking at 3.6 km/h, about the pace of people in their eighties, slowed on slopes.',
   bike_low_stress: 'Cycling at 15 km/h on paths, protected lanes and quiet streets only.',
   bike: 'Cycling at 15 km/h on any street a bike is allowed on, including busy roads. Shown for comparison; it does not count towards the standard.',
-  pt: 'Public transport with walking at each end, median over the time window. A walk of up to 15 minutes also counts.',
+  pt: 'Public transport with walking at each end, median over the time window. A walk all the way counts too, but only up to 15 minutes; minutes are rounded down, so a walk shown as 15 min may not count.',
   car: 'Driving time with no traffic delay or parking. Shown for comparison only.',
 };
 

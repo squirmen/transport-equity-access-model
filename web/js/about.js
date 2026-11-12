@@ -7,6 +7,7 @@ const LINKS = {
   method: 'https://github.com/squirmen/transport-equity-access-model/blob/main/docs/methodology.md',
   code: 'https://github.com/squirmen/transport-equity-access-model',
   lab: 'https://betterplaces.blogs.auckland.ac.nz',
+  changes: 'https://github.com/squirmen/transport-equity-access-model/blob/main/CHANGELOG.md',
 };
 
 
@@ -34,25 +35,32 @@ function schoolsHelp(meta) {
   const dated = (value) => (value ? new Date(`${value}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : null);
   const choices = [
     'All: every school that teaches those years, whether state, state-integrated, private or charter, single-sex included. This is what TEAM showed before the row was added, and what a link without a choice shows.',
-    'State: state schools taught in English. A state school whose teaching language the directory does not give is left out, and the line under the headline says so. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own.',
+    'State: state schools taught in English. A state school whose teaching language the directory does not give is left out, and the line under the headline says so. Girls and boys counts a place only when both a girl and a boy living there can reach a school they can go to, and uses the slower of the two times. Girls or Boys counts co-ed schools and that one\'s own. Home zones are not applied: a school with a zone counts for everyone, in or out of it.',
   ];
   if (s.zones) {
     choices.push(`In zone: the state schools whose home zone covers at least half of a hexagon, and the state schools with no enrolment scheme. Zones are the Ministry of Education's, as at ${dated(s.zones) || 'the date in the build'}. Where a zone line crosses a hexagon, the headline says how many people live in such hexagons.`);
   }
   choices.push(`One school: minutes to one school, found by name or by clicking its pin. ${s.zones
-    ? 'With Only people living in its zone ticked, the figures count the people in its zone and nobody else.'
-    : 'School zones are not in this build yet, so the figures count everyone in the place.'} There are no car times to one school.`);
+    ? 'With Only people living in its zone ticked, the figures count the people in its zone and nobody else. Without it, they count everyone, as below.'
+    : 'School zones are not in this build yet, so the headline is the number of people who live within the standard of the school, and a share is given only for a local board, ward or suburb, named under the number. Who misses out and What would help are off for one school until zones are in.'} The area you pick stays when you change school, so two schools are compared for the same people. There are no car times to one school.`);
   const listed = dated(s.directory);
   return [
     el('h3', null, 'Schools'),
     para('For primary, intermediate and secondary schools, the Schools row under Getting to sets which schools count.'),
     list(choices),
     para(`A line under every headline says which schools are counted, with counts from the Ministry of Education's school directory${listed ? ` as at ${listed}` : ''}. `
-      + 'The card names the school reached in the time it shows, by the way of travelling shown. A public transport time that is no quicker than walking is a walk, and is said as one. '
-      + "Times are whole minutes from the routing, rounded down, so 30 min means under 31. They run from the middle of each hexagon to the Ministry's map point for the school, unless the school's details under One school say its entrances were checked."
-      + (s.school_buses === false ? ' School buses are not in the timetable used here, so a trip by school bus is not counted.' : '')
+      + 'The figures count all residents of each hexagon, of every age, not only school-age children. '
+      + 'Nearest means quickest by the way of travelling shown. The card names that school, and every school reached in the same minute, nearest in a straight line first. '
+      + 'A public transport time that is no quicker than walking is a walk, and is said as one. A walk all the way counts as a public transport trip only up to 15 minutes, so further out public transport can be slower than walking; the card then says walking is quicker. '
+      + "Times are whole minutes from the routing, rounded down, so 30 min means under 31. They run from the middle of each hexagon to the Ministry's map point for the school, not to its nearest gate, unless the school's details under One school say its entrances were checked. On a large site a gate can be several minutes nearer."
+      + (s.school_buses === false ? ` ${s.bus_note || 'Dedicated school buses are not in the timetable used here, so they are not counted.'}` : '')
       + (s.school_buses === true ? ' School buses in the timetable are counted.' : '')
       + (s.roll_date ? ` Rolls are at ${dated(s.roll_date)}.` : '')),
+    (() => {
+      const line = para('Before version 0.12.0 the card could name a school reached a different way from the time it showed. ');
+      line.append(link('What changed', LINKS.changes), document.createTextNode('.'));
+      return line;
+    })(),
   ];
 }
 

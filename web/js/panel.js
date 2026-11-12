@@ -467,6 +467,20 @@ function accessSentence(model) {
   }
 }
 
+/** One school with everyone counted: how many live within the standard. A
+ *  share of everyone in the place would mostly count people who would never
+ *  go there, so it is given only for an area picked, and named as such. */
+export function withinSentence(model) {
+  const { noun, standard, mode, fare = '' } = model;
+  const how = {
+    walk: 'on foot', walk_slow: 'on foot at a slower pace', bike_low_stress: 'by low-stress cycling', bike: 'cycling on any street',
+    pt: `by public transport${fare}`, car: 'by car',
+  }[mode] || `without a car${fare}`;
+  const one = Math.round(model.within) === 1;
+  const who = model.where ? `${one ? 'person' : 'people'} in ${model.where}` : (one ? 'person' : 'people');
+  return `${who} ${one ? 'lives' : 'live'} within ${standard} minutes of ${noun} ${how}.`;
+}
+
 /** What the fare budget is doing, when one is set. */
 function fareText(model) {
   if (!model.fare) return null;
@@ -520,20 +534,39 @@ function robustSection(model) {
   return fold('robust', 'How robust is this?', null, parts);
 }
 
-export function renderAccess(root, model, set) {
+function accessKey(root, model) {
   const short = SERVICE_SHORT[model.service] || '';
   setKey(root, {
     mode: `${model.keyName || `Minutes to the nearest ${lowerName(short)}`}, ${MODE_KEY[model.mode] || model.mode}`,
     scale: scaleOf(model.legend, 3),
-    notes: [`Blue is within the ${model.standard}-minute standard, orange beyond it.`, MODE_NOTES[model.mode]],
+    notes: [`Blue is within the ${model.standard}-minute standard, orange beyond it.`, MODE_NOTES[model.mode], model.keyNote].filter(Boolean),
   });
+}
+
+export function renderAccess(root, model, set) {
+  accessKey(root, model);
+  const head = model.oneEveryone
+    ? hero(count(model.within), withinSentence(model),
+      model.where && Number.isFinite(model.share) ? `${percent(model.share)} of the ${count(model.people)} people living there.` : null)
+    : hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null);
   root.replaceChildren(...[
     accessViews('minutes', model, set),
-    hero(percent(model.share), accessSentence(model), model.mode === 'best' ? cant(model.below) : null),
+    head,
     oneNote(model.compare, fareText(model), model.zoneNote),
     zoneAreas(model, set),
     robustSection(model),
   ].filter(Boolean));
+}
+
+/** Who misses out and What would help under One school with everyone
+ *  counted: both need to know who would go to the school, which its zone
+ *  says, so they are off until zones are in. The map keeps the minutes. */
+export function renderNeedsZone(root, model) {
+  accessKey(root, model);
+  const tab = model.needsZone === 'fixes' ? 'What would help' : 'Who misses out';
+  root.replaceChildren(
+    el('p', 'note', `${tab} needs ${model.noun}'s home zone, to know who would go there. Zones are not in this build yet, so it is off for one school. Access gives the minutes to the school from every hexagon.`),
+  );
 }
 
 /** One school's zone, area by area, the furthest first: the people in each
@@ -608,7 +641,7 @@ export function renderSchools(root, model, set) {
   select.id = 'schools-select';
   select.setAttribute('aria-labelledby', 'schools-label');
   for (const kind of model.kinds) {
-    const option = el('option', null, KIND_TEXT[kind][0] === 'One school' ? 'One school…' : `${KIND_TEXT[kind][0]} schools`);
+    const option = el('option', null, kind === 'one' ? 'One school…' : kind === 'state' ? 'State schools taught in English' : `${KIND_TEXT[kind][0]} schools`);
     option.value = kind;
     option.selected = kind === choice.kind;
     select.append(option);
@@ -688,7 +721,7 @@ function oneSchool(model, set) {
       item.append(button);
       return item;
     }));
-    if (!found.length && input.value.trim()) results.append(el('li', 'note', 'No school of these years by that name.'));
+    if (!found.length && input.value.trim()) results.append(el('li', 'note', 'No match among the schools that teach these years. Try part of the name, or click the school on the map.'));
   };
   input.addEventListener('input', () => {
     model.remember(input.value);

@@ -174,14 +174,34 @@ export function tripWords(data, service, mode, i, zones = null) {
  *  `more` is for the service on screen when it is a school service:
  *  { short, label(d), lines(mode, i, names, shown) }, from schools.js, giving
  *  the choice's name, a tag after a school's name, and extra sentences. */
-export function verdictLine(data, i, service, standard, viewMode, zones = null, more = null) {
+/** The card's first sentence for a service in hexagon i: the time on
+ *  screen and how it is made ("9 min on foot. No bus or train is quicker.").
+ *  The map's tooltip uses the same words, so the two never disagree.
+ *  Returns { v, trip, strong }; trip is null where no time is shown. */
+export function headline(data, i, service, standard, viewMode, zones = null, name = SERVICE_SHORT[service] || service) {
   const v = serviceVerdict(data, i, service, standard, viewMode, zones);
+  if (v.pricedOut) return { v, trip: null, strong: `${name}: costs too much by public transport.` };
+  if (!v.counts) return { v, trip: null, strong: `${name}: ${minutes(v.shown)} ${HOW[v.mode] || ''}.` };
+  if (!v.mode) return { v, trip: null, strong: `${name}: over 60 min without a car.` };
+  const trip = tripWords(data, service, v.mode, i, zones);
+  return { v, trip, strong: `${name}: ${minutes(v.shown)} ${trip.how}.${trip.onFoot ? ' No bus or train is quicker.' : ''}` };
+}
+
+/** The map's tooltip for a service: the card's first sentence, and walking
+ *  where it is quicker than the public transport time the map shows. */
+export function tooltipLines(data, i, service, standard, viewMode, zones = null, name = undefined) {
+  const { trip, strong } = headline(data, i, service, standard, viewMode, zones, name);
+  return [strong, trip && Number.isFinite(trip.quicker) ? `Walking is quicker: ${minutes(trip.quicker)}.` : null].filter(Boolean);
+}
+
+export function verdictLine(data, i, service, standard, viewMode, zones = null, more = null) {
   const name = more?.short || SERVICE_SHORT[service] || service;
+  const { v, trip, strong } = headline(data, i, service, standard, viewMode, zones, name);
   if (v.pricedOut) {
     return {
       state: 'misses',
       badge: 'Misses',
-      strong: `${name}: costs too much by public transport.`,
+      strong,
       rest: `Reachable in ${minutes(data.t[service].pt[i])}, but not on this fare budget. The standard is ${standard} min.`,
     };
   }
@@ -189,16 +209,14 @@ export function verdictLine(data, i, service, standard, viewMode, zones = null, 
     return {
       state: 'reference',
       badge: "Doesn't count",
-      strong: `${name}: ${minutes(v.shown)} ${HOW[v.mode] || ''}.`,
+      strong,
       rest: 'Shown for comparison: car and any-street cycling never count towards a standard.',
     };
   }
   if (!v.mode) {
     const extra = more ? more.lines(null, i, [], NaN) : [];
-    return { state: 'misses', badge: 'Misses', strong: `${name}: over 60 min without a car.`, rest: [...extra, `The standard is ${standard} min.`].join(' ') };
+    return { state: 'misses', badge: 'Misses', strong, rest: [...extra, `The standard is ${standard} min.`].join(' ') };
   }
-  const trip = tripWords(data, service, v.mode, i, zones);
-  const strong = `${name}: ${minutes(v.shown)} ${trip.how}.${trip.onFoot ? ' No bus or train is quicker.' : ''}`;
   const bits = [];
   if (Number.isFinite(trip.quicker)) bits.push(`Walking is quicker: ${minutes(trip.quicker)}.`);
   if (trip.names.length && !(more && more.one)) {

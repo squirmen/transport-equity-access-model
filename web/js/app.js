@@ -26,18 +26,18 @@ import {
   PEOPLE, quartileBreaks, REASON_CLASS, REASON_GROUPS, REASON_PALETTE, SCORE, SCORE_BREAKS, VILLAGE,
 } from './palette.js';
 import {
-  goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes,
+  goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes, renderNeedsZone,
   renderJobsPeople, renderBurden, renderChips, renderChoice, renderModePicker, renderPeople, renderSchools, renderScore, renderTraveller,
   renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_PLURAL, SERVICE_SHORT, setServices, shortScaleLabel, travelOptions,
 } from './panel.js';
 import { areaCsv, areaTable, sortAreas } from './areas.js';
 import { nearestCity } from './cities.js';
-import { placeHeader, renderPlace } from './place.js';
+import { placeHeader, renderPlace, tooltipLines } from './place.js';
 import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './scope.js';
 import {
   applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeZones, DEFAULT_CHOICE,
-  findSchools, hasAttributes, isSchoolService, readChoice, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv,
-  tagOf, zoneCells,
+  findSchools, hasAttributes, isSchoolService, readChoice, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe,
+  schoolFacts, schoolsCsv, tagOf, windowWords, zoneCells,
 } from './schools.js';
 
 function dataBase() {
@@ -787,6 +787,21 @@ function zoneOnlyNow() {
   return Boolean(data.cellMask) && appliedChoice()?.kind === 'one';
 }
 
+/** One school, with everyone counted rather than only its zone (always, until
+ *  zones are in). A share of the whole place then mostly counts people who
+ *  would never go there, so the headline is a count, and Who misses out and
+ *  What would help, which need to know who would, are off. */
+function oneSchoolEveryone() {
+  return appliedChoice()?.kind === 'one' && !zoneOnlyNow();
+}
+
+/** When public transport was timed for a service: "between 7am and 9am on
+ *  Tuesday 15 September 2026". */
+function timedWhen(service) {
+  const spec = (data.meta.windows || {})[data.activeWindow?.[service] || data.meta.services?.[service]?.window];
+  return windowWords(spec, data.meta.routing_date);
+}
+
 const nounOf = (service) => (zoneOnlyNow() && service === state.service ? 'it' : wordsFor(service).noun);
 const shortOf = (service) => wordsFor(service).short;
 
@@ -873,7 +888,7 @@ function schoolCard() {
     zones: choice ? data.schoolZones : null,
     centres: cellCentres,
     maxMinutes,
-    when: (data.meta.windows || {})[data.meta.services?.[service]?.window]?.when || null,
+    when: timedWhen(service),
     schoolBuses: schoolsMeta().school_buses,
     standardModes: data.meta.standard_modes,
   };
@@ -972,11 +987,13 @@ function renderSchoolMap() {
     schoolUi.fit = false;
     const dest = data.destinations[d];
     const box = zone && zone.outline ? boundsOf(zone.outline) : null;
-    // The figures stay those of the whole zone (or place) until the map is moved by hand.
-    state.areaPin = { level: 'place' };
     userMoved = false;
     const pad = placePadding();
     if (box) {
+      // With its zone counted, the figures are those of the whole zone until
+      // the map is moved by hand. Otherwise the area picked or linked stays,
+      // so two schools are compared for the same people.
+      state.areaPin = { level: 'place' };
       map.fitBounds([[box[0], box[1]], [box[2], box[3]]], {
         padding: { top: pad.top + 20, bottom: pad.bottom + 20, left: pad.left + 20, right: pad.right + 20 }, maxZoom: 15, duration: 600,
       });
@@ -1034,8 +1051,9 @@ function downloadSchools() {
   const header = [
     `TEAM ${data.meta.version}, ${place.name}. ${baseWords(service).short}, ${choice.kind === 'one' ? words.short : choice.kind === 'all' ? 'all schools' : words.plural}.`,
     countingLine(data.destinations, service, choice, { plural: baseWords(service).plural, zones: data.schoolZones, meta }),
-    `Minutes from the middle of each hexagon, whole minutes as the routing gives them; blank is none within ${data.meta.routing_max_minutes || 60} minutes.`,
-    `Public transport: median over ${(data.meta.windows || {})[data.meta.services[service]?.window]?.when || 'the usual window'}, timetable of ${data.meta.routing_date}.`,
+    `Minutes from the middle of each hexagon to each school's map point in the Ministry's directory (not its nearest gate), whole minutes as the routing gives them, rounded down; blank is none within ${data.meta.routing_max_minutes || 60} minutes.`,
+    `Public transport: the median of trips leaving each minute ${timedWhen(service) || 'in the usual window'}, on that day's timetable. A walk all the way counts as a public transport trip only up to 15 minutes, so minutes_pt can be more than minutes_walk.`,
+    'residents: everyone living in the hexagon, of all ages (Census 2023).',
     'moe_<mode> is the Ministry school number of the nearest school counted by that way; tied schools are joined with |.',
     choice.students === 'both' && result && result.bySex ? 'Girls and boys: each minutes_<mode> is the slower of the girls and boys columns; minutes_best is the slower of each one\'s fastest way.' : null,
     // The counting line above gives the directory date already.
@@ -1090,17 +1108,27 @@ function accessModel() {
   ];
   const legend = labels.map((label, k) => (label ? { colour: ACCESS[k], label } : null)).filter(Boolean);
   const words = wordsFor(service);
+  const oneEveryone = oneSchoolEveryone();
   let people = 0;
   for (let i = 0; i < data.n; i += 1) if (data.pop[i] > 0) people += data.pop[i];
   return {
     classes,
     colours: ACCESS,
-    tooltip: (i) => [`${shortOf(service)}: ${minutes(shown[i])} by ${MODES[state.mode].short}`, `Standard: within ${standard} min`],
+    // The card's first sentence, so a walk is never called a bus trip.
+    tooltip: (i) => [
+      ...tooltipLines(data, i, service, standard, state.mode, zones != null && typeof zones !== 'number' ? zones[i] : zones, shortOf(service)),
+      `Standard: within ${standard} min`,
+    ],
     panel: {
       service,
       noun: nounOf(service),
       keyName: words.one ? `Minutes to ${words.short}` : appliedChoice() ? `Minutes to ${words.nearest}` : null,
       oneSchool: Boolean(words.one),
+      oneEveryone,
+      within: peopleWithin(flags, data.pop),
+      keyNote: !schoolsAvailable(service) ? null : words.one
+        ? "Times go to the Ministry's map point for the school (the pin), not to its nearest gate."
+        : 'Nearest is the quickest by the way shown. Schools reached in the same minute are all named on the card, nearest in a straight line first.',
       people,
       zoneNote: zoneNote(),
       zoneAreas: zoneAreasModel(shown, standard),
@@ -1115,12 +1143,19 @@ function accessModel() {
       fare: fareClause(),
       share: weightedShare(flags, data.pop),
       below: peopleBelow(flags, data.pop),
-      compare: compareNote(service, state.mode, standard, weightedShare(flags, data.pop)),
-      robust: state.mode === 'best' && !figureOnly ? robustModel(service, standard) : null,
+      compare: oneEveryone ? null : compareNote(service, state.mode, standard, weightedShare(flags, data.pop)),
+      robust: state.mode === 'best' && !figureOnly && !oneEveryone ? robustModel(service, standard) : null,
       canShowChoice: Boolean(data.choice[service]) && !words.one,
       legend,
     },
   };
+}
+
+/** People in the hexagons flagged. */
+function peopleWithin(flags, pop) {
+  let total = 0;
+  for (let i = 0; i < pop.length; i += 1) if (flags[i] && pop[i] > 0) total += pop[i];
+  return total;
 }
 
 /** What it costs to reach the nearest one inside the standard, per cell. */
@@ -2345,6 +2380,11 @@ function compute() {
     if (state.view === 'access' && state.show === 'burden' && commuteAvailable()) return burdenModel();
     return jobsModel();
   }
+  if ((state.view === 'people' || state.view === 'fixes') && oneSchoolEveryone()) {
+    // The map keeps the minutes to the school; the panel says why the tab is off.
+    const model = accessModel();
+    return { ...model, panel: { ...model.panel, needsZone: state.view } };
+  }
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
   if (state.show === 'fare' && fareAvailable() && data.cost[state.service]) return fareSurfaceModel();
@@ -2842,6 +2882,10 @@ function renderInto(root, model) {
       root.keySpec = null;
       root.replaceChildren(el('p', 'note', 'What would help is worked out for single trips. Pick one of the stops under Getting to to see it.'));
     }
+    return;
+  }
+  if (model.panel && model.panel.needsZone) {
+    renderNeedsZone(root, model.panel);
     return;
   }
   if (state.view === 'access') {
@@ -4886,6 +4930,14 @@ async function init() {
     return;
   }
   const at = readHash();
+  // The page reads the address once. A link pasted over it that differs only
+  // after the # loads nothing, so read it afresh. The page's own updates use
+  // replaceState, which fires no hashchange, and the skip link's #panel is not
+  // a view, so neither reloads.
+  window.addEventListener('hashchange', () => {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    if (['s', 'x', 'v', 'm', 'o', 'sch'].some((k) => params.has(k))) window.location.reload();
+  });
   // WebKit can run this before the stylesheet applies; the map waits for it.
   await stylesheetReady();
   const basemaps = el('div', 'segmented basemaps');

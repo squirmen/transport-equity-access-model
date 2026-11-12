@@ -710,11 +710,13 @@ export function choiceWords(base, choice, school = null) {
   const adjective = choice.kind === 'zone' ? 'in-zone state' : 'state';
   const who = choice.students === 'girls' ? ' that takes girls' : choice.students === 'boys' ? ' that takes boys' : '';
   const thing = `${adjective} ${plain}`;
+  // State and In zone count schools taught in English only, as the counting
+  // line says; a state kura is a state school too, so the noun says which.
   return {
     short: capital(thing) + (choice.students === 'girls' ? ', girls' : choice.students === 'boys' ? ', boys' : ''),
-    noun: `${article(adjective)} ${thing}${who}`,
+    noun: `${article(adjective)} ${thing} taught in English${who}`,
     plural: `${adjective} ${base.plural}`,
-    nearest: `the nearest ${thing}${who}`,
+    nearest: `the nearest ${thing} taught in English${who}`,
   };
 }
 
@@ -731,6 +733,11 @@ export function groupCounts(destinations, service, students = 'both') {
   }
   return out;
 }
+
+/** Who the figures count, under every school headline and in the CSV. */
+export const RESIDENTS = 'Figures count all residents, not only school-age children.';
+/** Under State: home zones are not applied. */
+export const NO_ZONES = 'Home zones are not applied: a school with a zone counts for everyone, in or out of it.';
 
 const LEFT_OUT = [
   ['integrated', 'state-integrated'],
@@ -755,7 +762,8 @@ function otherMediumWord(destinations, service) {
  *  plural ("secondary schools"); `zones` is decodeZones' result. */
 export function countingLine(destinations, service, choice, { plural = 'schools', zones = null, meta = {} } = {}) {
   const c = groupCounts(destinations, service);
-  const listed = meta.directory ? ` School list as at ${day(meta.directory)}.` : '';
+  // The figures weight every resident of a hexagon, whatever their age.
+  const listed = ` ${RESIDENTS}${meta.directory ? ` School list as at ${day(meta.directory)}.` : ''}`;
   const otherWord = otherMediumWord(destinations, service);
   if (!choice || choice.kind === 'all') {
     const parts = [
@@ -775,7 +783,7 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
     const name = d >= 0 ? destinations[d].name : 'the school picked';
     const z = d >= 0 && zones ? zones.schools?.[d] || zones.schools?.[String(d)] : null;
     const zoneText = !z
-      ? ''
+      ? (d >= 0 && destinations[d].scheme === true ? ' Its zone is not in this build, so people in and out of its zone are counted alike.' : '')
       : choice.zoneOnly !== false
         ? ` Only people living in its zone${z.from ? ` (in force from ${day(z.from)})` : ''} are counted.`
         : ' Everyone is counted, not only its zone.';
@@ -789,7 +797,7 @@ export function countingLine(destinations, service, choice, { plural = 'schools'
   else if (choice.students === 'boys') who = ` Counting co-ed and boys' schools: ${thousands(sexed.state)} of the ${thousands(c.state)}.`;
   else who = ' Girls and boys: both must be able to reach one they can go to, and the time is the slower of the two.';
   if (choice.kind === 'state') {
-    return `Counting ${thousands(c.state)} state ${plural} taught in English.${left}${who}${listed}`;
+    return `Counting ${thousands(c.state)} state ${plural} taught in English.${left}${who} ${NO_ZONES}${listed}`;
   }
   // In zone: the same schools, each counted only inside its own zone.
   let zoned = 0;
@@ -839,15 +847,24 @@ export function schoolFacts(dest, service, { zone = null } = {}) {
 /** Schools that teach a service whose name (or Ministry number) matches what
  *  was typed, best matches first. */
 export function findSchools(destinations, service, query, limit = 8) {
-  const fold = (text) => String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const words = fold(query).split(/[^a-z0-9]+/).filter(Boolean);
+  // Macrons fold, and Mount and Saint match the Ministry's Mt and St.
+  const SAME = { mount: 'mt', saint: 'st' };
+  const fold = (text) => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/'/g, '').split(/[^a-z0-9]+/).filter(Boolean).map((w) => SAME[w] || w);
+  const words = fold(query);
   if (!words.length) return [];
+  // One word of three or more letters may be initials: MAGS, EGGS, AGS.
+  const initials = words.length === 1 && /^[a-z]{3,6}$/.test(words[0]) ? words[0] : null;
   const out = [];
   (destinations || []).forEach((dest, d) => {
     if (!serves(dest, service) || dest.moe == null) return;
-    const name = fold(dest.name);
-    const parts = name.split(/[^a-z0-9]+/);
+    const parts = fold(dest.name);
+    const name = parts.join(' ');
     const number = String(dest.moe);
+    if (initials && parts.map((p) => p[0]).join('') === initials) {
+      out.push([10, dest.name || '', d]);
+      return;
+    }
     let score = 0;
     for (const w of words) {
       if (number === w) score += 3;
@@ -862,6 +879,36 @@ export function findSchools(destinations, service, query, limit = 8) {
 }
 
 // ---------------------------------------------------------------- the card
+
+/** "250 m", "1.2 km": a straight-line distance, to 10 m or 0.1 km. */
+export function distance(km) {
+  if (!Number.isFinite(km)) return '';
+  return km < 1 ? `${Math.max(10, Math.round(km * 100) * 10)} m` : `${(Math.round(km * 10) / 10).toFixed(1)} km`;
+}
+
+/** When a public transport time was timed: "between 7am and 9am on Tuesday
+ *  15 September 2026". The routing used one weekday's timetable, so it names
+ *  the day rather than "weekdays". `spec` is a window from meta.windows. */
+export function windowWords(spec, routingDate) {
+  if (!spec || !/^\d{1,2}:\d{2}$/.test(String(spec.start || ''))) return null;
+  const [h, m] = String(spec.start).split(':').map(Number);
+  const end = h * 60 + m + Number(spec.minutes || 0);
+  const clock = (mins) => {
+    const hh = Math.floor(mins / 60) % 24;
+    const mm = mins % 60;
+    if (hh === 12 && mm === 0) return 'midday';
+    const twelve = hh % 12 === 0 ? 12 : hh % 12;
+    return `${twelve}${mm ? `:${String(mm).padStart(2, '0')}` : ''}${hh < 12 ? 'am' : 'pm'}`;
+  };
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(spec.date || routingDate || ''));
+  // Spelt out here rather than by the browser's locale, so every browser says the same.
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const when = date
+    ? `${DAYS[new Date(Date.UTC(+date[1], +date[2] - 1, +date[3])).getUTCDay()]} ${Number(date[3])} ${FULL[Number(date[2]) - 1]} ${date[1]}`
+    : null;
+  return `between ${clock(h * 60 + m)} and ${clock(end)}${when ? ` on ${when}` : ''}`;
+}
 
 const HOW = { walk: 'on foot', walk_slow: 'on foot at the slower pace', bike_low_stress: 'by low-stress cycling', bike: 'cycling on any street', pt: 'by public transport', car: 'by car' };
 
@@ -898,7 +945,7 @@ export function cardLines(ctx, mode, i, named = []) {
   const lines = [];
   const real = mode && mode !== 'best' ? (mode === 'walk_slow' ? 'walk' : mode) : null;
   // Whether school buses are in the timetable differs by place (meta.schools.school_buses).
-  const buses = real === 'pt' && ctx.schoolBuses === false ? 'School buses are not in the timetable used, so a trip by school bus is not counted.' : null;
+  const buses = real === 'pt' && ctx.schoolBuses === false ? 'Dedicated school buses are not in the timetable used, so they are not counted.' : null;
   const done = () => (buses ? [...lines, buses] : lines);
 
   if (!choice || choice.kind === 'all') {
@@ -915,10 +962,11 @@ export function cardLines(ctx, mode, i, named = []) {
         const base = `none within ${maxMinutes} min ${HOW[real] || ''}`.trim();
         return walk ? `${base}, though ${orList(walk.ds.map(label))} ${walk.ds.length > 1 ? 'are' : 'is'} ${Math.round(walk.m)} min on foot` : base;
       };
-      if (!g && !b) lines.push(`No state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
-      else if (g && b && g.text === b.text) lines.push(`Nearest state school: ${g.text}.`);
+      // "State" here is what the State choice counts: taught in English.
+      if (!g && !b) lines.push(`No state school taught in English within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
+      else if (g && b && g.text === b.text) lines.push(`Nearest state school taught in English: ${g.text}.`);
       else {
-        lines.push(`Nearest state school for a girl: ${g ? g.text : none('girls')}.`);
+        lines.push(`Nearest state school taught in English, for a girl: ${g ? g.text : none('girls')}.`);
         lines.push(`For a boy: ${b ? b.text : none('boys')}.`);
       }
     }
@@ -933,8 +981,9 @@ export function cardLines(ctx, mode, i, named = []) {
       // A walk all the way takes the same time whenever you leave: no spread to give.
       const flat = spread.lo === spread.hi && spread.hi === spread.m;
       if (Number.isFinite(spread.lo) && Number.isFinite(spread.hi) && Number.isFinite(spread.m) && !flat) {
-        const when = ctx.when ? `${ctx.when}, ` : '';
-        lines.push(`Usually ${Math.round(spread.lo)}–${Math.round(spread.hi)} min, depending on when you leave (${when}10th to 90th percentile).`);
+        // Said as public transport's own, since it may follow a walking time.
+        const when = ctx.when ? ` ${ctx.when}` : '';
+        lines.push(`By public transport, usually ${Math.round(spread.lo)}–${Math.round(spread.hi)} min, depending on when you leave${when} (10th to 90th percentile).`);
       }
     }
     if (zones && (zones.schools?.[d] || zones.schools?.[String(d)])) {
@@ -947,7 +996,14 @@ export function cardLines(ctx, mode, i, named = []) {
       // A single-sex school is said as one, since not every student can go.
       const named = (k) => `${label(k)}${SEX_WORD[sexOf(destinations[k], service)] ? ` (${SEX_WORD[sexOf(destinations[k], service)]})` : ''}`;
       const other = nearestPhrase(reach, real, i, (k) => k !== d && isState(destinations[k]), { destinations, maxMinutes, label: named });
-      lines.push(other ? `Nearest other state school: ${other.text}.` : `No other state school within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
+      lines.push(other ? `Nearest other state school taught in English: ${other.text}.` : `No other state school taught in English within ${maxMinutes} min ${HOW[real] || ''}.`.replace(' .', '.'));
+    }
+    // Where the times end. A large site may have a gate much nearer.
+    const to = destinations[d].routed_to;
+    if (!(Number(to) > 0)) {
+      const centre = ctx.centres ? ctx.centres[i] : null;
+      const far = centre && Number.isFinite(destinations[d].lat) ? ` (the pin, ${distance(kmBetween(centre, destinations[d]))} away in a straight line)` : ' (the pin)';
+      lines.push(`Times go to the Ministry's map point for the school${far}, not to its nearest gate.`);
     }
     return done();
   }

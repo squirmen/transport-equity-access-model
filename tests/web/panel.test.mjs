@@ -66,3 +66,14 @@ test('a phone\'s key strip shows each step by its upper figure', () => {
   assert.equal(shortScaleLabel('No way'), 'No way');
   assert.equal(shortScaleLabel('under 2.5%'), 'under 2.5%');
 });
+
+test('One school with everyone counted: a count of people, and for an area only, a share named as such', async () => {
+  const { withinSentence } = await import('../../web/js/panel.js');
+  const base = { noun: 'Mt Albert Grammar School', standard: 30, within: 57002.8 };
+  assert.equal(withinSentence({ ...base, mode: 'pt' }), 'people live within 30 minutes of Mt Albert Grammar School by public transport.');
+  assert.equal(withinSentence({ ...base, mode: 'walk' }), 'people live within 30 minutes of Mt Albert Grammar School on foot.');
+  assert.equal(withinSentence({ ...base, mode: 'best' }), 'people live within 30 minutes of Mt Albert Grammar School without a car.');
+  assert.equal(withinSentence({ ...base, mode: 'pt', where: 'the Albert-Eden Local Board area' }),
+    'people in the Albert-Eden Local Board area live within 30 minutes of Mt Albert Grammar School by public transport.');
+  assert.equal(withinSentence({ ...base, within: 1, mode: 'bike_low_stress' }), 'person lives within 30 minutes of Mt Albert Grammar School by low-stress cycling.');
+});
