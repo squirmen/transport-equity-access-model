@@ -1109,6 +1109,8 @@ function accessModel() {
   const legend = labels.map((label, k) => (label ? { colour: ACCESS[k], label } : null)).filter(Boolean);
   const words = wordsFor(service);
   const oneEveryone = oneSchoolEveryone();
+  // The way drawn, kept for the tooltip, which is read later.
+  const drawn = state.mode;
   let people = 0;
   for (let i = 0; i < data.n; i += 1) if (data.pop[i] > 0) people += data.pop[i];
   return {
@@ -1116,7 +1118,7 @@ function accessModel() {
     colours: ACCESS,
     // The card's first sentence, so a walk is never called a bus trip.
     tooltip: (i) => [
-      ...tooltipLines(data, i, service, standard, state.mode, zones != null && typeof zones !== 'number' ? zones[i] : zones, shortOf(service)),
+      ...tooltipLines(data, i, service, standard, drawn, zones != null && typeof zones !== 'number' ? zones[i] : zones, shortOf(service)),
       `Standard: within ${standard} min`,
     ],
     panel: {
@@ -2381,9 +2383,16 @@ function compute() {
     return jobsModel();
   }
   if ((state.view === 'people' || state.view === 'fixes') && oneSchoolEveryone()) {
-    // The map keeps the minutes to the school; the panel says why the tab is off.
-    const model = accessModel();
-    return { ...model, panel: { ...model.panel, needsZone: state.view } };
+    // The map keeps the minutes to the school, by the fastest way as these
+    // tabs count (Travel by shows Best); the panel says why the tab is off.
+    const kept = state.mode;
+    state.mode = 'best';
+    try {
+      const model = accessModel();
+      return { ...model, panel: { ...model.panel, needsZone: state.view } };
+    } finally {
+      state.mode = kept;
+    }
   }
   if (state.view === 'people') return peopleModel();
   if (state.view === 'fixes') return fixesModel();
