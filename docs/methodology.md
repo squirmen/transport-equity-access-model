@@ -92,9 +92,9 @@ each have a ward of the same name have the council added to it.
 | Early childhood service | Ministry of Education early learning directory | centres, kindergartens, playcentres and kōhanga reo; home-based networks left out |
 | Tertiary or trades training | Hand-kept list from NZQA and providers, on LINZ address points | teaching sites of universities, polytechnics, wānanga and trades training providers (see data-sources) |
 | Trades training | The same list | sites whose teaching is mainly trades |
-| Primary school | Ministry of Education school directory | open contributing, full primary and composite schools |
-| Intermediate school | Ministry of Education school directory | open schools that teach Years 7–8 |
-| Secondary school | Ministry of Education school directory | open schools that teach Years 9 and up |
+| Primary school | Ministry of Education school directory, 12 November 2026 | open contributing, full primary and composite schools |
+| Intermediate school | Ministry of Education school directory, 12 November 2026 | open schools that teach Years 7–8, including Year 7–10 schools |
+| Secondary school | Ministry of Education school directory, 12 November 2026 | open schools that teach Years 9 and up |
 | Jobs | Stats NZ business demography, 2024 | employee counts by SA2, spread over hexagons by area |
 
 A service mapped twice in OpenStreetMap, once as a point and once as a
@@ -103,6 +103,10 @@ taken from the whole extract, which reaches beyond the council boundary, so
 people near the edge are not cut off from services across it. Schools, early
 childhood services and GPs come from national or regional lists and are kept
 within about 8 km of the area; jobs cover the area's own statistical areas.
+Every place reads one dated copy of the school directory, and each school
+carries its kind (state, integrated, private, charter), teaching language, who
+it takes at each service's years, roll and enrolment scheme;
+[`schools.md`](schools.md) has the rules.
 
 Jobs are summed to H3 resolution 8 (about 0.74 km²) before routing. This keeps
 public transport routing to a manageable size; the jobs data is published by
@@ -175,7 +179,18 @@ minute, which is how frequency enters the measure.
 
 For each hexagon and service, TEAM keeps the minutes to the nearest destination
 by each mode, which destination that was, how many destinations are within 10,
-15, 20 and 30 minutes, and the straight-line distance to the nearest.
+15, 20 and 30 minutes, and the straight-line distance to the nearest. R5 gives
+whole minutes, rounded down, so "30 min" means under 31. Nothing past the
+60-minute limit is published: R5 can return a minute or more over it for the
+walk from the street to the point, and those times show as over 60.
+
+Schools are routed in runs of their own, which keep every school within 60
+minutes of each hexagon, not only the nearest, and for public transport the
+10th and 90th percentiles over the departure minutes as well as the median.
+When two schools are reached in the same minute, the one named is the nearer
+in a straight line, then the one with the lower Ministry number, and both are
+listed. A public transport time equal to the walking time means no bus or
+train gets there sooner than walking.
 
 **Errand rounds.** A single trip is not how most errands are run. A round
 starts at home, stops at a GP, a pharmacy and a supermarket, and comes home;
@@ -577,9 +592,15 @@ first. A local study is still needed to design one.
 
 ## 12. What TEAM does not do
 
-- It uses the nearest service. School zones, GP enrolment, opening hours and
-  store size are not modelled, so the nearest service may not be one a person
-  can use.
+- It uses the nearest service. GP enrolment, opening hours and store size are
+  not modelled, so the nearest service may not be one a person can use. For
+  schools the site can count state schools only, or one school, but school
+  zones are not in yet, and the nearest school may be full, single-sex,
+  integrated or private.
+- School trips start at the hexagon centre and end at the Ministry's map point
+  for the school, not the gate students use, and leave at any minute from 7
+  to 9am rather than to arrive by the bell. Auckland's open timetable has no
+  school buses.
 - Travel times come from timetables and street data, not observed journeys.
   Reliability, crowding and missed connections are not included.
 - Walking and cycling allow for hills, but not lighting, footpath condition,

@@ -61,6 +61,41 @@ team --config CONFIG --data-root DATA --out OUT build           # measures, summ
 A routing run records the street network and elevation model it was made
 with, and is routed again if either changes.
 
+### Schools
+
+Schools come from one dated copy of the Ministry's directory and are routed
+in runs of their own (`schools_<mode>`), so a new directory re-routes schools
+only. [`schools.md`](schools.md) has the rules.
+
+```sh
+python scripts/fetch_school_directory.py --data-root DATA     # a new dated copy; point data.schools at it
+team --config CONFIG --data-root DATA --out OUT schools check  # what each school service counts
+team --config CONFIG --data-root DATA --out OUT destinations --only schools
+team --config CONFIG --data-root DATA --out OUT route --all    # routes the schools_* runs that are out of date
+python scripts/check_school_runs.py --config CONFIG --data-root DATA --out OUT
+```
+
+A build from before 0.12.0 routed schools inside the services runs. `team
+schools split` moves it over without routing anything else again: it takes
+the schools out of `services.parquet` (keeping the old file as
+`services_with_schools.parquet`) and marks each services run that was routed
+against the old file as still current. `check_school_runs.py` then confirms
+the school runs give the same minutes as the services runs did, school by
+school, for every school whose point did not move.
+
+For Auckland the school runs took about 15 minutes for walking, cycling and
+public transport and about an hour for the car, in three processes. Shards of
+one place must not start together on a network r5py has not cached yet: they
+write the same cache file and fail. Route one shard first, or one process a
+place.
+
+Review sheets for school map points and entrances, for a person to check:
+
+```sh
+python scripts/school_points_review.py --config CONFIG --data-root DATA --out OUT \
+    --facilities nz_facilities.gpkg --gates gates.parquet --to REVIEW_DIR
+```
+
 To time a run before committing to it, route the first few origins:
 
 ```sh
@@ -114,7 +149,9 @@ SITE/data/auckland` writes only the map overlays and the stop and line names
 
 ```text
 <data root>/team/
-  destinations/          services.parquet, jobs.parquet, services_summary.json
+  destinations/          services.parquet, jobs.parquet, services_summary.json,
+                         schools.parquet (routing points), school_list.parquet,
+                         schools_summary.json
   routing/               one parquet per run, with a JSON manifest
   routing/batches/       the per-batch files behind each run
   team_cells.parquet     every measure for every hexagon
@@ -122,8 +159,9 @@ SITE/data/auckland` writes only the map overlays and the stop and line names
     index.html, css/, js/, assets/
     data/                cells.json, cells_more.json, summary.json, places.json,
                          destinations.json, overlays.json, transit.json,
-                         chains.json, chains/
-    downloads/           team_auckland_h3.gpkg, .csv, fields.csv, SHA256SUMS.txt
+                         chains.json, chains/, schools/
+    downloads/           team_auckland_h3.gpkg, .csv, team_auckland_schools.csv,
+                         fields.csv, SHA256SUMS.txt
 ```
 
 ## Publishing

@@ -1,0 +1,3 @@
+# Corrected map points for schools whose directory point is wrong. A row is used only when checked_by and checked_on are filled.
+# moe: School_Id. lon, lat: WGS84. source: where the new point comes from. reason: what was wrong.
+moe,name,lon,lat,source,reason,checked_by,checked_on

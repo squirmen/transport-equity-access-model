@@ -1,6 +1,131 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (not yet released)
+
+Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
+School (MAGS). [`docs/schools.md`](docs/schools.md) has the rules.
+
+- **The card names the right school.** It named the nearest school by the
+  quickest way, beside the time for the way on screen. On the councillors'
+  slide (St Lukes, hexagon 89bb50021a3ffff) "9 min by public transport,
+  nearest Marist College" was a 9-minute walk to TKKM o Nga Maungarongo, with
+  Marist the nearest by low-stress cycling (6 min). The data now names the
+  school for each way (`nearest_mode`), and every school tied in the same
+  minute (`ties`). From that hexagon MAGS is 15 min on foot or by public
+  transport and 10 by low-stress bike; Marist is 12 on foot.
+- **Every school within reach, and what it is.** School runs keep every school
+  within 60 minutes of each hexagon, in files the page loads when asked
+  (`schools/<service>_<mode>.json`), and each school carries its kind, teaching
+  language, who it takes, years, roll and enrolment scheme. That is what the
+  page needs to count state schools only, or one school, without routing
+  again. Public transport school times also keep the 10th and 90th
+  percentiles over the departure minutes.
+- **One directory for every place.** Schools come from one copy of the
+  Ministry's national directory, fetched 12 November 2026 (rolls at 1 October
+  2026). Auckland's old copy had 10 of the 50 fields.
+- **Intermediate schools.** Every config spelt "Restricted Composite (Yr
+  7-10)", which matched no school, and Secondary (Year 7-10) schools were not
+  counted. Both now count for intermediate only: 5 schools in Auckland (3,887
+  students) and 4 around Hamilton (2,865).
+- **Times past the limit.** R5 returned times a minute or more past the
+  60-minute limit for some walks and rides to the point; these were published
+  (up to 80 min) although every count stopped at 60. They now show as over
+  60, for every service.
+- **School runs of their own.** Schools are routed apart from the other
+  services, so a change to the directory re-routes schools only. Before any
+  point changed, the school runs gave the same minutes as the services runs
+  for every pair. `team schools split` moves a build over.
+- **For checking points and entrances.** Corrected map points and checked
+  entrances can be added by hand (`configs/schools/`); none yet.
+  `scripts/school_points_review.py` writes the sheets to check them against
+  LINZ NZ Facilities and OpenStreetMap.
+
+What changed in the published figures, from the 0.11.0 site to the 0.12.0
+build: the share of people within each school standard (all hexagons), before
+and after, and how many hexagons have a new time. One figure means no change
+to a tenth of a percent.
+
+- Intermediate rises in Auckland and Hamilton, from the type fix. Taupō and
+  Tokoroa read the same Waikato directory, but its Year 7–10 schools are in
+  and around Hamilton.
+- Auckland primary: Te Wharekura o Tāmaki ki te Tonga opened in October and
+  Kadimah School's point moved 230 m. Auckland secondary by public transport:
+  Nova Innovation College, a new private school.
+- Dunedin primary and intermediate fall: Taieri Beach School is no longer in
+  the directory. Tauranga primary falls: the Ministry moved Te Kura o
+  Manunui's point 186 m.
+- Everything else in the table is the limit fix.
+- The education access score, and so the all-opportunities score, moves in
+  some hexagons in every place, because school rolls weight it and are now at
+  1 October 2026. In Auckland 3,491 of 29,801 hexagons change by public
+  transport, two in three by one point, more near schools added or moved.
+
+| Place | School | Any way | Walk | Low-stress bike | PT | Hexagons changed (most for one way) | Over 60, now blank (most for one way) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Auckland | Primary | 84.2% → 84.3% | 74.5% → 74.6% | 79.6% → 79.7% | 73.6% | 92 | 58 |
+| Auckland | Intermediate | 80.1% → 80.3% | 67.4% → 68.1% | 75.0% → 75.2% | 62.0% → 63.1% | 274 | 49 |
+| Auckland | Secondary | 89.0% → 89.1% | 74.3% | 84.7% | 79.8% | 32 | 26 |
+| Blenheim | Primary | 90.0% | 64.7% | 89.6% | 64.1% | 4 | 4 |
+| Blenheim | Intermediate | 89.3% | 65.0% | 89.2% | 49.8% | 6 | 6 |
+| Blenheim | Secondary | 92.0% | 81.4% | 92.0% | 36.4% | 7 | 7 |
+| Christchurch | Primary | 90.2% | 71.7% | 90.1% | 72.0% | 135 | 135 |
+| Christchurch | Intermediate | 92.4% | 78.8% | 92.2% | 74.7% | 145 | 145 |
+| Christchurch | Secondary | 85.0% | 66.7% | 83.9% | 71.5% | 15 | 15 |
+| Dunedin | Primary | 87.0% → 86.9% | 70.2% → 70.1% | 86.2% → 86.0% | 71.0% → 70.8% | 33 | 3 |
+| Dunedin | Intermediate | 82.5% → 82.3% | 63.6% → 63.4% | 80.2% → 80.0% | 57.6% → 57.5% | 32 | 2 |
+| Dunedin | Secondary | 78.4% | 66.2% | 75.7% | 67.7% | 0 | 0 |
+| Gisborne | Primary | 88.3% | 73.0% | 88.1% | 72.3% | 27 | 27 |
+| Gisborne | Intermediate | 78.3% | 65.5% | 78.0% | 54.8% | 27 | 27 |
+| Gisborne | Secondary | 84.7% | 62.3% | 84.3% | 39.6% | 40 | 40 |
+| Hamilton | Primary | 83.7% | 61.4% | 83.2% | 59.6% | 121 | 121 |
+| Hamilton | Intermediate | 81.6% → 82.0% | 56.9% → 60.0% | 81.4% → 81.7% | 48.2% → 51.2% | 491 | 145 |
+| Hamilton | Secondary | 81.6% | 62.3% | 81.5% | 58.7% | 18 | 18 |
+| Invercargill | Primary | 88.5% | 73.8% | 88.5% | 72.6% | 11 | 11 |
+| Invercargill | Intermediate | 78.0% | 68.4% | 77.8% | 53.5% | 8 | 8 |
+| Invercargill | Secondary | 81.8% | 69.1% | 81.7% | 53.8% | 2 | 2 |
+| Napier–Hastings | Primary | 85.9% | 73.8% | 85.7% | 73.0% | 93 | 93 |
+| Napier–Hastings | Intermediate | 85.1% | 70.6% | 84.9% | 56.0% | 79 | 79 |
+| Napier–Hastings | Secondary | 88.2% | 84.3% | 88.0% | 64.7% | 26 | 26 |
+| Nelson | Primary | 82.9% | 52.9% | 82.8% | 51.2% | 17 | 17 |
+| Nelson | Intermediate | 79.4% | 46.0% | 79.2% | 30.2% | 10 | 10 |
+| Nelson | Secondary | 77.2% | 59.4% | 76.9% | 38.1% | 0 | 0 |
+| New Plymouth | Primary | 78.8% | 61.9% | 77.2% | 61.3% | 105 | 105 |
+| New Plymouth | Intermediate | 74.3% | 59.7% | 73.7% | 38.7% | 110 | 110 |
+| New Plymouth | Secondary | 68.4% | 57.4% | 67.4% | 36.8% | 41 | 41 |
+| Palmerston North | Primary | 83.8% | 69.7% | 83.4% | 69.2% | 46 | 46 |
+| Palmerston North | Intermediate | 82.5% | 63.3% | 82.1% | 58.9% | 46 | 46 |
+| Palmerston North | Secondary | 83.2% | 67.1% | 81.3% | 70.6% | 35 | 35 |
+| Queenstown | Primary | 68.2% | 40.1% | 67.3% | 40.9% | 0 | 0 |
+| Queenstown | Intermediate | 75.3% | 51.0% | 75.1% | 44.4% | 0 | 0 |
+| Queenstown | Secondary | 19.0% | 9.2% | 14.7% | 15.4% | 0 | 0 |
+| Rotorua | Primary | 88.1% | 72.7% | 87.9% | 71.1% | 95 | 95 |
+| Rotorua | Intermediate | 80.2% | 55.4% | 80.1% | 41.3% | 95 | 95 |
+| Rotorua | Secondary | 83.1% | 69.3% | 82.6% | 66.8% | 12 | 12 |
+| Taupō | Primary | 74.0% | 60.0% | 73.8% | 59.6% | 0 | 0 |
+| Taupō | Intermediate | 66.5% | 55.1% | 66.5% | 45.2% | 1 | 1 |
+| Taupō | Secondary | 74.4% | 59.2% | 74.4% | 21.6% | 0 | 0 |
+| Tauranga | Primary | 75.4% → 74.5% | 52.7% → 52.4% | 74.5% → 73.6% | 51.8% → 51.4% | 41 | 7 |
+| Tauranga | Intermediate | 58.3% | 27.4% | 56.8% | 23.3% | 11 | 11 |
+| Tauranga | Secondary | 74.7% | 43.4% | 72.1% | 47.4% | 7 | 7 |
+| Tokoroa | Primary | 88.7% | 85.9% | 88.7% | 85.8% | 0 | 0 |
+| Tokoroa | Intermediate | 77.7% | 71.3% | 77.6% | 64.5% | 0 | 0 |
+| Tokoroa | Secondary | 89.5% | 87.2% | 89.5% | 57.9% | 0 | 0 |
+| Wellington | Primary | 87.5% | 70.9% | 86.5% | 70.2% | 55 | 55 |
+| Wellington | Intermediate | 85.9% | 71.5% | 84.3% | 65.4% | 46 | 46 |
+| Wellington | Secondary | 83.6% | 63.7% | 78.7% | 72.2% | 29 | 29 |
+| Whakatāne | Primary | 70.0% | 61.1% | 69.3% | 60.6% | 22 | 22 |
+| Whakatāne | Intermediate | 69.3% | 62.6% | 68.6% | 51.8% | 23 | 23 |
+| Whakatāne | Secondary | 69.9% | 63.6% | 69.6% | 35.3% | 0 | 0 |
+| Whanganui | Primary | 87.6% | 73.3% | 87.2% | 72.1% | 50 | 50 |
+| Whanganui | Intermediate | 77.8% | 65.1% | 77.5% | 54.2% | 50 | 50 |
+| Whanganui | Secondary | 84.4% | 75.1% | 83.8% | 66.6% | 5 | 5 |
+| Whangārei | Primary | 60.5% | 46.2% | 59.4% | 45.7% | 126 | 126 |
+| Whangārei | Intermediate | 63.0% | 47.2% | 62.5% | 34.0% | 70 | 70 |
+| Whangārei | Secondary | 58.8% | 50.0% | 57.8% | 33.2% | 25 | 25 |
+
+Other services, times over 60 now blank (hexagon and mode pairs): Auckland 341; Blenheim 14; Christchurch 276; Dunedin 58; Gisborne 86; Hamilton 403; Invercargill 115; Napier–Hastings 137; Nelson 18; New Plymouth 60; Palmerston North 146; Queenstown 4; Rotorua 29; Taupō 11; Tauranga 24; Tokoroa 8; Wellington 191; Whakatāne 16; Whanganui 20; Whangārei 184.
+
+Other services' times are unchanged except where they were over 60 minutes.
 
 - With `?mate=1` in the address, an Auckland hexagon's card has a section from
   MATE: each mobility profile's reach on foot and by public transport, what is

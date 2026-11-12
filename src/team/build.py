@@ -20,17 +20,22 @@ def _nztm(lon, lat) -> np.ndarray:
     return np.column_stack([points.x.to_numpy(), points.y.to_numpy()])
 
 
-def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict]:
+def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict, dict]:
+    from .destinations import all_destinations
+
     origins = routing.load_origins(settings)
     index = pd.Index(origins["id"], name="h3")
+    origin_xy = _nztm(origins.geometry.x, origins.geometry.y)
 
     log.info("measures")
     table = measures.service_table(settings, index)
+    school_columns, school_state = measures.school_columns(settings, index, origin_xy)
+    table = table.join(school_columns)
     table = measures.add_standards(table, settings)
-    destinations = pd.read_parquet(settings.output_dir / "destinations" / "services.parquet")
+    destinations = all_destinations(settings)
     xy = _nztm(destinations["lon"], destinations["lat"])
     destinations["x"], destinations["y"] = xy[:, 0], xy[:, 1]
-    table = measures.add_straight_distances(table, _nztm(origins.geometry.x, origins.geometry.y), destinations)
+    table = measures.add_straight_distances(table, origin_xy, destinations)
     table["population"] = origins.set_index("id")["population"].reindex(index).astype("float32")
 
     log.info("people")
@@ -58,17 +63,19 @@ def cell_table(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, dict, di
 
     log.info("diagnosis")
     table = diagnosis.diagnose(table, settings)
-    return table, destinations, functions, fare_record
+    return table, destinations, functions, fare_record, school_state
 
 
 def drop_empty_services(settings: Settings) -> list[str]:
     """Leave out a service this place has no destination of, such as trades
     training in a town with no trades campus, rather than report that nobody
     can reach it."""
+    from .destinations import all_destinations
+
     path = settings.output_dir / "destinations" / "services.parquet"
     if not path.exists():
         return []
-    present = set(pd.read_parquet(path, columns=["service"])["service"])
+    present = set(all_destinations(settings)["service"])
     empty = [s for s in list(settings.services) if s not in present]
     for service in empty:
         del settings.raw["services"][service]
@@ -82,7 +89,7 @@ def drop_empty_services(settings: Settings) -> list[str]:
 
 def run(settings: Settings) -> None:
     drop_empty_services(settings)
-    table, destinations, functions, fare_record = cell_table(settings)
+    table, destinations, functions, fare_record, school_state = cell_table(settings)
     table.to_parquet(settings.out("team_cells.parquet"))
 
     log.info("summaries")
@@ -99,7 +106,7 @@ def run(settings: Settings) -> None:
             areas[key] = equity.area_summary(table, settings, key)
 
     log.info("web data and downloads")
-    export.write_web(settings, table, destinations, summary, areas)
+    export.write_web(settings, table, destinations, summary, areas, school_state)
     export.write_downloads(settings, table)
     export.assemble_site(settings)
     log.info("done: %s", settings.output_dir)

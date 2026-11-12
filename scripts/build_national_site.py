@@ -6,7 +6,7 @@ site opens on:
 
     site/index.html          the app, once
     site/data/cities.json    every city, with the figures the opening view needs
-    site/data/<city>/...     that city's data files
+    site/data/<city>/...     that city's data files, with chains/ and schools/
 
 The index is small on purpose. A visitor arrives, sees every city and what
 each one is like, and only then downloads the megabyte and a half that one
@@ -180,11 +180,12 @@ def build(out: Path, builds: list[Path]) -> dict:
                 path = source / f"{name}{suffix}"
                 if path.exists():
                     shutil.copy2(path, target / path.name)
-        # Errand rounds, one file per set of stops.
-        if (source / "chains").is_dir():
-            if (target / "chains").exists():
-                shutil.rmtree(target / "chains")
-            shutil.copytree(source / "chains", target / "chains")
+        # Errand rounds, one file per set of stops, and the school reach lists.
+        for folder in ("chains", "schools"):
+            if (source / folder).is_dir():
+                if (target / folder).exists():
+                    shutil.rmtree(target / folder)
+                shutil.copytree(source / folder, target / folder)
         places = json.loads((source / "places.json").read_text(encoding="utf-8"))
         card["bbox"] = extent(places)
         card["places"] = len(places)

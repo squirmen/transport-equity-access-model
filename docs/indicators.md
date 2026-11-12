@@ -30,7 +30,7 @@ these definitions.
 | --- | --- | --- |
 | `h3` | id | H3 resolution 9 cell |
 | `population` | people | usual residents, 2023 Census, spread from SA1 blocks by area |
-| `t_<service>_<mode>` | minutes | time to the nearest destination of that service by that mode; blank when none is within 60 minutes. Public transport is in the service's usual window |
+| `t_<service>_<mode>` | minutes | time to the nearest destination of that service by that mode, in whole minutes rounded down; blank when none is within 60 minutes. Public transport is in the service's usual window |
 | `t_<service>_pt_<window>` | minutes | the same by public transport in another window (`am_peak`, `interpeak` or `saturday`) |
 | `n_<service>_<mode>` | count | destinations of that service within its standard time by that mode |
 | `best_<service>` | minutes | fastest of walking, low-stress cycling and public transport |

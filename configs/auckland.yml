@@ -25,7 +25,7 @@ data:
   gtfs: raw/auckland/gtfs/at_gtfs_2026-09-01.zip
   grid: processed/auckland/grid/auckland_h3_r9_population.parquet
   jobs_grid: processed/auckland/grid/auckland_h3_r9_v2_opportunities.parquet
-  schools: raw/auckland/education/educationcounts_schools_auckland.json
+  schools: raw/nz/education/moe_schools_directory_2026-11-12.csv
   ece: raw/auckland/education/educationcounts_ece_auckland.json
   census_sa1: raw/auckland/census/statsnz_census_sa1_2023_auckland.geojson
   census_households: raw/auckland/census/statsnz_census_households_income_vehicle_sa1_2023.json
@@ -93,6 +93,13 @@ pairs:
   minutes: {walk: 20, bike_low_stress: 20, bike: 20, pt: 45}
   pt_origins: urban
 
+# Schools come from the Ministry's national directory snapshot (data.schools),
+# cut to these regional councils. docs/schools.md has the rules.
+schools:
+  regions: [Auckland Region]
+  buses: none_found        # school buses in the timetable: in_timetable or none_found
+  bus_note: "Auckland Transport's open timetable has no school bus services."
+
 services:
   supermarket:
     label: Supermarket
@@ -148,7 +155,7 @@ services:
     label: Intermediate school
     window: am_peak
     standard_minutes: 20
-    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Yr 7-10)]
+    school_types: [Intermediate, Full Primary, Secondary (Year 7-15), Composite, Composite (Year 1-10), Restricted Composite (Year 7-10), Secondary (Year 7-10)]
   secondary_school:
     label: Secondary school
     window: am_peak
