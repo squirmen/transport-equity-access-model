@@ -581,9 +581,10 @@ any of its residents, the share of its residents in the zone
 ## The page
 
 The Schools row sits under Getting to for the three school services: All,
-State, In zone (once zones are in) and One school, with Girls and boys, Girls
-or Boys under State. A link without `sch` means All. `web/js/schools.js`
-works every choice out from the reach lists and puts its times in place of
+State, In zone and One school, with Girls and boys, Girls or Boys under State
+and In zone. A link without `sch` opens the default choice (above), and
+`sch=all` opens All. `web/js/schools.js` works every choice out from the
+reach lists (and, for In zone, zones.json) and puts its times in place of
 All's, so the map, headlines, areas and card all follow it. It follows the
 build's rules exactly:
 
