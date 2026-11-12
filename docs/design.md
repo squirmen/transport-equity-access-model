@@ -30,11 +30,15 @@ nothing) and Layers counts the layers on.
 The key is the only key. It names the view, holds its scale (with the
 standard marked), the toggles that belong to the view (the reasons on What
 would help, Only where they miss the standard and Rest homes and villages on
-Where they live), the layers that are on, MATE's catchment when one is drawn,
-and what a trip draws on its Trip tab. The panel keeps room down to the end of
-its headline (the figure and its sentence); the key takes what is left, up to
-46% of the column, and scrolls inside that. So a long key never hides the
-headline on a laptop screen (checked at 1280 × 720 to 1536 × 864).
+Where they live), MATE's catchment when one is drawn, what a trip draws on
+its Trip tab, and under "On the map" every symbol on screen (Map symbols,
+below). The panel keeps room down to the end of its headline (the figure and
+its sentence); the key takes what is left, up to 46% of the column, and
+scrolls inside that. So a long key never hides the headline on a laptop
+screen (checked at 1280 × 720 to 1536 × 864). While points are drawn the key
+keeps at least the room for its scale and the first four "On the map" rows,
+and folded it shows the symbols on screen as a row of small icons beside its
+title.
 
 The area in the headline is a button: it opens the list of areas the figures
 can be for (the whole place, the areas under the middle of the map, and the
@@ -64,6 +68,65 @@ The map's box is set in `index.html` rather than the stylesheet, and the map
 is made only once the stylesheet applies: WebKit can run the module before a
 slow stylesheet arrives.
 
+## Map symbols
+
+From 0.12.1 every point on the map is a MapLibre symbol: shape says what kind
+of thing it is, a glyph says which one, fill and ring say its state, and the
+key lists each symbol only while it is on screen. Before, schools, stops and
+places were all small circles, and the stops near a school were numbered boxes
+the key did not explain.
+
+| Shape | Means | Used for |
+| --- | --- | --- |
+| Disc | a place you are getting to | schools, supermarkets, GPs, pharmacies, libraries, banks and post shops, early childhood, tertiary, trades training |
+| Rounded square | public transport | bus stop, train station, ferry terminal, a trip's A and B |
+| Map pin | the one picked | the school picked under One school, with its name in a navy pill |
+| Pill | a number or a name | minutes on foot from a stop to the school, a trip's route |
+| Line | a network or a boundary | zone outline, rail, ferry, frequent bus, cycleway, trip lines |
+
+- **Glyphs.** Material Icons, filled, by Google (Apache License 2.0), kept in
+  `web/assets/icons/` with the licence and a note of where they came from.
+  `scripts/build_glyphs.py` writes their path data into `web/js/glyphs.js`,
+  and the page draws every symbol on a canvas from it (`web/js/symbols.js`),
+  at twice its size. Tertiary shares the schools' mortarboard; only one
+  service's places are drawn at a time and the key names it. No operator's
+  marks.
+- **State.** Filled with a white glyph: counted, or a stop with trips. White
+  with a grey glyph and ring: not counted, or another school under One school.
+  White with a dashed grey ring: a stop with no trips arriving in the morning
+  window. A bus stop under four an hour (Layers) is white with a slate ring.
+  State is never colour alone: filled against hollow, a pin for the one
+  picked, a dash for no trips, and words in the key and the tooltip.
+- **Edge.** Each symbol has a 2 px white halo and outside it a 1 px dark edge,
+  so one or the other is 3:1 or more on every basemap and hexagon colour.
+  Rail and frequent bus lines sit on a white casing for the same reason.
+- **Zoom.** Below the zoom where a glyph would be a smudge, a symbol is its
+  plain shape: places and schools take their glyph from zoom 13, stations
+  from 12, bus stops near a school from 14 and the Stops layer's bus stops
+  from 15. Images are picked per tile, at whole zooms.
+- **Crowding.** MapLibre keeps symbols from overlapping, top layer first:
+  the school picked and its name, the stops near it, their walking badges,
+  the schools counted or the service's places, the schools not counted, then
+  the Stops layer. Stops near the school are always drawn; a badge that does
+  not fit is hidden until the map is zoomed in, stations first and then the
+  quickest walks. Two stops of the same name within 80 m (either side of a
+  road) are one symbol below zoom 16.5, with the quicker walk on its badge:
+  near Mt Albert Grammar School 35 stops are 23 symbols. A badge sits on the
+  side of its stop away from the school, so none covers the school's pin.
+- **Hover, tap and keyboard.** Hovering a symbol rings it and shows its name
+  and what it is; a click or tap opens the same in a popup, with its button
+  ("Show only this school"), or in the sheet on a phone. A tap takes the
+  symbol under the finger, or else the nearest within 22 px. With the map
+  focused from the keyboard a ring marks its middle, the arrow keys move it,
+  what is under the ring is read out when the map stops, Enter opens it and
+  Escape closes it again.
+- **Picking a school.** The Schools row always has "Find a school"; a pick
+  shows only that school, with Zoom to its zone and Clear (back to the
+  choice before). Every school choice shows the service's school pins, All
+  too, and a pin's popup offers "Show only this school". Each school the card
+  names is a link that does the same. One school with none picked shows no
+  figure until one is picked, and the link says `sch=one`.
+
 ## Data colours
 
 Data colours are chosen by the job each does and checked for colour-blind
@@ -82,7 +145,8 @@ ramp differs from the next by 9 or more.
 | Share of jobs within reach | sequential | `#b7d3f6` `#6da7ec` `#2a78d6` `#184f95` `#0c3163` |
 | Job access against the average | diverging at 1.0 | orange arm, grey `#f0efec`, blue arm |
 | Main reason | categorical | blue `#2a78d6`, orange `#e8890c`, teal `#0e7a7e`, grey `#8f8c85` for nothing within reach, purple `#7a3fa0` for the fare |
-| Destination pins | categorical | food teal `#0e7a7e`, health dark red `#a8172b`, learning orange `#e8890c`, anything else navy |
+| Destination pins | categorical, each with a white glyph | food teal `#0e7a7e`, health dark red `#a8172b`, learning dark orange `#b35c00` (`#e8890c` before 0.12.1, which a white glyph did not read on), anything else navy |
+| Public transport | categorical, each with its own glyph | bus slate `#455a64`, train navy `#0c0c48`, ferry ocean `#0277bd`, on stops, stations and lines; not any operator's colours |
 | Which way a measure leans | two dots | fair way blue `#3b7fb6`, unfair way dark red `#a8172b` |
 | Where a trip's origin gets (while picking) | sequential | `#184f95` `#3987e5` `#9ec5f4` `#dbe8f8` for 10, 20, 30 and 45 minutes |
 | A trip's two ends | two rings | From navy `#0c0c48`, To teal `#1f6178`, each over a white halo and labelled |
@@ -96,6 +160,11 @@ white casing. Over the darkest blue hexagons the walk dash goes from 1.06:1 to
 2.8:1 and the route's blue from 1.35:1 to 2.0:1 (WCAG ratio, before the
 casing); against its casing the walk is 6.1:1, the route's blue 4.3:1 and its
 orange 2.6:1.
+
+The test also checks the map symbols: a white glyph is 4.5:1 or more on every
+pin and stop colour (learning's 4.7:1 is the lowest), and on each basemap's
+common ground and each hexagon colour either a symbol's white halo or its dark
+edge is 3:1 or more.
 
 The 13 October audit found three palettes that failed: the fare ramp ran
 green to red (lime and yellow 8.7 apart for protanopia), the reasons' green

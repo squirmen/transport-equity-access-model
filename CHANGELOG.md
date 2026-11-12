@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.12.1 (not yet released)
+
+Map symbols that say what they are, and picking a school. Looking at One
+school for Mt Albert Grammar School, the stops near it were numbered boxes
+the key did not explain, and the other schools and the stops whose numbers
+were hidden were the same small white circle. Page only: no data changes.
+[`docs/design.md`](docs/design.md) has the symbols, under Map symbols.
+
+### What changes on the page
+
+- **Every point on the map says what it is.** Places you are getting to are
+  discs with a glyph (a mortarboard for schools, a cart for supermarkets and
+  so on); public transport is a rounded square with a bus, train or ferry;
+  the school picked is a navy map pin with its name beside it. Filled means
+  counted, or a stop with trips; white with a grey ring means not counted;
+  a dashed ring means no trips arriving 7–9am. Glyphs are Material Icons
+  (Apache License 2.0), kept in `web/assets/icons/`.
+- **Stops near the school carry a walking badge.** A walking person and the
+  minutes to the school, on the side of the stop away from the school,
+  replace the numbered boxes and dots. Every stop is drawn; when badges
+  would overlap, the stations' and the quickest walks' are kept and the rest
+  show as the map is zoomed in. Two stops of the same name either side of a
+  road are one symbol below zoom 16.5 (35 stops near Mt Albert Grammar School
+  are 23 symbols).
+- **The key lists what is on screen, with the same images.** It changes as
+  the map moves, keeps room for its "On the map" rows on a laptop (in 0.12.0
+  it shrank to its title under One school), and folded shows the symbols as
+  small icons. The stop row's blank swatch (two stylesheet rules for one
+  name) is gone.
+- **Hover, tap or keyboard for a name.** Every symbol gives its name and what
+  it is: a stop its number, walk and trips; a school what kind it is and
+  whether the choice counts it. A tap takes the nearest symbol within 22 px.
+  With the map focused, Enter opens what is under the ring in its middle,
+  and the name is read out as the map moves.
+- **Finding a school.** "Find a school" is under the Schools choices for
+  every choice, by name, initials or Ministry number. School pins show under
+  All too. A pin's popup says "Show only this school" ("Show this school
+  instead" under One school); each school a hexagon's card names is a link
+  that does the same, keeping the card open. Once picked, the school has Zoom
+  to its zone and Clear (back to the choice before) in place of Change, and
+  the map fits its zone clear of the card. One school with none picked shows
+  no figure, rather than All's, and its link says `sch=one`.
+- **Colours.** Learning pins are `#b35c00` (were `#e8890c`), so a white glyph
+  reads on them. Train is navy, ferry ocean blue `#0277bd` (was navy, dashed)
+  and frequent bus slate `#455a64`, on stops and lines; rail and bus lines
+  have a white casing.
+- **Words.** "Ferry terminal" for "ferry stop", to match the key.
+- **Stop names in the Stops layer.** Hovering or tapping a stop in Layers >
+  Stops and stations names it, from the place's `transit.json`, loaded the
+  first time the layer is turned on. Train and ferry stations are told apart
+  by the lines they are on.
+
+### Checks
+
+- `tests/web/symbols.test.mjs`: every symbol has a key row and an image,
+  `glyphs.js` matches the icon files, and Mt Albert Grammar School's 35 stops
+  are 23 symbols with the stations' badges placed first and five stops with
+  no trips arriving 7–9am drawn hollow.
+- `tests/web/palette.test.mjs`: the three modes pass the colour-blind check;
+  a white glyph is 4.5:1 or more on every pin and stop colour; a symbol's
+  halo or edge is 3:1 or more on each basemap and hexagon colour.
+- `tests/web/schools_browser.py`: in every scene every symbol drawn is in the
+  key; the stops' badges at zoom 13 and 15; a stop's tooltip and Show
+  button; the card's link to Mt Albert Grammar School; Clear; `sch=one`; a
+  pin's popup; a pick on a phone. Chromium and WebKit, desktop and 390 px,
+  with the stylesheet held back 1.5 s.
+
 ## 0.12.0 (13 November 2026)
 
 Schools, after Auckland Council used TEAM for work on Mt Albert Grammar
