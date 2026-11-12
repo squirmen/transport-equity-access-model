@@ -880,10 +880,12 @@ export function findSchools(destinations, service, query, limit = 8) {
 
 // ---------------------------------------------------------------- the card
 
-/** "250 m", "1.2 km": a straight-line distance, to 10 m or 0.1 km. */
+/** "250 m", "1.2 km": a straight-line distance, to 50 m or 0.1 km. The
+ *  school points in destinations.json are rounded to about 10 m, so finer
+ *  would claim more than the file holds. */
 export function distance(km) {
   if (!Number.isFinite(km)) return '';
-  return km < 1 ? `${Math.max(10, Math.round(km * 100) * 10)} m` : `${(Math.round(km * 10) / 10).toFixed(1)} km`;
+  return km < 0.975 ? `${Math.max(50, Math.round(km * 20) * 50)} m` : `${(Math.round(km * 10) / 10).toFixed(1)} km`;
 }
 
 /** When a public transport time was timed: "between 7am and 9am on Tuesday
@@ -1002,7 +1004,7 @@ export function cardLines(ctx, mode, i, named = []) {
     const to = destinations[d].routed_to;
     if (!(Number(to) > 0)) {
       const centre = ctx.centres ? ctx.centres[i] : null;
-      const far = centre && Number.isFinite(destinations[d].lat) ? ` (the pin, ${distance(kmBetween(centre, destinations[d]))} away in a straight line)` : ' (the pin)';
+      const far = centre && Number.isFinite(destinations[d].lat) ? ` (the pin, about ${distance(kmBetween(centre, destinations[d]))} away in a straight line)` : ' (the pin)';
       lines.push(`Times go to the Ministry's map point for the school${far}, not to its nearest gate.`);
     }
     return done();

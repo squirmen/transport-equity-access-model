@@ -306,7 +306,7 @@ test('One school: its time by the way on screen, the spread, the zone and the ne
   // A walk takes the same time whenever you leave, so there is no spread to give.
   assert.equal(band.rest, 'This hexagon is in its zone. '
     + 'Nearest other state school taught in English: Western Springs College-Ngā Puna o Waiōrea, 32 min by public transport. '
-    + `Times go to the Ministry's map point for the school (the pin, ${distance(0.42)} away in a straight line), not to its nearest gate. The standard is 30 min.`);
+    + "Times go to the Ministry's map point for the school (the pin, about 400 m away in a straight line), not to its nearest gate. The standard is 30 min.");
   assert.doesNotMatch(band.rest, /Nearest: Mt Albert/, 'One school does not name itself again');
   const cut = verdictLine(data, 3, S, 30, 'pt', null, cardFor(data, choice, result));
   // The spread is public transport's own, said after the walking time.
@@ -559,9 +559,11 @@ test('when public transport was timed: one named day, not weekdays', () => {
   assert.equal(windowWords(null, '2026-09-15'), null);
 });
 
-test('straight-line distances read to 10 m or a tenth of a kilometre', () => {
+test('straight-line distances read to 50 m or a tenth of a kilometre', () => {
   assert.equal(distance(0.252), '250 m');
-  assert.equal(distance(0.004), '10 m');
+  assert.equal(distance(0.276), '300 m');
+  assert.equal(distance(0.004), '50 m');
+  assert.equal(distance(0.98), '1.0 km');
   assert.equal(distance(1.234), '1.2 km');
   assert.equal(distance(NaN), '');
 });
