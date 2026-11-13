@@ -338,7 +338,7 @@ def picking(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
     ready(page)
     seen = panel(page)
     check(problems, f"{engine} search pick", "sch=one:69" in seen["hash"], seen["hash"])
-    # Another school's pin: its tooltip, then Show this school instead.
+    # Another school's pin: its tooltip, then Show only this school.
     at = page.evaluate("""() => {
       const m = window.team.map;
       const f = m.queryRenderedFeatures({ layers: ['dest-out'] }).find((x) => { const p = m.project(x.geometry.coordinates); return p.x > 420 && p.x < 1000 && p.y > 100 && p.y < 800; });

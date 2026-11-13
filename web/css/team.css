@@ -379,9 +379,6 @@ button.k-row:hover { background: var(--wash); }
 .k-row.is-toggle[aria-pressed="true"] { background: none; box-shadow: none; }
 .k-text .key-square { display: inline-block; margin-right: 6px; vertical-align: -1px; }
 .k-row .key-swatch { justify-self: center; }
-/* What the map draws: the same image, beside the words. */
-.k-layers .k-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
-.k-icon { display: grid; place-items: center; }
 .key-icon { display: block; flex: none; }
 .k-hint { margin: 0; }
 /* What the map draws: icon and label pairs that wrap, the full label for a screen reader. */
