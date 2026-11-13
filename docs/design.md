@@ -31,14 +31,25 @@ The key is the only key. It names the view, holds its scale (with the
 standard marked), the toggles that belong to the view (the reasons on What
 would help, Only where they miss the standard and Rest homes and villages on
 Where they live), MATE's catchment when one is drawn, what a trip draws on
-its Trip tab, and under "On the map" every symbol on screen (Map symbols,
-below). The panel keeps room down to the end of its headline (the figure and
-its sentence); the key takes what is left, up to 46% of the column, and
-scrolls inside that. So a long key never hides the headline on a laptop
-screen (checked at 1280 × 720 to 1536 × 864). While points are drawn the key
-keeps at least the room for its scale and the first four "On the map" rows,
-and folded it shows the symbols on screen as a row of small icons beside its
-title.
+its Trip tab, and under "On the map" every symbol on screen as icon and label
+pairs that wrap, the most needed first (Map symbols, below). The panel keeps
+room down to the end of its headline (the figure, its sentence and the line
+under it); the key takes what is left, up to 46% of the column, and scrolls
+inside that. Where that leaves too little for the key's scale and symbols, it
+takes more, but never past the headline figure: the figure is always in view
+and the sentence scrolls up into it (checked at 1280 × 720 to 1536 × 864; at
+1440 × 900 the figure, most of the sentence and every symbol under One school
+for Mt Albert Grammar School fit). The line saying which schools are counted
+is not part of the headline here, as under In zone it is a long list. Folded,
+or squeezed to its title, the key shows the symbols on screen as a row of
+small icons beside the title; while its body scrolls it can be reached with
+the Tab key.
+
+Under the Schools choices sit only what changes the figure: the school picked
+with Zoom to its zone and Clear, Find a school (one line, with how to use it
+shown under it while it has the cursor) and Only those living in its zone.
+The school's facts, the stops near it and the CSV download come after the
+headline, so a laptop screen shows the headline and the key together.
 
 The area in the headline is a button: it opens the list of areas the figures
 can be for (the whole place, the areas under the middle of the map, and the
@@ -55,10 +66,16 @@ departures an hour, the access score), then folded sections: services, jobs,
 around here, who lives here, how the place stands. The address always carries
 the hexagon picked (`o=`).
 
-On a phone the sheet has three heights: a peek with the headline and the key
-as one strip, half with the panel down to the headline, and full. The card
-takes the sheet's place, with the key as a strip over the map above it. Touch
-targets are 44 px and inputs use 16 px text.
+On a phone the sheet has three heights: a peek with the headline, the scale
+and up to two lines of the symbols on screen, half with the panel down to the
+headline, and full. The card takes the sheet's place, with the key (scale and
+symbols) as a strip over the map above it. The scale and credits sit above
+whichever sheet is up, measured as its height changes. Touch targets are 44
+px and inputs use 16 px text.
+
+TEAM has a light page only (`color-scheme: light`): a phone or computer set to
+dark mode shows the same page. The symbols were checked on Satellite as the
+dark ground.
 
 Interface colours and type follow the Better Places Lab: navy `#0c0c48` for
 text accents and selected controls, teal `#1f6178` for links and focus, Inter
@@ -79,7 +96,7 @@ the key did not explain.
 | Shape | Means | Used for |
 | --- | --- | --- |
 | Disc | a place you are getting to | schools, supermarkets, GPs, pharmacies, libraries, banks and post shops, early childhood, tertiary, trades training |
-| Rounded square | public transport | bus stop, train station, ferry terminal, a trip's A and B |
+| Rounded square | public transport | bus stop; train station and ferry terminal with a white line inside the edge; a trip's A and B |
 | Map pin | the one picked | the school picked under One school, with its name in a navy pill |
 | Pill | a number or a name | minutes on foot from a stop to the school, a trip's route |
 | Line | a network or a boundary | zone outline, rail, ferry, frequent bus, cycleway, trip lines |
@@ -88,38 +105,55 @@ the key did not explain.
   `web/assets/icons/` with the licence and a note of where they came from.
   `scripts/build_glyphs.py` writes their path data into `web/js/glyphs.js`,
   and the page draws every symbol on a canvas from it (`web/js/symbols.js`),
-  at twice its size. Tertiary shares the schools' mortarboard; only one
-  service's places are drawn at a time and the key names it. No operator's
-  marks.
+  at the screen's pixel ratio (2 or 3). Tertiary shares the schools'
+  mortarboard; only one service's places are drawn at a time and the key
+  names it. No operator's marks. A train station's glyph is, like the bus's,
+  a vehicle seen from the front; the white line inside a station's edge, its
+  size and navy tell it apart. A train in side view from an open set (Maki or
+  Temaki rail, CC0) would be a clearer glyph; it needs the file fetched.
 - **State.** Filled with a white glyph: counted, or a stop with trips. White
   with a grey glyph and ring: not counted, or another school under One school.
   White with a dashed grey ring: a stop with no trips arriving in the morning
-  window. A bus stop under four an hour (Layers) is white with a slate ring.
+  window, which has no walking badge either. Slate always means a bus stop
+  with buses: in Layers one under four an hour is slate too, drawn smaller.
   State is never colour alone: filled against hollow, a pin for the one
-  picked, a dash for no trips, and words in the key and the tooltip.
-- **Edge.** Each symbol has a 2 px white halo and outside it a 1 px dark edge,
-  so one or the other is 3:1 or more on every basemap and hexagon colour.
-  Rail and frequent bus lines sit on a white casing for the same reason.
+  picked, a dash for no trips, size for frequency, and words in the key and
+  the tooltip.
+- **Edge.** Each symbol has a 2 px white halo and outside it a 1.5 px dark
+  edge, so one or the other is 3:1 or more on every basemap and hexagon
+  colour, still at the smallest size a symbol is drawn (0.7). Rail and
+  frequent bus lines sit on a white casing for the same reason. Streets is
+  shown with its colour muted, so OpenStreetMap's own blue stop marks are not
+  taken for TEAM's.
 - **Zoom.** Below the zoom where a glyph would be a smudge, a symbol is its
-  plain shape: places and schools take their glyph from zoom 13, stations
-  from 12, bus stops near a school from 14 and the Stops layer's bus stops
-  from 15. Images are picked per tile, at whole zooms.
-- **Crowding.** MapLibre keeps symbols from overlapping, top layer first:
-  the school picked and its name, the stops near it, their walking badges,
-  the schools counted or the service's places, the schools not counted, then
-  the Stops layer. Stops near the school are always drawn; a badge that does
-  not fit is hidden until the map is zoomed in, stations first and then the
-  quickest walks. Two stops of the same name within 80 m (either side of a
-  road) are one symbol below zoom 16.5, with the quicker walk on its badge:
-  near Mt Albert Grammar School 35 stops are 23 symbols. A badge sits on the
-  side of its stop away from the school, so none covers the school's pin.
+  plain shape, and the key shows it so: schools take a small glyph from zoom
+  11 and the full one from 13, stations theirs from 12, bus stops from 13
+  (the Stops layer's bus stops start at 12.5). Below 12 the stops near a
+  school are only its stations. Images are picked per tile, at whole zooms.
+- **Crowding.** MapLibre places symbols top layer first: the school picked,
+  the walking badges, the stops near it, its name, the schools counted or the
+  service's places, the schools not counted, then the Stops layer. Stops near
+  the school are always drawn and take no room from anything. The badges of
+  the nearest station and the nearest bus stop with trips always show; the
+  rest show where they fit, stations first and then the quickest walks, from
+  zoom 13 (stations' from 12). Two stops of the same name within 80 m
+  (either side of a road) are one symbol below zoom 16.5, with the quicker
+  walk on its badge: near Mt Albert Grammar School 35 stops are 23 symbols. A
+  badge sits on the side of its stop away from the school. The school's name
+  shows beside its pin from zoom 14.5 where no badge is in its way. In the
+  Stops layer a station's platforms or a terminal's piers are one symbol
+  below zoom 16. The service's places (Layers) may overlap at city zooms:
+  their density is the point, and the map has no font server to draw counts
+  on cluster discs.
 - **Hover, tap and keyboard.** Hovering a symbol rings it and shows its name
   and what it is; a click or tap opens the same in a popup, with its button
   ("Show only this school"), or in the sheet on a phone. A tap takes the
   symbol under the finger, or else the nearest within 22 px. With the map
   focused from the keyboard a ring marks its middle, the arrow keys move it,
-  what is under the ring is read out when the map stops, Enter opens it and
-  Escape closes it again.
+  what is under the ring is read out once the map has settled, N and Shift+N
+  step the ring through the symbols in view (nearest first, "3 of 26"),
+  Enter opens what is under it and Escape closes it again. The map's canvas
+  is the one region named Map, and its name says how to use it.
 - **Picking a school.** The Schools row always has "Find a school"; a pick
   shows only that school, with Zoom to its zone and Clear (back to the
   choice before). Every school choice shows the service's school pins, All
@@ -145,7 +179,7 @@ ramp differs from the next by 9 or more.
 | Share of jobs within reach | sequential | `#b7d3f6` `#6da7ec` `#2a78d6` `#184f95` `#0c3163` |
 | Job access against the average | diverging at 1.0 | orange arm, grey `#f0efec`, blue arm |
 | Main reason | categorical | blue `#2a78d6`, orange `#e8890c`, teal `#0e7a7e`, grey `#8f8c85` for nothing within reach, purple `#7a3fa0` for the fare |
-| Destination pins | categorical, each with a white glyph | food teal `#0e7a7e`, health dark red `#a8172b`, learning dark orange `#b35c00` (`#e8890c` before 0.12.1, which a white glyph did not read on), anything else navy |
+| Destination pins | categorical, each with a white glyph | food teal `#0e7a7e`, health dark red `#a8172b`, learning purple `#5b2a86`, anything else dark brown `#3e2723`. Before 0.12.1 learning was orange `#e8890c` (a white glyph did not read on it, and orange means beyond the standard) and anything else navy, the train's colour |
 | Public transport | categorical, each with its own glyph | bus slate `#455a64`, train navy `#0c0c48`, ferry ocean `#0277bd`, on stops, stations and lines; not any operator's colours |
 | Which way a measure leans | two dots | fair way blue `#3b7fb6`, unfair way dark red `#a8172b` |
 | Where a trip's origin gets (while picking) | sequential | `#184f95` `#3987e5` `#9ec5f4` `#dbe8f8` for 10, 20, 30 and 45 minutes |
@@ -162,9 +196,12 @@ casing); against its casing the walk is 6.1:1, the route's blue 4.3:1 and its
 orange 2.6:1.
 
 The test also checks the map symbols: a white glyph is 4.5:1 or more on every
-pin and stop colour (learning's 4.7:1 is the lowest), and on each basemap's
-common ground and each hexagon colour either a symbol's white halo or its dark
-edge is 3:1 or more.
+pin and stop colour (the ferry's 4.8:1 is the lowest), on each
+basemap's common ground and each hexagon colour either a symbol's white halo
+or its dark edge is 3:1 or more at the smallest size drawn, every place colour
+differs from every public transport colour by 9 or more under normal vision
+and 6 or more under each simulated one, and learning is far from the orange
+arm of the minutes map.
 
 The 13 October audit found three palettes that failed: the fare ramp ran
 green to red (lime and yellow 8.7 apart for protanopia), the reasons' green

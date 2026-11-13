@@ -166,7 +166,9 @@ npm test
 
 ## Licence and citation
 
-The code is released under the [MIT licence](LICENSE). Input and output data
+The code is released under the [MIT licence](LICENSE). The map's glyphs in
+[`web/assets/icons/`](web/assets/icons/) are Material Icons by Google, under
+the Apache License 2.0 (the licence is kept beside them). Input and output data
 remain under their providers' terms; see
 [`docs/data-sources.md`](docs/data-sources.md). To cite TEAM, use
 [`CITATION.cff`](CITATION.cff).

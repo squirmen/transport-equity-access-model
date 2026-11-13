@@ -1019,7 +1019,9 @@ school columns moved after tertiary in 0.12.0, and `t_*_pt`, `jobs*_pt` and
 The Schools row sits under Getting to for the three school services: All,
 State, In zone and One school, with Girls and boys, Girls or Boys under State
 and In zone, and under them "Find a school", a search by name, initials
-(MAGS) or Ministry number that is there for every choice. Picking a school
+(MAGS; MRGS for Mt Roskill Grammar, with School added; WSC for Western
+Springs College-Ngā Puna o Waiōrea, before the hyphen) or Ministry number
+that is there for every choice. Picking a school
 from it, from a school's pin on the map ("Show only this school") or from a
 school named on a hexagon's card shows only that school, with Zoom to its
 zone and Clear, which goes back to the choice used before. One school with
@@ -1055,20 +1057,32 @@ build's rules exactly:
   lists take walking where it is quicker (above), so a girl in central
   Blenheim is 22 minutes from Marlborough Girls' College by public transport,
   on foot; R5 alone gave over 60. The list's `r5` says so, for the card.
-- **Stops near the school.** Under One school, the section lists the stops
-  within a 15-minute walk, then the far stations under "Nearest train
-  stations, beyond a 15-minute walk" ("ferry terminals" from 0.12.1, as the
-  map's key names them), each with its symbol, its walk and trips arriving
-  7–9am, and a Show button that moves the map to it and opens what it says.
-  Its folded summary reads "32 within 15 min · 3 train stations within 30
-  min". On the map each stop is a symbol for its mode (a bus, train or ferry
-  in a rounded square, hollow and dashed where no trip arrives 7–9am) with a
-  walking badge giving its minutes, on the side away from the school. Every
-  stop is drawn; badges are placed stations first, then the quickest walks,
-  and one that would overlap another symbol waits until the map is zoomed in.
-  Two stops of the same name within 80 m are one symbol below zoom 16.5
-  (`nearStopFeatures` in `web/js/symbols.js`; docs/design.md, Map symbols).
-  Hovering or tapping one gives its name, stop number, walk and trips.
+- **Stops near the school.** Under One school, after the headline, the
+  section lists the stops within a 15-minute walk that have trips arriving
+  7–9am, then those that have none ("No trips arriving 7–9am"), then the far
+  stations under "Train stations, 15–30 min walk" ("Other train stations"
+  when one is within the walk; "ferry terminals" from 0.12.1, as the map's
+  key names them), each with its symbol, its walk and trips, and a Show
+  button that fits the stop and the school on the map and opens what the
+  stop says. A bus stop named like a station says so: "Mount Albert Station
+  (bus stop 8233)". Its folded summary counts the stops with trips and names
+  the nearest train station and ferry terminal, near or far: "27 stops with
+  trips within 15 min · nearest train station: Baldwin Ave Train Station, 16
+  min" for Mt Albert Grammar School, "37 stops with trips within 15 min ·
+  nearest train station: Grafton Train Station, 5 min" for St Peter's
+  College (Epsom). Until the 0.12.1 review it counted every stop within the
+  walk and only the stations beyond it ("41 within 15 min · 1 train station
+  within 30 min" for St Peter's, with Grafton 5 minutes away). On the map
+  each stop is a symbol for its mode (a bus, train or ferry in a rounded
+  square, a station's with a white line inside its edge, hollow and dashed
+  where no trip arrives 7–9am); a stop with trips has a walking badge giving
+  its minutes, on the side away from the school. Every stop is drawn. The
+  nearest station's badge and the nearest bus stop's always show; the rest
+  are placed stations first, then the quickest walks, and one that would
+  overlap another badge waits until the map is zoomed in. Two stops of the
+  same name within 80 m are one symbol below zoom 16.5 (`nearStopFeatures` in
+  `web/js/symbols.js`; docs/design.md, Map symbols). Hovering or tapping one
+  gives its name, stop number, walk and trips.
 
 ## Figures for testing the site
 

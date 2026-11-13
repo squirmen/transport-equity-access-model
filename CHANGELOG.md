@@ -14,45 +14,80 @@ under Points checked by hand.
 
 - **Every point on the map says what it is.** Places you are getting to are
   discs with a glyph (a mortarboard for schools, a cart for supermarkets and
-  so on); public transport is a rounded square with a bus, train or ferry;
-  the school picked is a navy map pin with its name beside it. Filled means
-  counted, or a stop with trips; white with a grey ring means not counted;
-  a dashed ring means no trips arriving 7–9am. Glyphs are Material Icons
-  (Apache License 2.0), kept in `web/assets/icons/`.
+  so on); public transport is a rounded square with a bus, train or ferry, a
+  station's with a white line inside its edge; the school picked is a navy
+  map pin with its name beside it from zoom 14.5. Filled means counted, or a
+  stop with trips; white with a grey ring means not counted; a dashed ring
+  means no trips arriving 7–9am. Glyphs are Material Icons (Apache License
+  2.0), kept in `web/assets/icons/`. Schools keep a small mortarboard from
+  zoom 11, bus stops their glyph from 13, stations from 12; below that they
+  are plain shapes, and the key shows them so.
 - **Stops near the school carry a walking badge.** A walking person and the
   minutes to the school, on the side of the stop away from the school,
-  replace the numbered boxes and dots. Every stop is drawn; when badges
-  would overlap, the stations' and the quickest walks' are kept and the rest
-  show as the map is zoomed in. Two stops of the same name either side of a
-  road are one symbol below zoom 16.5 (35 stops near Mt Albert Grammar School
-  are 23 symbols).
-- **The key lists what is on screen, with the same images.** It changes as
-  the map moves, keeps room for its "On the map" rows on a laptop (in 0.12.0
-  it shrank to its title under One school), and folded shows the symbols as
-  small icons. The stop row's blank swatch (two stylesheet rules for one
-  name) is gone.
+  replace the numbered boxes and dots. Every stop is drawn. The nearest
+  station's badge and the nearest bus stop's always show; the rest show where
+  they fit, stations first and then the quickest walks, from zoom 13
+  (stations' from 12, so a school with a large zone shows them when it
+  opens). A stop with no trips arriving 7–9am has no badge. Two stops of the
+  same name either side of a road are one symbol below zoom 16.5 (35 stops
+  near Mt Albert Grammar School are 23 symbols). Below zoom 12 only the
+  stations are drawn, so the city view is not a heap on the pin.
+- **The stops list says which station is nearest.** Its summary counts the
+  stops with trips arriving 7–9am and names the nearest train station and
+  ferry terminal, within the walk or beyond it: "37 stops with trips within
+  15 min · nearest train station: Grafton Train Station, 5 min" for St
+  Peter's College (Epsom), where 0.12.0's line read "1 train station within
+  30 min". Stops with no trips are listed after the rest; the stations
+  beyond the walk come under "Train stations, 15–30 min walk" ("Other train
+  stations" when one is within it). A bus stop named like a station says it
+  is a bus stop: "Mount Albert Station (bus stop 8233)". Opening the list
+  scrolls it into view, and Show fits the stop and the school together.
+- **The key lists what is on screen, with the same images.** As icon and
+  label pairs, the most needed first: under One school the school picked,
+  the walking badge, stations and stops, then other schools and the zone. It
+  changes as the map moves and counts only the part of the map the panel
+  leaves clear, so a zone off screen is not listed. On a laptop the panel
+  keeps room for its headline and the key takes the rest; where that is too
+  little for the key's scale and symbols, the key takes more, but never past
+  the headline figure (checked from 1280 × 720 to 1536 × 864; at 1440 × 900
+  under One school both fit). In 0.12.0 the key shrank to its title under One
+  school. Folded, it shows the symbols as small icons. On a phone the
+  symbols show in the peek under the scale, and over the map with a card
+  open.
+- **Picking a school.** "Find a school" is one line under the Schools
+  choices, for every choice, by name, initials (MAGS, MRGS, WSC) or Ministry
+  number; how to use it shows under it while it has the cursor. School pins
+  show under All too, and a pin's popup and each school the hexagon's card
+  names say "Show only this school". Once picked, the school has Zoom to its
+  zone and Clear (back to the choice before) in place of Change, and the map
+  fits its zone clear of the card. The school's facts, the stops near it and
+  the CSV download now come after the headline, so the headline and the key
+  fit on a laptop screen together. One school with none picked shows no
+  figure, rather than All's, and its link says `sch=one`. Layers shows the
+  schools row ticked while schools are on the map.
 - **Hover, tap or keyboard for a name.** Every symbol gives its name and what
   it is: a stop its number, walk and trips; a school what kind it is and
   whether the choice counts it. A tap takes the nearest symbol within 22 px.
-  With the map focused, Enter opens what is under the ring in its middle,
-  and the name is read out as the map moves.
-- **Finding a school.** "Find a school" is under the Schools choices for
-  every choice, by name, initials or Ministry number. School pins show under
-  All too. A pin's popup says "Show only this school" ("Show this school
-  instead" under One school); each school a hexagon's card names is a link
-  that does the same, keeping the card open. Once picked, the school has Zoom
-  to its zone and Clear (back to the choice before) in place of Change, and
-  the map fits its zone clear of the card. One school with none picked shows
-  no figure, rather than All's, and its link says `sch=one`.
-- **Colours.** Learning pins are `#b35c00` (were `#e8890c`), so a white glyph
-  reads on them. Train is navy, ferry ocean blue `#0277bd` (was navy, dashed)
-  and frequent bus slate `#455a64`, on stops and lines; rail and bus lines
-  have a white casing.
-- **Words.** "Ferry terminal" for "ferry stop", to match the key.
-- **Stop names in the Stops layer.** Hovering or tapping a stop in Layers >
-  Stops and stations names it, from the place's `transit.json`, loaded the
-  first time the layer is turned on. Train and ferry stations are told apart
-  by the lines they are on.
+  With the map focused, Enter opens what is under the ring in its middle, the
+  name is read out once the map has settled, and N and Shift+N step through
+  the symbols in view.
+- **Stops and stations (Layers).** Hovering or tapping a stop names it, from
+  the place's `transit.json`, loaded the first time the layer is turned on.
+  Train and ferry stations are told apart by the lines they are on, and a
+  station's platforms or a terminal's piers are one symbol below zoom 16.
+  Bus stops start at zoom 12.5 (in 0.12.0 every stop showed at every zoom),
+  and where they crowd some wait for a closer zoom; the layer's caption says
+  so. A stop under four an hour is slate like any bus stop with service,
+  drawn smaller.
+- **Colours.** Learning pins are purple `#5b2a86` (were orange `#e8890c`,
+  which on this map means beyond the standard) and other places dark brown
+  `#3e2723` (were navy, the train's colour). Train is navy, ferry ocean blue
+  `#0277bd` (was navy, dashed) and bus slate `#455a64`, on stops and lines;
+  rail and bus lines have a white casing. Each symbol's dark edge is 1.5 px,
+  so it holds at the smallest size drawn. Streets is shown with its colour
+  muted, so OpenStreetMap's blue stop marks are not taken for TEAM's.
+- **Words.** "Ferry terminal" for "ferry stop", to match the key; month names
+  the same in every browser ("15 and 19 Sep 2026").
 
 ### School map points checked by hand
 
@@ -76,26 +111,47 @@ under Points checked by hand.
 - **Routed again.** The 14 schools in Auckland (10), Christchurch (2),
   Wellington (1) and Rotorua (1). Every other school's minutes and stops are
   as published, and each run's 300-origin check matched.
-- **Figures.** On the default view (In zone) only Christchurch primary
-  school changes: 62.7% to 62.9% of children within 15 minutes on foot, and
-  64.2% to 64.4% by public transport or on foot. Under All, Auckland falls
-  by 0.05 to 0.28 points; Wellington primary and Rotorua secondary move by
-  under 0.1.
+- **Figures.** Every figure that counts schools can move near the 14
+  schools moved; nothing else changes (minutes to every other school are as
+  published, and the other 16 places' figures are the same). On the
+  default view (In zone) only Christchurch primary school changes: 62.7% to
+  62.9% of children within 15 minutes on foot, and 64.2% to 64.4% by public
+  transport or on foot. Under State, Christchurch primary on foot goes from
+  66% to 67% (66.47 to 66.54). Under All, Auckland falls by 0.05 to 0.28
+  points: primary on foot 77% to 76%, intermediate by public transport 73% to
+  72%; Wellington primary and Rotorua secondary move by under 0.1. The short
+  link `/go/albert-eden-cycling`, sent by email, goes from 51% to 50% for
+  Albert-Eden-Puketāpapa Ward. Local boards move by up to a point (Rodney
+  secondary 30.9 to 29.9); some suburbs by much more, where a moved school is
+  their nearest: Glamorgan secondary 100 to 78.2, Riverhead primary 86.0 to
+  67.4, Māngere Bridge intermediate 100 to 81.9. The access score, its
+  deciles and the school fare shares change a little in Auckland,
+  Christchurch, Wellington and Rotorua.
 
 ### Checks
 
-- `tests/web/symbols.test.mjs`: every symbol has a key row and an image,
-  `glyphs.js` matches the icon files, and Mt Albert Grammar School's 35 stops
-  are 23 symbols with the stations' badges placed first and five stops with
-  no trips arriving 7–9am drawn hollow.
+- `tests/web/symbols.test.mjs`: every symbol has a key row whose image is the
+  one the map draws (dots below the glyph zoom), `glyphs.js` matches the icon
+  files, the walking badges are placed before the stops, a station's
+  platforms are one symbol, and Mt Albert Grammar School's 35 stops are 23
+  symbols with no badge on the stops with no trips and Baldwin Ave's badge
+  always shown.
+- `tests/web/school_stations.test.mjs`: the summary counts stops with trips
+  and names the nearest station near or far (St Peter's College), the far
+  heading, bus stops named like stations, under-a-minute walks.
 - `tests/web/palette.test.mjs`: the three modes pass the colour-blind check;
   a white glyph is 4.5:1 or more on every pin and stop colour; a symbol's
-  halo or edge is 3:1 or more on each basemap and hexagon colour.
+  halo or edge is 3:1 or more on each basemap and hexagon colour at the
+  smallest size drawn; no place colour is a public transport colour.
 - `tests/web/schools_browser.py`: in every scene every symbol drawn is in the
-  key; the stops' badges at zoom 13 and 15; a stop's tooltip and Show
-  button; the card's link to Mt Albert Grammar School; Clear; `sch=one`; a
-  pin's popup; a pick on a phone. Chromium and WebKit, desktop and 390 px,
-  with the stylesheet held back 1.5 s.
+  key; the stops' badges at zoom 13 and 15; St Peter's College's station
+  badges at its opening zoom; the key's walking badge row and the headline
+  figure together at 1440 × 900, and the headline figure from 1280 × 720 to
+  1536 × 864; a stop's tooltip and Show button; the card's link to Mt Albert
+  Grammar School; Clear; `sch=one`; a pin's popup; the keyboard read-out
+  after one arrow press, and N; on a phone, a pick, the symbols in the peek
+  and the card's strip, and the controls after the sheet moves. Chromium and
+  WebKit, desktop and 390 px, with the stylesheet held back 1.5 s.
 
 ## 0.12.0 (13 November 2026)
 
