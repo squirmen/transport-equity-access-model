@@ -735,16 +735,32 @@ export function renderSchools(root, model, set) {
 
   const picked = choice.kind === 'one' && model.school ? model.school : null;
   if (picked) parts.push(pickedSchool(model, set));
-  parts.push(...schoolSearch(model, set, picked));
-  if (picked) parts.push(...pickedDetails(model, set));
+  parts.push(schoolSearch(model, set, picked));
+  if (picked && picked.hasZone) parts.push(zoneOnly(model, set));
   if (model.status) parts.push(el('p', `note school-status${model.statusKind === 'error' ? ' is-error' : ''}`, model.status));
   if (model.budget) parts.push(el('p', 'note', model.budget));
-  if (model.csv) {
+  root.replaceChildren(...parts);
+}
+
+/** Under the headline: the school picked's facts and the stops near it, and
+ *  the CSV download. Above the headline only what changes the figure, so a
+ *  laptop screen shows the headline and the map's key together. */
+export function renderSchoolMore(root, model, set) {
+  const parts = [];
+  const picked = model && model.choice.kind === 'one' && model.school ? model.school : null;
+  if (picked) {
+    const facts = el('div', 'school-facts');
+    facts.append(...picked.facts.map((text) => el('p', 'note', text)));
+    parts.push(facts);
+    if (picked.stops) parts.push(stopsSection(picked.stops, set));
+  }
+  if (model && model.csv) {
     const csv = el('button', 'text-button school-csv', 'Download hexagons as CSV');
     csv.type = 'button';
     csv.addEventListener('click', () => set({ schoolCsv: true }));
     parts.push(csv);
   }
+  root.hidden = !parts.length;
   root.replaceChildren(...parts);
 }
 
@@ -772,37 +788,31 @@ function pickedSchool(model, set) {
   return box;
 }
 
-/** The school's facts, its zone tick box and the stops near it. */
-function pickedDetails(model, set) {
-  const { choice, school } = model;
-  const parts = [];
-  const facts = el('div', 'school-facts');
-  facts.append(...school.facts.map((text) => el('p', 'note', text)));
-  parts.push(facts);
-  if (school.hasZone) {
-    const box = el('label', 'check');
-    const input = el('input');
-    input.type = 'checkbox';
-    input.id = 'school-zone-only';
-    input.checked = choice.zoneOnly !== false;
-    input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
-    box.append(input, el('span', null, 'Only those living in its zone'));
-    parts.push(box);
-  }
-  if (school.stops) parts.push(stopsSection(school.stops, set));
-  return parts;
+/** The school's zone tick box: it changes who the figure counts. */
+function zoneOnly(model, set) {
+  const { choice } = model;
+  const box = el('label', 'check');
+  const input = el('input');
+  input.type = 'checkbox';
+  input.id = 'school-zone-only';
+  input.checked = choice.zoneOnly !== false;
+  input.addEventListener('change', () => set({ schools: { ...choice, zoneOnly: input.checked } }));
+  box.append(input, el('span', null, 'Only those living in its zone'));
+  return box;
 }
 
-/** "Find a school": a search that lists the schools whose name, initials or
- *  Ministry number match, as a list box. Picking one shows only it. */
+/** "Find a school": one line, a search that lists the schools whose name,
+ *  initials or Ministry number match, as a list box. Picking one shows only
+ *  it. How to use it shows under the box while it has the cursor and is
+ *  empty. */
 function schoolSearch(model, set, picked) {
   const field = el('div', 'school-search');
-  const label = el('label', 'school-search-label', picked ? 'Find another school' : 'Find a school');
+  const label = el('label', 'school-search-label visually-hidden', picked ? 'Find another school' : 'Find a school');
   label.htmlFor = 'school-search';
   const input = el('input', 'select school-input');
   input.type = 'search';
   input.id = 'school-search';
-  input.placeholder = picked ? 'Find another school' : 'Name or initials, e.g. MAGS';
+  input.placeholder = picked ? 'Find another school' : 'Find a school, e.g. MAGS';
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.value = model.query || '';
@@ -814,6 +824,10 @@ function schoolSearch(model, set, picked) {
   results.id = 'school-results';
   results.setAttribute('role', 'listbox');
   results.setAttribute('aria-label', 'Schools found');
+  const hint = el('p', 'note school-hint', model.hint);
+  hint.id = 'school-search-hint';
+  hint.hidden = true;
+  input.setAttribute('aria-describedby', hint.id);
   let active = -1;
   const options = () => [...results.querySelectorAll('[role="option"]')];
   const choose = (d) => set({ schoolPick: model.moeOf(d) });
@@ -851,11 +865,17 @@ function schoolSearch(model, set, picked) {
       results.append(none);
     }
   };
+  const hintNow = () => { hint.hidden = document.activeElement !== input || Boolean(input.value.trim()); };
   input.addEventListener('input', () => {
     model.remember(input.value);
     show();
+    hintNow();
   });
-  input.addEventListener('focus', () => { if (model.onSearch) model.onSearch(); });
+  input.addEventListener('focus', () => {
+    hintNow();
+    if (model.onSearch) model.onSearch();
+  });
+  input.addEventListener('blur', () => { hint.hidden = true; });
   input.addEventListener('keydown', (event) => {
     const list = options();
     if (event.key === 'ArrowDown' && list.length) {
@@ -880,21 +900,23 @@ function schoolSearch(model, set, picked) {
     }
   });
   show();
-  field.append(label, input, results);
-  return [field, el('p', 'note school-hint', model.hint)];
+  field.append(label, input, hint, results);
+  return field;
 }
 
-/** Stops near the school (One school): { intro, rows, none, summary, far:
- *  { heading, rows } or null }, each row { text, name, icon, walk, k }. A
- *  row gives the stop's symbol and walking badge as the map draws them, and
- *  a Show button that finds it on the map. */
+/** Stops near the school (One school): { intro, rows, none, summary, quiet:
+ *  { heading, rows } or null (those with no trips in the window), far: {
+ *  heading, rows } or null }, each row { text, name, icon, walk, trips, k }.
+ *  A row gives the stop's symbol and, where it has trips, its walking badge
+ *  as the map draws them, and a Show button that finds it on the map. */
 function stopsSection(stops, set) {
   const listOf = (rows) => {
     const list = el('ul', 'stop-list');
     for (const row of rows) {
       const item = el('li', 'stop-row');
       const marks = el('span', 'stop-marks');
-      marks.append(keyIcon(row.icon, 0.7), keyIcon(`walk-${row.walk}`, 0.7));
+      marks.append(keyIcon(row.icon, 0.7));
+      if (row.trips) marks.append(keyIcon(`walk-${row.walk}`, 0.7));
       const show = el('button', 'small-button stop-show', 'Show');
       show.type = 'button';
       show.setAttribute('aria-label', `Show ${row.name} on the map`);
@@ -904,13 +926,18 @@ function stopsSection(stops, set) {
     }
     return list;
   };
-  const far = stops.far && stops.far.rows.length ? [el('p', 'stop-far-head', stops.far.heading), listOf(stops.far.rows)] : [];
-  if (far.length) far[1].classList.add('is-far');
+  const after = (part) => {
+    if (!part || !part.rows.length) return [];
+    const list = listOf(part.rows);
+    list.classList.add('is-far');
+    return [el('p', 'stop-far-head', part.heading), list];
+  };
   return fold('school-stops', 'Stops near the school', stops.summary, [
     el('p', 'note', stops.intro),
     stops.rows.length ? listOf(stops.rows) : el('p', 'note', stops.none),
-    ...far,
-  ]);
+    ...after(stops.quiet),
+    ...after(stops.far),
+  ], { reveal: true });
 }
 
 /** How many of a service are within the standard, not only whether one is. */

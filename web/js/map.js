@@ -8,10 +8,11 @@
 
 /* global maplibregl, h3 */
 
+import { shortDate } from './format.js';
 import { GLYPHS } from './glyphs.js';
 import { CELL_OPACITY, MODE_COLOURS, TRIP_LINE } from './palette.js';
 import {
-  addSymbolImages, forgetImage, layerStopProperties, MODE_GLYPH, modeOf, nameImage, nearStopFeatures, pointAt, SERVICE_GLYPH,
+  addSymbolImages, forgetImage, GLYPH_ZOOM, layerStopProperties, MODE_GLYPH, modeOf, nameImage, nearStopFeatures, pointAt, SERVICE_GLYPH,
 } from './symbols.js';
 
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
@@ -47,8 +48,9 @@ export const OVERLAYS = {
   stops: {
     label: 'Stops and stations',
     group: 'Public transport',
-    caption: () => 'Hover or tap one for its name',
-    layers: ['ov-station', 'ov-bus'],
+    // Bus stops start at zoom 12.5, and where they crowd some wait for a closer zoom.
+    caption: () => 'Hover or tap one for its name. Zoom in to see every bus stop',
+    layers: ['ov-station', 'ov-station-all', 'ov-bus'],
     icon: 'bus-on',
   },
   cycling: {
@@ -70,9 +72,8 @@ export const OVERLAYS = {
 
 function timetable(meta) {
   const agency = (meta && meta.naming && meta.naming.agency) || 'The local';
-  if (!meta || !meta.routing_date) return `${agency} timetable`;
-  const date = new Date(`${meta.routing_date}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-  return `${agency} timetable, ${date}`;
+  const date = meta && shortDate(meta.routing_date);
+  return date ? `${agency} timetable, ${date}` : `${agency} timetable`;
 }
 
 let cells = EMPTY;
@@ -93,33 +94,47 @@ const zoomed = (...stops) => ['interpolate', ['linear'], ['zoom'], ...stops];
 // The plain shape below zoom `z`, the shape with its glyph from there. An
 // image is chosen for each tile, at a whole zoom, so the steps are whole.
 const stepped = (z) => ['step', ['zoom'], ['concat', ['get', 'img'], '-dot'], z, ['get', 'img']];
-// The walking badge beside its stop, on the side away from the school.
-const BADGE = {
-  'icon-image': ['get', 'badge'],
+const isStation = ['==', ['get', 'station'], 1];
+// The walking badge beside its stop, on the side away from the school. From
+// zoom 12 the stations' and the two that must show; every one from 13. A
+// stop with no trips in the window has none (symbols.js nearStopFeatures).
+// `must`: the nearest station's and the nearest bus stop's, which may
+// overlap anything rather than drop out.
+const badge = (must) => ({
+  'icon-image': ['step', ['zoom'], ['case', ['any', isStation, ['==', ['get', 'must'], 1]], ['get', 'badge'], ''], GLYPH_ZOOM, ['get', 'badge']],
   'icon-anchor': ['match', ['get', 'side'], 'L', 'right', 'left'],
   'icon-offset': ['match', ['get', 'side'], 'L',
-    ['case', ['==', ['get', 'station'], 1], ['literal', [-15.5, 0]], ['literal', [-13, 0]]],
-    ['case', ['==', ['get', 'station'], 1], ['literal', [15.5, 0]], ['literal', [13, 0]]]],
-  'icon-allow-overlap': false,
+    ['case', isStation, ['literal', [-15.5, 0]], ['literal', [-13, 0]]],
+    ['case', isStation, ['literal', [15.5, 0]], ['literal', [13, 0]]]],
+  'icon-allow-overlap': must,
   'icon-padding': 0,
   'symbol-sort-key': ['get', 'place'],
-};
-// Stops near the school: every one drawn, stations and the quicker walks on top.
+});
+const badgeFilter = (must) => ['all', ['==', ['get', 'must'], must ? 1 : 0], ['!=', ['get', 'badge'], '']];
+// Stops near the school: every one drawn, stations and the quicker walks on
+// top. Below zoom 12 only the stations, so the city view is not a heap of
+// bus stops on the school; plain shapes to 13, then each with its glyph.
+// They take no room from the badges or anything else.
 const NEAR_STOP = {
-  'icon-image': ['step', ['zoom'], ['concat', ['get', 'img'], '-dot'],
-    12, ['case', ['==', ['get', 'station'], 1], ['get', 'img'], ['concat', ['get', 'img'], '-dot']],
-    14, ['get', 'img']],
+  'icon-image': ['step', ['zoom'], ['case', isStation, ['concat', ['get', 'img'], '-dot'], ''],
+    12, ['case', isStation, ['get', 'img'], ['concat', ['get', 'img'], '-dot']],
+    GLYPH_ZOOM, ['get', 'img']],
   'icon-size': zoomed(12, 0.85, 14, 0.8, 16, 1),
   'icon-allow-overlap': true,
+  'icon-ignore-placement': true,
   'icon-padding': 0,
   'symbol-sort-key': ['get', 'draw'],
   'symbol-z-order': 'source',
 };
+// Schools: a plain disc below zoom 11, a small one with its glyph to 13, then full size.
+const SCHOOL_IMAGE = ['step', ['zoom'], ['concat', ['get', 'img'], '-dot'], 11, ['concat', ['get', 'img'], '-sm'], GLYPH_ZOOM, ['get', 'img']];
 // Two stops either side of a road are one symbol below this zoom.
 export const STOPS_APART = 16.5;
+// A station's platforms and a terminal's piers are one symbol below this zoom.
+export const STATIONS_APART = 16;
 // School pins, and larger while one is to be picked.
-const PIN_SIZE = zoomed(10, 0.8, 13, 0.75, 14, 0.85, 16, 1);
-const PIN_SIZE_PICKING = zoomed(10, 1.05, 13, 0.95, 14, 1, 16, 1.1);
+const PIN_SIZE = zoomed(10, 0.8, 11, 0.8, 13, 0.75, 14, 0.85, 16, 1);
+const PIN_SIZE_PICKING = zoomed(10, 1.05, 11, 1, 13, 0.95, 14, 1, 16, 1.1);
 
 export function createMap(container, { topRight = null } = {}) {
   const style = {
@@ -205,19 +220,24 @@ export function createMap(container, { topRight = null } = {}) {
       },
       // From here up, symbols. MapLibre places the top layer first, so the
       // stack is the priority (symbols.js SYMBOL_LAYERS): the school picked,
-      // the stops near it, their walking minutes, the schools or places, the
-      // schools not counted, then the Stops layer.
+      // the walking badges, the stops near it, its name, the schools or
+      // places, the schools not counted, then the Stops layer.
       {
-        id: 'ov-bus', type: 'symbol', source: 'stops', minzoom: 12.5, filter: ['==', ['get', 'station'], 0],
-        layout: { visibility: 'none', 'icon-image': stepped(15), 'icon-size': zoomed(12.5, 0.8, 14.5, 0.8, 16, 1), 'icon-allow-overlap': false, 'icon-padding': 0 },
+        id: 'ov-bus', type: 'symbol', source: 'stops', minzoom: 12.5, filter: ['all', ['==', ['get', 'station'], 0], ['!=', ['get', 'group'], 1]],
+        layout: { visibility: 'none', 'icon-image': stepped(GLYPH_ZOOM), 'icon-size': zoomed(12.5, 0.8, 14.5, 0.8, 16, 1), 'icon-allow-overlap': false, 'icon-padding': 0 },
+      },
+      // A station's platforms or a terminal's piers are one symbol below zoom 16, and each its own from there.
+      {
+        id: 'ov-station-all', type: 'symbol', source: 'stops', minzoom: STATIONS_APART, filter: ['all', isStation, ['!=', ['get', 'group'], 1]],
+        layout: { visibility: 'none', 'icon-image': ['get', 'img'], 'icon-size': 1, 'icon-allow-overlap': true },
       },
       {
-        id: 'ov-station', type: 'symbol', source: 'stops', filter: ['==', ['get', 'station'], 1],
+        id: 'ov-station', type: 'symbol', source: 'stops', maxzoom: STATIONS_APART, filter: ['all', isStation, ['!=', ['get', 'member'], 1]],
         layout: { visibility: 'none', 'icon-image': stepped(12), 'icon-size': zoomed(10, 0.8, 12, 0.7, 15, 0.9, 16, 1), 'icon-allow-overlap': true },
       },
       {
         id: 'dest-out', type: 'symbol', source: 'school-pins', filter: ['==', ['get', 'st'], 'out'],
-        layout: { 'icon-image': stepped(13), 'icon-size': zoomed(10, 0.9, 13, 0.8, 16, 1), 'icon-allow-overlap': false, 'icon-padding': 0 },
+        layout: { 'icon-image': SCHOOL_IMAGE, 'icon-size': zoomed(10, 0.9, 11, 0.85, 13, 0.8, 16, 1), 'icon-allow-overlap': false, 'icon-padding': 0 },
       },
       {
         id: 'places', type: 'symbol', source: 'destinations', filter: ['boolean', false],
@@ -225,25 +245,31 @@ export function createMap(container, { topRight = null } = {}) {
       },
       {
         id: 'dest', type: 'symbol', source: 'school-pins', filter: ['==', ['get', 'st'], 'on'],
-        layout: { 'icon-image': stepped(13), 'icon-size': PIN_SIZE, 'icon-allow-overlap': true },
+        layout: { 'icon-image': SCHOOL_IMAGE, 'icon-size': PIN_SIZE, 'icon-allow-overlap': true },
       },
-      { id: 'near-badge', type: 'symbol', source: 'near', minzoom: 13, maxzoom: STOPS_APART, layout: BADGE },
-      { id: 'near-badge-all', type: 'symbol', source: 'near-all', minzoom: STOPS_APART, layout: BADGE },
-      { id: 'near-stop', type: 'symbol', source: 'near', maxzoom: STOPS_APART, layout: NEAR_STOP },
       { id: 'near-stop-all', type: 'symbol', source: 'near-all', minzoom: STOPS_APART, layout: NEAR_STOP },
+      { id: 'near-stop', type: 'symbol', source: 'near', maxzoom: STOPS_APART, layout: NEAR_STOP },
+      // The school's name beside its pin, from zoom 14.5 where the stops near it
+      // have room, and only where no walking badge is in its way. It takes no room itself.
+      {
+        id: 'picked-name', type: 'symbol', source: 'school-pins', minzoom: 14.5, filter: ['==', ['get', 'st'], 'picked'],
+        layout: { 'icon-image': ['get', 'name'], 'icon-anchor': 'left', 'icon-offset': [15, -24], 'icon-allow-overlap': false, 'icon-ignore-placement': true, 'icon-padding': 0 },
+      },
+      { id: 'near-badge-all', type: 'symbol', source: 'near-all', minzoom: STOPS_APART, filter: badgeFilter(false), layout: badge(false) },
+      { id: 'near-badge', type: 'symbol', source: 'near', minzoom: 12, maxzoom: STOPS_APART, filter: badgeFilter(false), layout: badge(false) },
+      { id: 'near-badge-key-all', type: 'symbol', source: 'near-all', minzoom: STOPS_APART, filter: badgeFilter(true), layout: badge(true) },
+      { id: 'near-badge-key', type: 'symbol', source: 'near', minzoom: 12, maxzoom: STOPS_APART, filter: badgeFilter(true), layout: badge(true) },
       {
         id: 'picked', type: 'symbol', source: 'school-pins', filter: ['==', ['get', 'st'], 'picked'],
         layout: { 'icon-image': 'school-picked', 'icon-anchor': 'bottom', 'icon-offset': [0, 3.5], 'icon-size': zoomed(10, 0.85, 14, 1), 'icon-allow-overlap': true },
-      },
-      {
-        id: 'picked-name', type: 'symbol', source: 'school-pins', filter: ['==', ['get', 'st'], 'picked'],
-        layout: { 'icon-image': ['get', 'name'], 'icon-anchor': 'left', 'icon-offset': [15, -24], 'icon-allow-overlap': true },
       },
     ],
   };
   const map = new maplibregl.Map({
     container,
     style,
+    // The canvas is the one region named Map; it says how to use it from the keyboard.
+    locale: { 'Map.Title': 'Map. Arrow keys move it, N steps through the symbols in view, Enter opens what is under the ring.' },
     center: [174.76, -36.87],
     zoom: 10,
     minZoom: 7,
@@ -342,21 +368,65 @@ function linesOf(collection) {
   return out;
 }
 
+// The train stations and ferry terminals with more than one platform or
+// pier in the Layers stops: { id, name, lon, lat, mode, ks } (layerGroups).
+let stationGroups = [];
+
+/** A station's platforms or a terminal's piers, from transit.json's parent
+ *  stations: each with two or more of `stops` ({ kind, mode, station, lon,
+ *  lat }) as { id, name, lon, lat, mode, ks (their indexes) }, at the
+ *  station's own point where `stations` (id to { name, lon, lat }) has it. */
+export function layerGroups(stops, stations = new Map()) {
+  const byStation = new Map();
+  stops.forEach((s, k) => {
+    if (s.kind !== 'rail_ferry' || !s.station) return;
+    const key = `${s.station}|${s.mode}`;
+    if (!byStation.has(key)) byStation.set(key, []);
+    byStation.get(key).push(k);
+  });
+  const out = [];
+  for (const [key, ks] of byStation) {
+    if (ks.length < 2) continue;
+    const id = key.split('|')[0];
+    const at = stations.get(id);
+    const lon = at && Number.isFinite(at.lon) ? at.lon : ks.reduce((a, k) => a + stops[k].lon, 0) / ks.length;
+    const lat = at && Number.isFinite(at.lat) ? at.lat : ks.reduce((a, k) => a + stops[k].lat, 0) / ks.length;
+    out.push({ id, name: (at && at.name) || stops[ks[0]].name || null, lon, lat, mode: stops[ks[0]].mode, ks });
+  }
+  return out;
+}
+
 function stopCollection() {
+  const member = new Set(stationGroups.flatMap((g) => g.ks));
   return {
     type: 'FeatureCollection',
-    features: layerStops.map((s, k) => ({
-      type: 'Feature',
-      id: k,
-      properties: { k, ...layerStopProperties(s.kind, s.mode) },
-      geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
-    })),
+    features: [
+      ...layerStops.map((s, k) => ({
+        type: 'Feature',
+        id: k,
+        properties: { k, ...layerStopProperties(s.kind, s.mode), ...(member.has(k) ? { member: 1 } : {}) },
+        geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+      })),
+      ...stationGroups.map((g, n) => ({
+        type: 'Feature',
+        id: layerStops.length + n,
+        properties: { g: n, group: 1, ...layerStopProperties('rail_ferry', g.mode) },
+        geometry: { type: 'Point', coordinates: [g.lon, g.lat] },
+      })),
+    ],
   };
 }
 
 /** A Layers stop: { kind, per_hour, mode, name, code } or null. */
 export function layerStop(k) {
   return layerStops[k] || null;
+}
+
+/** A station or terminal drawn as one symbol: { name, mode, stops } or null. */
+export function layerStation(g) {
+  const group = stationGroups[g];
+  if (!group) return null;
+  return { name: group.name, mode: group.mode, stops: group.ks.map((k) => layerStops[k]) };
 }
 
 export function setOverlays(map, overlays, destinations) {
@@ -367,6 +437,7 @@ export function setOverlays(map, overlays, destinations) {
   if (overlays.stops) {
     // A train or ferry stop the build did not give a mode for takes the
     // nearer line's, until transit.json says (setStopNames).
+    stationGroups = [];
     layerStops = (overlays.stops.features || []).map((f) => {
       const p = f.properties || {};
       const [lon, lat] = f.geometry.coordinates;
@@ -410,12 +481,20 @@ export function setStopNames(map, transit) {
     if (Math.abs(lon - s.lon) > 1e-4 || Math.abs(lat - s.lat) > 1e-4) return;
     s.name = p.name || s.name;
     s.code = p.code || s.code;
+    s.station = typeof p.station === 'string' ? p.station : null;
     if (s.kind === 'rail_ferry') {
       const on = kinds.get(p.id);
       if (on && on.has('ferry') && !on.has('rail')) s.mode = 'ferry';
       else if (on && on.has('rail')) s.mode = 'train';
     }
   });
+  const stations = new Map();
+  for (const f of (transit.stations && transit.stations.features) || []) {
+    const p = f.properties || {};
+    if (!p.id || !f.geometry) continue;
+    stations.set(p.id, { name: p.name || null, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
+  }
+  stationGroups = layerGroups(layerStops, stations);
   map.getSource('stops').setData(stopCollection());
   return true;
 }
@@ -478,11 +557,22 @@ export function setPinsLarge(map, on) {
   map.setLayoutProperty('dest', 'icon-size', on ? PIN_SIZE_PICKING : PIN_SIZE);
 }
 
+/** A zone's edge as lines: the rings of a Polygon or MultiPolygon as one
+ *  MultiLineString. Drawn from a polygon, MapLibre's tiles add edges along
+ *  tile boundaries that the map does not draw but does find, so the key
+ *  would list the zone with none of it on screen. */
+export function zoneLines(geometry) {
+  if (!geometry) return null;
+  if (geometry.type === 'Polygon') return { type: 'MultiLineString', coordinates: geometry.coordinates };
+  if (geometry.type === 'MultiPolygon') return { type: 'MultiLineString', coordinates: geometry.coordinates.flat() };
+  return geometry;
+}
+
 /** Outline one school's zone (a GeoJSON geometry), or none. */
 export function setSchoolZone(map, geometry) {
   const source = map.getSource('school-zone');
   if (!source) return;
-  source.setData(geometry ? { type: 'Feature', properties: {}, geometry } : EMPTY);
+  source.setData(geometry ? { type: 'Feature', properties: {}, geometry: zoneLines(geometry) } : EMPTY);
 }
 
 let stopsKey = null;
@@ -537,9 +627,10 @@ export function hitRadius(event) {
   return window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 22 : 6;
 }
 
-/** What a rendered symbol is: { kind: school | place | near | stop, layer,
- *  d (a destination), ks (rows of the stops near a school), k (a Layers
- *  stop), picked, at ([lon, lat]), key }. */
+/** What a rendered symbol is: { kind: school | place | near | stop |
+ *  station, layer, d (a destination), ks (rows of the stops near a school),
+ *  k (a Layers stop), g (a Layers station drawn as one), picked, at ([lon,
+ *  lat]), key }. */
 export function pointInfo(feature) {
   if (!feature) return null;
   const layer = feature.layer.id;
@@ -553,7 +644,8 @@ export function pointInfo(feature) {
     // A stop's badge stands for its stop, so the ring goes on the stop.
     return { kind: 'near', layer, ks, at, key: `near|${p.ks}` };
   }
-  if (layer === 'ov-bus' || layer === 'ov-station') return { kind: 'stop', layer, k: Number(p.k), at, key: `stop|${p.k}` };
+  if (p.group === 1) return { kind: 'station', layer, g: Number(p.g), at, key: `station|${p.g}` };
+  if (layer.startsWith('ov-')) return { kind: 'stop', layer, k: Number(p.k), at, key: `stop|${p.k}` };
   return null;
 }
 
@@ -750,9 +842,9 @@ export function setTrip(map, trip) {
   }
   const mode = trip.drawing?.mode || 'bus';
   for (const stop of trip.drawing?.stops || []) {
+    // A and B, in the ride's mode; the trip card names the stops.
     const box = tag(stop.label, 'stop');
     box.classList.add(`is-${mode}`);
-    box.title = stop.name;
     tripMarkers.push(marker(map, box, [stop.lon, stop.lat]));
   }
   const label = trip.drawing?.label;

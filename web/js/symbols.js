@@ -3,12 +3,13 @@
 // a school as the map draws them. docs/design.md, "Map symbols".
 //
 // Shape says what kind of thing: a disc is a place you are getting to, a
-// rounded square public transport, a map pin the school picked, a pill a
-// number or a name. The glyph says which one; fill and ring say its state.
-// Every image is drawn here on a canvas from glyphs.js, at twice its size.
+// rounded square public transport (a station's with a white line inside its
+// edge), a map pin the school picked, a pill a number or a name. The glyph
+// says which one; fill and ring say its state. Every image is drawn here on
+// a canvas from glyphs.js, at the screen's pixel ratio (2 or 3).
 
 import { GLYPHS } from './glyphs.js';
-import { DESTINATION_COLOURS, DESTINATION_OTHER, LEARNING, MODE_COLOURS, SYMBOL_EDGE, SYMBOL_GREY } from './palette.js';
+import { DESTINATION_COLOURS, DESTINATION_OTHER, EDGE_WIDTH, LEARNING, MODE_COLOURS, SYMBOL_EDGE, SYMBOL_GREY } from './palette.js';
 
 const NAVY = '#0c0c48';
 const INK = '#15252e';
@@ -16,9 +17,13 @@ const WHITE = '#ffffff';
 const GREY = SYMBOL_GREY;
 // Hexagons outside one school's zone (app.js OUTSIDE_ZONE).
 const OUTSIDE = '#b4bbc2';
-export const PIXEL_RATIO = 2;
-// Room round a shape for its halo and edge.
-const PAD = 3.5;
+// Drawn at the screen's pixel ratio, 2 or 3, so a symbol is sharp on a phone.
+export const PIXEL_RATIO = Math.min(3, Math.max(2, Math.ceil((typeof window !== 'undefined' && window.devicePixelRatio) || 2)));
+// Room round a shape for its halo (2 px) and edge (EDGE_WIDTH).
+const PAD = 2 + EDGE_WIDTH;
+// The zoom from which bus stops and schools carry their glyph (map.js); below
+// it they are plain shapes, and the key shows them so.
+export const GLYPH_ZOOM = 13;
 
 export const SERVICE_GLYPH = {
   supermarket: 'shopping_cart',
@@ -53,8 +58,11 @@ const colourOf = (service) => DESTINATION_COLOURS[service] || DESTINATION_OTHER;
  *  smudge. */
 export const IMAGES = {
   'school-on': { shape: 'disc', size: 24, fill: LEARNING, glyph: 'school', ink: WHITE },
+  // From zoom 11 to 13: small, with its glyph, so a school looks like one in the city view.
+  'school-on-sm': { shape: 'disc', size: 17, fill: LEARNING, glyph: 'school', ink: WHITE },
   'school-on-dot': { shape: 'disc', size: 11, fill: LEARNING },
   'school-out': { shape: 'disc', size: 20, fill: WHITE, glyph: 'school', ink: GREY, ring: GREY },
+  'school-out-sm': { shape: 'disc', size: 15, fill: WHITE, glyph: 'school', ink: GREY, ring: GREY },
   'school-out-dot': { shape: 'disc', size: 9, fill: WHITE, ring: GREY },
   'school-picked': { shape: 'pin', fill: NAVY, glyph: 'school', ink: WHITE },
 };
@@ -62,15 +70,18 @@ for (const mode of ['bus', 'train', 'ferry']) {
   const big = mode === 'bus' ? 18 : 22;
   const small = mode === 'bus' ? 8 : 11;
   const glyph = MODE_GLYPH[mode];
-  IMAGES[`${mode}-on`] = { shape: 'square', size: big, fill: MODE_COLOURS[mode], glyph, ink: WHITE };
-  IMAGES[`${mode}-on-dot`] = { shape: 'square', size: small, fill: MODE_COLOURS[mode] };
+  // A station has a white line inside its edge, so it is told from a bus stop by more than colour.
+  const keyline = mode !== 'bus';
+  IMAGES[`${mode}-on`] = { shape: 'square', size: big, fill: MODE_COLOURS[mode], glyph, ink: WHITE, keyline };
+  IMAGES[`${mode}-on-dot`] = { shape: 'square', size: small, fill: MODE_COLOURS[mode], keyline };
   // No trips in the morning window: hollow and dashed.
   IMAGES[`${mode}-none`] = { shape: 'square', size: big, fill: WHITE, glyph, ink: GREY, ring: GREY, dashed: true };
   IMAGES[`${mode}-none-dot`] = { shape: 'square', size: small, fill: WHITE, ring: GREY };
 }
-// Fewer than four buses an hour (Layers): hollow, in the bus colour.
-IMAGES['bus-few'] = { shape: 'square', size: 18, fill: WHITE, glyph: 'directions_bus', ink: MODE_COLOURS.bus, ring: MODE_COLOURS.bus };
-IMAGES['bus-few-dot'] = { shape: 'square', size: 8, fill: WHITE, ring: MODE_COLOURS.bus };
+// Fewer than four buses an hour (Layers): the same slate as any bus stop with
+// buses, drawn smaller. Slate always means a bus stop with service.
+IMAGES['bus-few'] = { shape: 'square', size: 13, fill: MODE_COLOURS.bus, glyph: 'directions_bus', ink: WHITE };
+IMAGES['bus-few-dot'] = { shape: 'square', size: 6, fill: MODE_COLOURS.bus };
 for (const [service, glyph] of Object.entries(SERVICE_GLYPH)) {
   IMAGES[`svc-${service}`] = { shape: 'disc', size: 24, fill: colourOf(service), glyph, ink: WHITE };
   IMAGES[`svc-${service}-dot`] = { shape: 'disc', size: 11, fill: colourOf(service) };
@@ -102,7 +113,9 @@ function canvas(w, h) {
   const box = document.createElement('canvas');
   box.width = Math.ceil(w * PIXEL_RATIO);
   box.height = Math.ceil(h * PIXEL_RATIO);
-  const ctx = box.getContext('2d');
+  // Kept off the GPU: every image is read back once (getImageData,
+  // toDataURL), which is slow from a GPU canvas on a phone.
+  const ctx = box.getContext('2d', { willReadFrequently: true });
   ctx.scale(PIXEL_RATIO, PIXEL_RATIO);
   return [box, ctx];
 }
@@ -118,12 +131,12 @@ function glyph(ctx, name, cx, cy, size, colour) {
   ctx.restore();
 }
 
-/** A shape with its 1 px dark edge outside a 2 px white halo, then its fill
- *  and any ring (dashed for no trips). */
+/** A shape with its dark edge (EDGE_WIDTH) outside a 2 px white halo, then
+ *  its fill and any ring (dashed for no trips). */
 function sticker(ctx, path, fill, { ring = null, dashed = false } = {}) {
   ctx.lineJoin = 'round';
   path();
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 4 + 2 * EDGE_WIDTH;
   ctx.strokeStyle = SYMBOL_EDGE;
   ctx.stroke();
   path();
@@ -194,7 +207,15 @@ function draw(spec) {
       ? () => { ctx.beginPath(); ctx.arc(w / 2, w / 2, spec.size / 2, 0, Math.PI * 2); }
       : () => rounded(ctx, PAD, PAD, spec.size, spec.size, spec.size * 0.24);
     sticker(ctx, path, spec.fill, spec);
-    if (spec.glyph) glyph(ctx, spec.glyph, w / 2, w / 2, spec.size * (spec.shape === 'disc' ? 0.62 : 0.7), spec.ink);
+    if (spec.keyline) {
+      // A station: a white line just inside the edge.
+      const inset = spec.size >= 16 ? 2.2 : 1.6;
+      rounded(ctx, PAD + inset, PAD + inset, spec.size - inset * 2, spec.size - inset * 2, Math.max(1, spec.size * 0.24 - inset));
+      ctx.lineWidth = spec.size >= 16 ? 1.4 : 1;
+      ctx.strokeStyle = WHITE;
+      ctx.stroke();
+    }
+    if (spec.glyph) glyph(ctx, spec.glyph, w / 2, w / 2, spec.size * (spec.shape === 'disc' ? 0.62 : spec.keyline ? 0.62 : 0.7), spec.ink);
     return box;
   }
   if (spec.shape === 'pin') {
@@ -276,7 +297,8 @@ function draw(spec) {
 export function drawSymbol(id) {
   if (IMAGES[id]) return draw(IMAGES[id]);
   let m = /^walk-(\d{1,3})$/.exec(id);
-  if (m) return pill(m[1], { g: 'directions_walk', digits: true });
+  // Minutes are rounded down: 0 is under a minute.
+  if (m) return pill(m[1] === '0' ? '<1' : m[1], { g: 'directions_walk', digits: true });
   m = /^name-(\d+)$/.exec(id);
   if (m) return pill(names.get(m[1]) || '', { fill: NAVY, colour: WHITE, weight: 600, size: 12, h: 20 });
   return null;
@@ -311,7 +333,8 @@ export function addSymbolImages(map) {
           map.addImage(id, imageData(box), { pixelRatio: PIXEL_RATIO });
         }
       }
-      keyIcons.clear();
+      // Only the key's text images change with the font.
+      for (const id of [...keyIcons.keys()]) if (!IMAGES[id]) keyIcons.delete(id);
     }).catch(() => {});
   }
 }
@@ -345,8 +368,15 @@ export function keyIcon(id, scale = 0.8) {
 // ------------------------------------------------------------------ layers
 
 /** The map's symbol layers, top first: MapLibre places the top layer's
- *  symbols first, so this is also their priority. */
-export const SYMBOL_LAYERS = ['picked-name', 'picked', 'near-stop', 'near-stop-all', 'near-badge', 'near-badge-all', 'dest', 'places', 'dest-out', 'ov-station', 'ov-bus'];
+ *  symbols first, so this is also their priority. The walking badges come
+ *  before their stops, so a stop's square never pushes a badge off; the
+ *  nearest station's and the nearest stop's badges always show. The school's
+ *  name shows from zoom 14.5 where no walking badge is in its way, and
+ *  takes no room itself. */
+export const SYMBOL_LAYERS = [
+  'picked', 'near-badge-key', 'near-badge-key-all', 'near-badge', 'near-badge-all', 'picked-name', 'near-stop', 'near-stop-all',
+  'dest', 'places', 'dest-out', 'ov-station', 'ov-station-all', 'ov-bus',
+];
 // Lines with a key row, and the symbol each stands for.
 export const LINE_SYMBOLS = {
   'school-zone-line': 'zone', 'ov-rail': 'rail', 'ov-ferry': 'ferry', 'ov-frequent_bus': 'bus', 'ov-cycling': 'cycling', 'cell-selected': 'hexagon',
@@ -357,6 +387,7 @@ export function symbolOf(feature) {
   const layer = feature.layer && feature.layer.id;
   if (!layer) return null;
   if (layer.startsWith('near-badge')) return 'walk';
+  if (layer.startsWith('ov-station')) return (feature.properties && feature.properties.sym) || null;
   if (layer === 'picked' || layer === 'picked-name') return 'school-picked';
   // Layers' places are drawn for the service on screen, which the page knows.
   if (layer === 'places') return 'places';
@@ -365,13 +396,16 @@ export function symbolOf(feature) {
 }
 
 /** The symbols drawn on screen now, as a set of ids (keyRows). Only symbols
- *  MapLibre placed count: one hidden where symbols crowd is not on screen. */
-export function symbolsOnScreen(map) {
+ *  MapLibre placed count: one hidden where symbols crowd is not on screen.
+ *  `box` ([[x0, y0], [x1, y1]] on the map's canvas) is the part of the map
+ *  the panel and card leave clear; without it, the whole map. */
+export function symbolsOnScreen(map, box = null) {
   const present = new Set();
   const shown = (id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none';
   const layers = [...SYMBOL_LAYERS, ...Object.keys(LINE_SYMBOLS)].filter(shown);
   if (!layers.length) return present;
-  for (const feature of map.queryRenderedFeatures({ layers })) {
+  const found = box ? map.queryRenderedFeatures(box, { layers }) : map.queryRenderedFeatures({ layers });
+  for (const feature of found) {
     const sym = symbolOf(feature);
     if (sym) present.add(sym);
   }
@@ -401,47 +435,69 @@ export function pointAt(map, point, radius = 6) {
 
 // ------------------------------------------------------------------ the key
 
-/** The key's "On the map" rows for the symbols in `present`, in a fixed
- *  order, each with the image it is drawn with and a short label for a
- *  phone's strip. `ctx` = { kind: all | state | zone | one | pick (One
- *  school, none picked yet), school (the name of the one picked), hours
- *  ("7–9am"), services ({ service: "Supermarkets" }), touch }. */
+/** The key's "On the map" rows for the symbols in `present`, each with the
+ *  image it is drawn with: `label` in full (a row's title, and what a screen
+ *  reader hears), `pair` beside the icon in the key and `short` on a phone's
+ *  strip. Under One school the stops and their walking badge come first, as
+ *  they are what needs explaining; otherwise the schools. `ctx` = { kind:
+ *  all | state | zone | one | pick (One school, none picked yet), school
+ *  (the name of the one picked), hours ("7–9am"), services ({ service:
+ *  "Supermarkets" }), zoom (the map's, so a symbol drawn as a plain shape
+ *  is shown so) }. */
 export function keyRows(present, ctx = {}) {
-  const click = ctx.touch ? 'tap' : 'click';
   const hours = ctx.hours || '7–9am';
   const counted = ctx.kind === 'state' || ctx.kind === 'zone';
-  const rows = [
-    { sym: 'school-picked', icon: 'school-picked', scale: 0.6, label: ctx.school || 'The school picked', short: 'School picked' },
-    { sym: 'zone', icon: 'line-zone', label: 'Its home zone', short: 'Zone' },
-    { sym: 'outside', icon: 'box-outside', label: 'Outside its zone, not counted', short: 'Outside zone' },
-    {
-      sym: 'school-on',
-      icon: 'school-on',
-      label: ctx.kind === 'pick' ? `Schools: ${click} one to show only it` : counted ? 'School counted' : 'School',
-      short: ctx.kind === 'pick' ? 'School' : counted ? 'Counted' : 'School',
+  const zoom = Number.isFinite(ctx.zoom) ? ctx.zoom : 16;
+  // The plain shape below the zoom where the map draws the glyph (map.js).
+  const bus = (id) => (zoom < GLYPH_ZOOM ? `${id}-dot` : id);
+  const station = (id) => (zoom < 12 ? `${id}-dot` : id);
+  const school = (id) => (zoom < 11 ? `${id}-dot` : id);
+  const all = {
+    'school-picked': { icon: 'school-picked', scale: 0.55, label: ctx.school ? `${ctx.school}, the school picked` : 'The school picked', pair: 'School picked', short: 'School picked' },
+    walk: { icon: 'walk-7', scale: 0.8, label: 'Minutes on foot from the stop to the school', pair: 'Minutes on foot to the school', short: 'Minutes on foot' },
+    'train-station': { icon: station('train-on'), label: 'Train station', pair: 'Train station', short: 'Train' },
+    'ferry-station': { icon: station('ferry-on'), label: 'Ferry terminal', pair: 'Ferry terminal', short: 'Ferry' },
+    'bus-near': { icon: bus('bus-on'), label: `Bus stop with trips arriving ${hours}`, pair: `Bus stop, trips ${hours}`, short: 'Bus stop' },
+    'bus-frequent': { icon: bus('bus-on'), label: 'Bus stop, four or more an hour', pair: 'Bus stop, 4+ an hour', short: 'Bus, 4+ an hour' },
+    'bus-other': { icon: bus('bus-few'), label: 'Bus stop, fewer than four an hour (drawn smaller)', pair: 'Bus stop, under 4 an hour', short: 'Bus, under 4' },
+    'bus-none': { icon: bus('bus-none'), label: `Bus stop with no trips arriving ${hours}`, pair: `No trips ${hours}`, short: 'No trips' },
+    'train-none': { icon: station('train-none'), label: `Train station with no trips arriving ${hours}`, pair: `Station, no trips ${hours}`, short: 'No trips' },
+    'ferry-none': { icon: station('ferry-none'), label: `Ferry terminal with no trips arriving ${hours}`, pair: `Terminal, no trips ${hours}`, short: 'No trips' },
+    'school-on': {
+      icon: school('school-on'),
+      label: counted ? 'School counted' : 'School',
+      pair: counted ? 'School counted' : 'School',
+      short: counted ? 'Counted' : 'School',
     },
-    { sym: 'school-out', icon: 'school-out', label: 'School not counted', short: 'Not counted' },
-    { sym: 'school-other', icon: 'school-out', label: `Other schools: ${click} one to show only it`, short: 'Other schools' },
-    { sym: 'walk', icon: 'walk-7', scale: 0.85, label: 'Minutes on foot from the stop to the school', short: 'Minutes on foot' },
-    { sym: 'train-station', icon: 'train-on', label: 'Train station', short: 'Train' },
-    { sym: 'ferry-station', icon: 'ferry-on', label: 'Ferry terminal', short: 'Ferry' },
-    { sym: 'bus-near', icon: 'bus-on', label: `Bus stop with trips arriving ${hours}`, short: 'Bus stop' },
-    { sym: 'station-none', icon: 'train-none', label: `Station with no trips arriving ${hours}`, short: 'No trips' },
-    { sym: 'bus-none', icon: 'bus-none', label: `Stop with no trips arriving ${hours}`, short: 'No trips' },
-    { sym: 'bus-frequent', icon: 'bus-on', label: 'Bus stop, four or more an hour', short: 'Bus, 4+ an hour' },
-    { sym: 'bus-other', icon: 'bus-few', label: 'Bus stop, fewer than four an hour', short: 'Bus stop' },
-  ];
+    'school-out': { icon: school('school-out'), label: 'School not counted', pair: 'School not counted', short: 'Not counted' },
+    'school-other': { icon: school('school-out'), label: 'Other schools, not counted', pair: 'Other schools', short: 'Other schools' },
+    zone: { icon: 'line-zone', label: 'Its home zone', pair: 'Its zone', short: 'Zone' },
+    outside: { icon: 'box-outside', label: 'Outside its zone, not counted', pair: 'Outside its zone', short: 'Outside zone' },
+    rail: { icon: 'line-rail', label: 'Rail line', pair: 'Rail line', short: 'Rail' },
+    ferry: { icon: 'line-ferry', label: 'Ferry route', pair: 'Ferry route', short: 'Ferry route' },
+    bus: { icon: 'line-bus', label: 'Bus route, four or more an hour', pair: 'Frequent bus route', short: 'Frequent bus' },
+    cycling: { icon: 'line-cycling', label: 'Cycleway or shared path', pair: 'Cycleway or path', short: 'Cycleway' },
+    hexagon: { icon: 'box-hexagon', label: 'Hexagon picked', pair: 'Hexagon picked', short: 'Picked' },
+  };
   for (const [service, label] of Object.entries(ctx.services || {})) {
-    rows.push({ sym: `svc-${service}`, icon: `svc-${service}`, label, short: label });
+    all[`svc-${service}`] = { icon: `svc-${service}`, label, pair: label, short: label };
   }
-  rows.push(
-    { sym: 'rail', icon: 'line-rail', label: 'Rail', short: 'Rail' },
-    { sym: 'ferry', icon: 'line-ferry', label: 'Ferry route', short: 'Ferry route' },
-    { sym: 'bus', icon: 'line-bus', label: 'Bus route, four or more an hour', short: 'Frequent bus' },
-    { sym: 'cycling', icon: 'line-cycling', label: 'Cycleway or shared path', short: 'Cycleway' },
-    { sym: 'hexagon', icon: 'box-hexagon', label: 'Hexagon picked', short: 'Picked' },
-  );
-  return rows.filter((row) => present.has(row.sym));
+  const schools = ['school-picked', 'school-on', 'school-out', 'school-other'];
+  const stops = ['walk', 'train-station', 'ferry-station', 'bus-near', 'bus-frequent', 'bus-other', 'bus-none', 'train-none', 'ferry-none'];
+  const places = Object.keys(ctx.services || {}).map((service) => `svc-${service}`);
+  const lines = ['rail', 'ferry', 'bus', 'cycling', 'hexagon'];
+  const order = ctx.kind === 'one'
+    ? ['school-picked', ...stops, 'school-other', 'zone', 'outside', ...places, ...lines]
+    : [...schools, 'zone', 'outside', ...places, ...stops, ...lines];
+  return order.filter((sym) => present.has(sym) && all[sym]).map((sym) => ({ sym, ...all[sym] }));
+}
+
+/** The line under the key's symbols: how to find out more, and how to pick a school. */
+export function keyHint(present, ctx = {}) {
+  const touch = Boolean(ctx.touch);
+  const first = touch ? 'Tap a symbol for its name' : 'Hover over a symbol for its name';
+  if (['school-on', 'school-out', 'school-other'].some((sym) => present.has(sym))) return `${first}; ${touch ? 'tap' : 'click'} a school to show only it.`;
+  return `${first}.`;
 }
 
 // ------------------------------------------------------------------ stops near a school
@@ -486,18 +542,22 @@ export function groupStops(rows, stops, metres = 80) {
 }
 
 /** The symbol for one or more stops near a school, as the key names it, and
- *  the image it is drawn with. */
+ *  the image it is drawn with: bus-near, train-station or ferry-station with
+ *  trips arriving in the window, bus-none, train-none or ferry-none without. */
 export function stopSymbolOf(rows, stops) {
   const mode = rows.map((row) => rowMode(row, stops)).find((m) => m !== 'bus') || 'bus';
   const trips = rows.some((row) => Number(row.trips) > 0);
   if (mode === 'bus') return { mode, sym: trips ? 'bus-near' : 'bus-none', img: trips ? 'bus-on' : 'bus-none' };
-  return { mode, sym: trips ? `${mode}-station` : 'station-none', img: `${mode}-${trips ? 'on' : 'none'}` };
+  return { mode, sym: trips ? `${mode}-station` : `${mode}-none`, img: `${mode}-${trips ? 'on' : 'none'}` };
 }
 
 /** The stops near a school as map features: one a stop with `grouped`
  *  false, otherwise one for each group (groupStops). Each carries its image
- *  (img), key symbol (sym), walking badge (badge, the quicker walk), whether
- *  it is a station, the side of the stop its badge goes on (away from the
+ *  (img), key symbol (sym), walking badge (badge, the quickest walk from a
+ *  stop with trips arriving in the window; none where no stop has any, as
+ *  it is no way to get to school then), whether it is a station, `must` for
+ *  the nearest station and the nearest bus stop with trips (their badges
+ *  always show), the side of the stop its badge goes on (away from the
  *  school), the order badges are placed in (place: stations first, then the
  *  quickest walk) and drawn in (draw: stations and quicker walks on top),
  *  and `ks`, the indexes of its rows. */
@@ -510,9 +570,10 @@ export function nearStopFeatures(rows, stops, school, { grouped = true } = {}) {
   const kept = ok.map(([row]) => row);
   const index = ok.map(([, k]) => k);
   const groups = grouped ? groupStops(kept, stops) : kept.map((row, k) => [k]);
-  return groups.map((g, n) => {
+  const features = groups.map((g, n) => {
     const members = g.map((k) => kept[k]);
-    const quickest = members.reduce((a, b) => (b.walk < a.walk ? b : a));
+    const served = members.filter((row) => Number(row.trips) > 0);
+    const quickest = (served.length ? served : members).reduce((a, b) => (b.walk < a.walk ? b : a));
     const { mode, sym, img } = stopSymbolOf(members, stops);
     const station = mode !== 'bus';
     const points = members.map((row) => stops.stops[row.s]);
@@ -528,16 +589,25 @@ export function nearStopFeatures(rows, stops, school, { grouped = true } = {}) {
         img,
         sym,
         mode,
-        badge: `walk-${walk}`,
+        badge: served.length ? `walk-${walk}` : '',
         walk,
+        trips: served.length ? 1 : 0,
+        must: 0,
         station: station ? 1 : 0,
         side,
         place: station ? 0 : 100 + walk,
-        draw: (station ? 1000 : 0) - walk,
+        draw: (station ? 1000 : 0) + (served.length ? 500 : 0) - walk,
       },
       geometry: { type: 'Point', coordinates: [lon, lat] },
     };
   });
+  // The nearest station and the nearest bus stop with trips keep their badges whatever crowds them.
+  for (const want of [1, 0]) {
+    const best = features.filter((f) => f.properties.trips && f.properties.station === want)
+      .reduce((a, f) => (!a || f.properties.walk < a.properties.walk ? f : a), null);
+    if (best) best.properties.must = 1;
+  }
+  return features;
 }
 
 /** A Layers stop as a map feature: its image and key symbol from its kind

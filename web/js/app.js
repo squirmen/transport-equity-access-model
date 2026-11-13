@@ -16,13 +16,13 @@ import {
   fareClassCosts, fareSteps, freeTravel, hasCaps, incomeZones, money, paymentKey, payments,
   weekCost, zoneCap,
 } from './fares.js';
-import { count, el, minutes, MODES, percent, place } from './format.js';
+import { count, el, minutes, MODES, percent, place, shortDate } from './format.js';
 import {
-  BASEMAPS, boundsOf, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, layerStop, onCells, onPoints, OVERLAYS, paintCells,
+  BASEMAPS, boundsOf, cellAtPoint, cellCollection, createMap, elementControl, fadeCells, fitPlace, layerStation, layerStop, onCells, onPoints, OVERLAYS, paintCells,
   pointInfo, ringPoint, select, setBasemap, setCells, setHatch, setOverlay, setOverlays, setPicking, setSchoolPins, setSchoolStops, setSchoolZone,
-  setPinsLarge, setStopNames, setTrip, showDestinationsFor, STOPS_APART, tripMode,
+  setPinsLarge, setStopNames, setTrip, showDestinationsFor, tripMode,
 } from './map.js';
-import { keyIcon, keyRows, pointAt, symbolsOnScreen } from './symbols.js';
+import { keyHint, keyIcon, keyRows, pointAt, SYMBOL_LAYERS, symbolsOnScreen } from './symbols.js';
 import {
   ACCESS, accessBreaks, classify, CONCENTRATION, DECILE, DENSITY, FADED, FAIR,
   FAIR_BREAKS, FARE, JOBS, JOBS_BREAKS,
@@ -30,7 +30,7 @@ import {
 } from './palette.js';
 import {
   goalGroups, renderAccess, renderErrands, renderFareSurface, renderFixes, renderGoalPicker, renderJobsAccess, renderJobsFixes, renderNeedsZone,
-  renderJobsPeople, renderBurden, renderChips, renderChoice, renderModePicker, renderPeople, renderSchools, renderScore, renderTraveller,
+  renderJobsPeople, renderBurden, renderChips, renderChoice, renderModePicker, renderPeople, renderSchoolMore, renderSchools, renderScore, renderTraveller,
   groupPhrase, renderWhenPicker, SERVICE_NOUN, SERVICE_ORDER, SERVICE_PLURAL, SERVICE_SHORT, setCounted, setServices, shortScaleLabel, travelOptions,
 } from './panel.js';
 import { areaCsv, areaTable, sortAreas } from './areas.js';
@@ -40,8 +40,8 @@ import { areaNamed, buildAreas, chainAt, chainOf, maskFor, pickArea } from './sc
 import {
   ALL_CHOICE, applyToData, cardLines, choiceKey, choiceParams, choiceWords, chooseSchools, countingLine, decodeReach, decodeStops, decodeZones,
   DEFAULT_CHOICE, DEFAULT_SCHOOL_CHOICE, findSchools, formatOk, hasAttributes, isSchoolService, isZoned, listAnswers, nearStopWords, noZoneSentence,
-  notCountedReason, pointLine, ptCsvLine, readChoice, schoolKindLine, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv, farStopsHeading, stopHours,
-  stopLine, stopsAt, stopsCsvLines, stopsIntro, stopsSplit, stopsSummary, stopSymbol, tagOf, windowWords,
+  nearByService, notCountedReason, pointLine, ptCsvLine, readChoice, schoolKindLine, readSchoolsMeta, REACH_MODES, restoreData, schoolByMoe, schoolFacts, schoolsCsv,
+  farStopsHeading, stopHours, stopImage, stopLine, stopListName, stopsAt, stopsCsvLines, stopsIntro, stopsSplit, stopsSummary, tagOf, windowWords,
   zoneDates, zoneEntry, zoneShares,
 } from './schools.js';
 
@@ -1115,30 +1115,60 @@ function schoolCard() {
 }
 
 /** Stops near the school, for the One school panel: null where the build
- *  has no stops, or none for this school. The school's nearest train or
- *  ferry stations beyond the walk come after, under a line of their own.
- *  Each row: { text, name (for its Show button), icon, walk, k (its index in
- *  stopsAt, as the map's symbols count them) }. */
+ *  has no stops, or none for this school. Those with trips arriving in the
+ *  window come first; those without after, under a line of their own, and
+ *  then the school's nearest train or ferry stations beyond the walk. Each
+ *  row: { text, name (for its Show button), icon, walk, trips, k (its index
+ *  in stopsAt, as the map's symbols count them) }. */
 function stopsModel(d) {
   const stops = schoolStops();
   const split = stops ? stopsSplit(stops, d) : null;
   if (!split) return null;
   const all = stopsAt(stops, d);
-  const row = (r) => {
-    const stop = stops.stops[r.s];
-    const sym = stopSymbol(r, stops);
-    const icon = { 'train-station': 'train-on', 'ferry-station': 'ferry-on', 'bus-near': 'bus-on', 'bus-none': 'bus-none' }[sym]
-      || (stop.mode === 'ferry' ? 'ferry-none' : 'train-none');
-    const name = (typeof stop.station === 'string' && stop.station) || stop.name || 'Unnamed stop';
-    return { text: stopLine(r, stops), name: stop.code ? `${name} (stop ${stop.code})` : name, icon, walk: r.walk, k: all.indexOf(r) };
-  };
+  const row = (r) => ({
+    text: stopLine(r, stops), name: stopListName(r, stops), icon: stopImage(r, stops), walk: r.walk, trips: Number(r.trips) > 0, k: all.indexOf(r),
+  });
+  const { served, none } = nearByService(split);
   return {
     intro: stopsIntro(stops),
-    rows: split.near.map(row),
-    none: `No stop within a ${stops.maxWalk}-minute walk.`,
+    rows: served.map(row),
+    none: none.length ? `No stop with trips arriving ${stopHours(stops)} within a ${stops.maxWalk}-minute walk.` : `No stop within a ${stops.maxWalk}-minute walk.`,
     summary: stopsSummary(split, stops),
-    far: split.far.length ? { heading: farStopsHeading(split.far, stops), rows: split.far.map(row) } : null,
+    quiet: none.length ? { heading: `No trips arriving ${stopHours(stops)}`, rows: none.map(row) } : null,
+    far: split.far.length ? { heading: farStopsHeading(split.far, stops, split.near), rows: split.far.map(row) } : null,
   };
+}
+
+// Under the headline: the school picked's facts, the stops near it and the
+// CSV download (panel.js renderSchoolMore). One element, kept across redraws
+// of the view, so a fold stays as it was left.
+let schoolMoreBox = null;
+let schoolMoreSig = null;
+
+function schoolMore(model) {
+  if (!schoolMoreBox) {
+    schoolMoreBox = el('div', 'school-more');
+    schoolMoreBox.id = 'school-more';
+  }
+  const sig = model ? JSON.stringify([state.service, model.choice, model.school, model.csv]) : null;
+  if (sig !== schoolMoreSig) {
+    schoolMoreSig = sig;
+    renderSchoolMore(schoolMoreBox, model, set);
+  }
+}
+
+/** Put the school's details straight after the headline, the line saying
+ *  which schools it counts and, on a phone, the key's strip. */
+function placeSchoolMore() {
+  const box = schoolMoreBox;
+  if (!box) return;
+  const view = $('view');
+  const after = view.querySelector(':scope > .key-inline') || view.querySelector(':scope > .counting') || view.querySelector(':scope > .hero');
+  if (!after || box.hidden) {
+    box.remove();
+    return;
+  }
+  if (after.nextSibling !== box) after.after(box);
 }
 
 /** The Schools row under Getting to: the choices, a search that is always
@@ -1148,6 +1178,7 @@ function renderSchoolsField() {
   if (!schoolsAvailable()) {
     schoolUi.sig = null;
     renderSchools(root, null, set);
+    schoolMore(null);
     return;
   }
   const service = state.service;
@@ -1179,7 +1210,7 @@ function renderSchoolsField() {
       stops,
     } : null,
     query: schoolUi.query,
-    hint: `Or ${touch ? 'tap' : 'click'} a school's pin on the map.`,
+    hint: `Type a name, initials such as MAGS, or a Ministry number. Or ${touch ? 'tap' : 'click'} a school's pin on the map.`,
     status,
     statusKind,
     budget: state.budget != null && appliedChoice() ? 'Fare budgets and fare maps are worked out for all schools only, so they are off for this choice. Pick All to use them.' : null,
@@ -1198,6 +1229,7 @@ function renderSchoolsField() {
       onSearch: () => { if (phone() && $('side').dataset.sheet !== 'full') setSheet($('side'), 'full'); },
     }, set);
   }
+  schoolMore(model);
   // Where the cursor goes once the row is drawn: the search after One school
   // or Clear, the school's name after a pick.
   const want = schoolUi.focus;
@@ -1222,10 +1254,16 @@ function showSchoolStop(k) {
   if (phone()) setSheet($('side'), 'peek');
   const at = [stop.lon, stop.lat];
   ringPoint(map, at);
-  map.easeTo({ center: at, zoom: Math.max(map.getZoom(), STOPS_APART + 0.1), duration: 600, padding: placePadding() });
+  // The stop and the school together, no closer than a street's view, so the school stays in sight.
+  const school = data.destinations[d];
+  const pad = placePadding();
+  const box = Number.isFinite(school?.lon)
+    ? [[Math.min(at[0], school.lon), Math.min(at[1], school.lat)], [Math.max(at[0], school.lon), Math.max(at[1], school.lat)]]
+    : [at, at];
+  map.fitBounds(box, { padding: { top: pad.top + 50, bottom: pad.bottom + 50, left: pad.left + 50, right: pad.right + 50 }, maxZoom: 15, duration: 600 });
   map.once('moveend', () => {
     ringPoint(map, at);
-    openPoint({ kind: 'near', layer: 'near-stop-all', ks: [k], at, key: `near|${k}` }, { focus: true });
+    openPoint({ kind: 'near', layer: 'near-stop', ks: [k], at, key: `near|${k}` }, { focus: true });
   });
 }
 
@@ -1358,7 +1396,7 @@ function downloadSchools() {
     countingLine(data.destinations, service, choice, {
       plural: baseWords(service).plural, zones: data.schoolZones, meta, ages: kids.key ? kids : null, splitPeople: splitPeople(), outsideSet: outsideSet(), zoneOutside: zoneOutside() ? place.name : null,
     }),
-    `Minutes from the middle of each hexagon to each school's map point in the Ministry's directory (not its nearest gate), whole minutes as the routing gives them, rounded down; blank is none within ${data.meta.routing_max_minutes || 60} minutes.`,
+    `Minutes from the middle of each hexagon to each school's map point (the Ministry's, or a corrected point inside its grounds where the Ministry's is outside them; not its nearest gate), whole minutes as the routing gives them, rounded down; blank is none within ${data.meta.routing_max_minutes || 60} minutes.`,
     ptCsvLine(timedWhen(service), orWalk),
     kids.key
       ? `${kids.column}: ${kids.many.replace(/^children aged .*/, 'children of these ages')} living in the hexagon, 2023 Census; residents: everyone, of all ages.`
@@ -2843,7 +2881,10 @@ function goToPlace() {
  *  card when it is open. */
 function placePadding() {
   // On a phone, clear of the sheet when it is at its lowest (196 px).
-  if (window.matchMedia('(max-width: 760px)').matches) return { top: 120, bottom: $('side').dataset.sheet === 'peek' ? 206 : 110, left: 16, right: 16 };
+  if (window.matchMedia('(max-width: 760px)').matches) {
+    const peek = $('side').classList.contains('has-symbols') ? 226 : 206;
+    return { top: 120, bottom: $('side').dataset.sheet === 'peek' ? peek : 110, left: 16, right: 16 };
+  }
   return { top: 30, bottom: 30, left: 390, right: $('place').hidden ? 30 : 380 };
 }
 
@@ -3196,11 +3237,13 @@ function renderView(model) {
     box.append(el('p', 'hero-text', 'Pick a school to see who can reach it.'));
     const touch = touchScreen();
     $('view').replaceChildren(box, el('p', 'note counting', `Type its name above, or ${touch ? 'tap' : 'click'} its pin on the map.`));
+    placeSchoolMore();
     return;
   }
   if (model.waiting) {
     $('view').keySpec = null;
     $('view').replaceChildren(el('p', 'note', model.message || 'Loading the rest of the data for this view…'));
+    placeSchoolMore();
     return;
   }
   if (model.empty) {
@@ -3208,6 +3251,7 @@ function renderView(model) {
     $('view').replaceChildren(el('div', 'hero', null));
     const where = schoolPanel(model.panel).where;
     $('view').firstChild.append(el('p', 'hero-text', `Nobody in ${where} is counted with these settings.`));
+    placeSchoolMore();
     return;
   }
   $('view').keySpec = null;
@@ -3225,6 +3269,7 @@ function renderView(model) {
   } else if (kids.key && heroBox) {
     heroBox.after(el('p', 'note counting', kids.line));
   }
+  placeSchoolMore();
 }
 
 /** The key spec a model would leave, without drawing it anywhere visible. */
@@ -3375,7 +3420,10 @@ function keyNow(catchment) {
     out.notes = [];
   }
   // What is drawn on the map, each symbol only while it is on screen.
-  out.onMap = data ? keyRows(onScreenNow(), keyContext()) : [];
+  const present = onScreenNow();
+  const ctx = keyContext();
+  out.onMap = data ? keyRows(present, ctx) : [];
+  out.onMapHint = out.onMap.length ? keyHint(present, ctx) : '';
   return out;
 }
 
@@ -3383,12 +3431,37 @@ function keyNow(catchment) {
 let onScreen = new Set();
 let onScreenSig = '';
 
-/** The symbols on screen, with the grey of hexagons outside one school's
- *  zone and the service's own symbol for Layers' places. */
+/** The part of the map the panel, the key and the card leave clear, as a
+ *  box on the map's canvas. */
+function clearBox() {
+  const box = map.getContainer().getBoundingClientRect();
+  if (phone()) {
+    const card2 = $('place');
+    const cover = !card2.hidden ? card2.getBoundingClientRect().top : $('side').getBoundingClientRect().top;
+    return [[0, 0], [box.width, Math.max(1, Math.min(box.height, cover - box.top))]];
+  }
+  const left = Math.max(0, Math.min(box.width - 1, $('side').getBoundingClientRect().right - box.left));
+  const right = $('place').hidden ? box.width : Math.max(left + 1, $('place').getBoundingClientRect().left - box.left);
+  return [[left, 0], [right, box.height]];
+}
+
+/** The symbols drawn in the part of the map left clear, with the grey of
+ *  hexagons outside one school's zone where any is there. */
+function symbolsNow() {
+  const area = clearBox();
+  const found = symbolsOnScreen(map, area);
+  if (data && data.cellShare && painted && painted.colours) {
+    const grey = painted.colours.indexOf(OUTSIDE_ZONE);
+    if (grey >= 0 && map.getLayer('cells-fill')
+      && map.queryRenderedFeatures(area, { layers: ['cells-fill'] }).some((f) => f.state && f.state.k === grey)) found.add('outside');
+  }
+  return found;
+}
+
+/** The symbols on screen, with the service's own symbol for Layers' places. */
 function onScreenNow(found = onScreen) {
   const present = new Set(found);
   if (present.delete('places') && singleService()) present.add(`svc-${state.service}`);
-  if (data && data.cellShare) present.add('outside');
   return present;
 }
 
@@ -3405,6 +3478,7 @@ function keyContext() {
     hours: stops ? stopHours(stops) : '7–9am',
     services,
     touch: touchScreen(),
+    zoom: map ? map.getZoom() : null,
   };
 }
 
@@ -3418,15 +3492,17 @@ function rekey() {
   if (!map || !data) return;
   let now;
   try {
-    now = symbolsOnScreen(map);
+    now = symbolsNow();
   } catch {
     return;
   }
-  const sig = [...now].sort().join('|');
+  // Below the zoom where bus stops and schools get their glyph, the key shows them plain.
+  const sig = `${[...now].sort().join('|')}|${map.getZoom() < 11 ? 0 : map.getZoom() < 12 ? 1 : map.getZoom() < 13 ? 2 : 3}`;
   if (sig === onScreenSig) return;
   onScreen = now;
   onScreenSig = sig;
   renderKey(painted && painted !== current ? painted : null);
+  if (phone()) renderPeek();
 }
 
 const capitalise = (text) => `${text[0].toUpperCase()}${text.slice(1)}`;
@@ -3491,7 +3567,7 @@ function keyContent(spec, { compact = false } = {}) {
   }
   // What is drawn on the map comes straight after the scale, so it shows
   // in the room the key keeps for it (fitKey).
-  if (spec.onMap && spec.onMap.length) nodes.push(...onMapContent(spec.onMap, compact));
+  if (spec.onMap && spec.onMap.length) nodes.push(...onMapContent(spec.onMap, compact, spec.onMapHint));
   const notes = (spec.notes || []).filter(Boolean);
   for (const text of compact ? notes.slice(0, 1) : notes) nodes.push(el('p', 'note', text));
   if (spec.after) nodes.push(...spec.after);
@@ -3513,30 +3589,32 @@ function keyContent(spec, { compact = false } = {}) {
   return nodes;
 }
 
-/** The key's "On the map" rows, each with the image the map draws; on a
- *  phone's strip, icon and short label pairs. */
-function onMapContent(rows, compact) {
-  if (compact) {
-    const strip = el('div', 'k-pairs');
-    strip.dataset.group = 'key-strip-symbols';
-    for (const row of rows) {
-      const pair = el('span', 'k-pair');
-      pair.dataset.sym = row.sym;
-      pair.append(keyIcon(row.icon, (row.scale || 0.75) * 0.85), el('span', null, row.short || row.label));
-      strip.append(pair);
-    }
-    return [strip];
-  }
-  const list = el('div', 'k-rows k-layers');
+/** The key's "On the map": icon and label pairs that wrap, each with the
+ *  image the map draws, most needed first (symbols.js keyRows), then how to
+ *  find out more. A screen reader hears each in full; the label beside the
+ *  icon is shorter, and shortest on a phone's strip. */
+function onMapContent(rows, compact, hint = '') {
+  const list = el('ul', `k-pairs${compact ? '' : ' k-onmap'}`);
+  list.dataset.group = compact ? 'key-strip-symbols' : 'key-symbols';
+  list.setAttribute('aria-label', 'On the map');
   for (const row of rows) {
-    const item = el('div', 'k-row');
-    item.dataset.sym = row.sym;
-    const icon = el('span', 'k-icon');
-    icon.append(keyIcon(row.icon, row.scale || 0.75));
-    item.append(icon, el('span', 'k-text', row.label), el('span'));
-    list.append(item);
+    const pair = el('li', 'k-pair');
+    pair.dataset.sym = row.sym;
+    pair.title = row.label;
+    const shown = compact ? row.short || row.pair || row.label : row.pair || row.label;
+    const words = el('span', null, shown);
+    if (shown !== row.label) {
+      words.setAttribute('aria-hidden', 'true');
+      pair.append(keyIcon(row.icon, (row.scale || 0.75) * (compact ? 0.85 : 0.9)), words, el('span', 'visually-hidden', row.label));
+    } else {
+      pair.append(keyIcon(row.icon, (row.scale || 0.75) * (compact ? 0.85 : 0.9)), words);
+    }
+    list.append(pair);
   }
-  return [el('p', 'k-sub', 'On the map'), list, el('p', 'note k-hint', touchScreen() ? 'Tap a symbol for its name.' : 'Hover or tap a symbol for its name.')];
+  if (compact) return [list];
+  const nodes = [el('p', 'k-sub', 'On the map'), list];
+  if (hint) nodes.push(el('p', 'note k-hint', hint));
+  return nodes;
 }
 
 let lastKey = null;
@@ -3571,50 +3649,73 @@ function renderKey(catchment) {
   }
   const showFloat = phone() && state.selected != null && !$('place').hidden && Boolean(spec.scale || spec.trip);
   float.hidden = !showFloat;
-  if (showFloat) float.replaceChildren(...keyContent({ mode: spec.mode, short: spec.short, scale: spec.scale, faded: spec.faded, trip: spec.trip }, { compact: true }));
+  if (showFloat) float.replaceChildren(...keyContent({ mode: spec.mode, short: spec.short, scale: spec.scale, faded: spec.faded, trip: spec.trip, onMap: spec.onMap }, { compact: true }));
   window.requestAnimationFrame(() => {
     document.body.style.setProperty('--strip-h', showFloat ? `${Math.round(float.getBoundingClientRect().height) + 8}px` : '0px');
   });
   fitKey();
 }
 
-/** Beside the map, the panel and the key share the left column. The panel keeps room down to the end of its
- *  headline (the figure and its sentence), so a long key never hides it; the key takes what is left, up to its
- *  usual share, and scrolls inside that. A phone shows the key elsewhere. */
+/** Beside the map, the panel and the key share the left column. The panel
+ *  keeps room down to the end of its headline (the figure, its sentence and
+ *  the line under it), and the key takes what is left, up to its usual share,
+ *  and scrolls inside that. Where that leaves the key too little to show its
+ *  scale and the symbols on the map, it takes more, up to the end of the
+ *  figure: the figure is never hidden, and the sentence scrolls into view.
+ *  The line saying which schools are counted is not part of the headline
+ *  here; under In zone it is a long list. A phone shows the key elsewhere. */
 function fitKey() {
   const key = $('key');
   const body = $('panel-body');
+  const kbody = $('key-body');
   const hero = $('view').querySelector('.hero');
   const parts = hero ? [...hero.children].filter((node) => /hero-(figure|text|sub)/.test(node.className)) : [];
-  // Which schools a figure counts is part of its headline.
-  const counting = parts.length ? $('view').querySelector('.counting') : null;
-  if (counting) parts.push(counting);
+  const figure = hero ? hero.querySelector('.hero-figure') : null;
   if (phone() || !parts.length || openDrawer || document.body.dataset.panel === 'collapsed' || !body.clientHeight) {
     key.style.removeProperty('--key-room');
+    key.classList.remove('is-squeezed');
+    keyScrolls();
     return;
   }
   const top = body.getBoundingClientRect().top - body.scrollTop;
-  const end = Math.max(...parts.map((node) => node.getBoundingClientRect().bottom)) - top;
+  const endOf = (nodes) => Math.max(...nodes.map((node) => node.getBoundingClientRect().bottom)) - top;
   const pad = parseFloat(getComputedStyle(body).paddingBottom) || 0;
   const side = $('side');
   const gap = parseFloat(getComputedStyle(side).rowGap) || 0;
   // The panel outside its scrolling body: the header, the drawer buttons and the foot.
   const rest = $('panel').getBoundingClientRect().height - body.clientHeight;
-  const room = side.clientHeight - gap - rest - Math.ceil(end + pad);
-  // Never less than the key's own header, and while points are drawn, room
-  // for the scale and the first four "On the map" rows, so the symbols are
-  // explained.
-  let least = 42;
-  const rows = [...$('key-body').querySelectorAll('.k-layers .k-row')];
-  if (rows.length && !key.classList.contains('is-folded')) {
-    const kbody = $('key-body');
-    const last = rows[Math.min(3, rows.length - 1)];
-    const below = last.getBoundingClientRect().bottom - key.getBoundingClientRect().top + kbody.scrollTop;
-    least = Math.min(Math.ceil(below + 14), Math.floor(side.clientHeight * 0.46));
+  const roomTo = (end) => side.clientHeight - gap - rest - Math.ceil(end + pad);
+  const full = roomTo(endOf(parts));
+  // What the key needs to explain the map: its header, the scale and the
+  // symbols on screen with the line under them.
+  let want = 42;
+  if (!key.classList.contains('is-folded')) {
+    const last = [...kbody.querySelectorAll('.k-onmap ~ .k-hint, .k-onmap, .scale, .k-rows')].pop();
+    if (last) want = Math.ceil(last.getBoundingClientRect().bottom - key.getBoundingClientRect().top + kbody.scrollTop + 12);
   }
-  const fit = Math.max(Math.floor(room), least);
+  const most = Math.floor(side.clientHeight * 0.46);
+  const least = figure ? Math.min(want, most, roomTo(endOf([figure]))) : 42;
+  const fit = Math.max(Math.floor(full), least, 42);
   key.style.setProperty('--key-room', `${fit}px`);
   key.classList.toggle('is-squeezed', fit <= 42);
+  keyScrolls();
+}
+
+/** While the key's body scrolls, it can be reached and scrolled from the keyboard. */
+function keyScrolls() {
+  window.requestAnimationFrame(() => {
+    const kbody = $('key-body');
+    const scrolls = kbody.scrollHeight > kbody.clientHeight + 1 && kbody.clientHeight > 0;
+    if (scrolls) {
+      kbody.tabIndex = 0;
+      kbody.setAttribute('role', 'region');
+      kbody.setAttribute('aria-label', 'Map key');
+    } else {
+      kbody.removeAttribute('tabindex');
+      kbody.removeAttribute('role');
+      kbody.removeAttribute('aria-label');
+    }
+  });
 }
 
 // ---------------------------------------------------------------- drawers
@@ -3644,11 +3745,19 @@ function renderLayers() {
     if (!row) continue;
     const box = row.querySelector('input');
     box.checked = Boolean(state.overlays[k]);
+    box.disabled = false;
     if (k === 'destinations') {
       const single = singleService();
+      // Schools are drawn for every school choice, so their row is ticked and cannot be unticked.
+      const schools = single && isSchoolService(state.service);
+      if (schools) {
+        box.checked = true;
+        box.disabled = true;
+      }
+      row.classList.toggle('is-fixed', schools);
       row.querySelector('.layer-name').textContent = single ? capitalise(SERVICE_PLURAL[state.service] || SERVICE_SHORT[state.service]) : spec.label;
       row.querySelector('.layer-cap').textContent = !single ? 'Pick one service under Getting to'
-        : isSchoolService(state.service) ? 'Schools are always shown' : `Follows Getting to · ${touchScreen() ? 'tap' : 'hover over'} one for its name`;
+        : schools ? 'Always shown for schools' : `Follows Getting to · ${touchScreen() ? 'tap' : 'hover over'} one for its name`;
       const icon = single ? `svc-${state.service}` : spec.icon;
       const holder = row.querySelector('.layer-icon');
       if (holder && holder.dataset.icon !== icon) {
@@ -3657,7 +3766,7 @@ function renderLayers() {
       }
     }
   }
-  const on = Object.keys(OVERLAYS).filter((k) => state.overlays[k]).length;
+  const on = Object.keys(OVERLAYS).filter((k) => state.overlays[k] || (k === 'destinations' && singleService() && isSchoolService(state.service))).length;
   const badge = $('layer-count');
   badge.hidden = on === 0;
   badge.textContent = String(on);
@@ -3864,8 +3973,9 @@ function renderPeek() {
   const line = el('span', 'peek-line');
   line.append(el('span', 'hero-figure', figure), el('span', 'peek-text', `${text}${sub ? ` ${sub}` : ''}`));
   const strip = el('span', 'peek-key');
-  if (lastKey && lastKey.scale) strip.append(...keyContent({ mode: lastKey.mode, short: lastKey.short, scale: lastKey.scale }, { compact: true }));
+  if (lastKey && lastKey.scale) strip.append(...keyContent({ mode: lastKey.mode, short: lastKey.short, scale: lastKey.scale, onMap: lastKey.onMap }, { compact: true }));
   peek.replaceChildren(what, line, strip);
+  $('side').classList.toggle('has-symbols', Boolean(lastKey && lastKey.onMap && lastKey.onMap.length));
 }
 
 let announceTimer = 0;
@@ -4343,6 +4453,7 @@ function tripLegendNow() {
   const entry = tripEntry();
   const show = tripShow(entry);
   return trips.view.tripLegend({
+    mode: tripMode(show.swap?.trip?.routes || []),
     pt: show.pt,
     foot: show.foot,
     // A ride follows its line only where the map draws one and there is no change.
@@ -4983,6 +5094,12 @@ function wireControls() {
     }
   });
   canvas.addEventListener('blur', () => showPickMark(false));
+  // N and Shift+N step the ring through the symbols in view, nearest first.
+  canvas.addEventListener('keydown', (event) => {
+    if ((event.key !== 'n' && event.key !== 'N') || event.ctrlKey || event.metaKey || event.altKey || card.picking) return;
+    event.preventDefault();
+    stepSymbols(event.shiftKey ? -1 : 1);
+  });
   canvas.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
@@ -5007,7 +5124,12 @@ function wireControls() {
   map.on('moveend', () => {
     if (document.activeElement !== canvas) return;
     showPickMark(true);
-    sayUnderMark();
+    // A move that was not a step starts the steps afresh from the new view.
+    if (!stepping.moving) stepping.list = null;
+    stepping.moving = false;
+    // The symbols' places follow the move a frame or more later; read out
+    // what is under the ring once the map has settled, not what was there.
+    map.once('idle', () => sayUnderMark());
   });
   // The area list closes on a click elsewhere, and moves with the arrow keys.
   document.addEventListener('pointerdown', (event) => {
@@ -5048,7 +5170,14 @@ function wireControls() {
     const refit = new ResizeObserver(() => fitKey());
     refit.observe($('side'));
     refit.observe($('view'));
+    // On a phone the scale and credits ride above the sheet: measured whenever
+    // the sheet's height changes, through its animation and after it, not
+    // once a frame after it starts.
+    const sheets = new ResizeObserver(() => sheetHeight());
+    sheets.observe($('side'));
+    sheets.observe($('place'));
   }
+  for (const box of [$('side'), $('place')]) box.addEventListener('transitionend', () => sheetHeight());
 
   basemapButtons($('drawer-basemaps'));
   layerRows();
@@ -5171,10 +5300,7 @@ function describePoint(info) {
           lines.push(`Not counted under ${under}${why ? `: ${why}` : ''}.`);
         }
       }
-      if (dest.moe != null) {
-        const instead = activeChoice()?.kind === 'one';
-        actions.push([instead ? 'Show this school instead' : 'Show only this school', () => set({ schoolPick: dest.moe }), true]);
-      }
+      if (dest.moe != null) actions.push(['Show only this school', () => set({ schoolPick: dest.moe }), true]);
     }
     const moved = pointLine(dest, movedPoints()[dest.moe]);
     if (moved) lines.push(moved);
@@ -5182,7 +5308,9 @@ function describePoint(info) {
       icon,
       title: dest.name || 'Unnamed school',
       lines,
-      hint: info.picked ? `${click} to zoom to it or find another school` : dest.moe != null ? `${click} to show only this school` : null,
+      // Picking One school, a click shows only that school; otherwise it opens the button that does.
+      hint: info.picked ? `${click} to zoom to it or find another school` : dest.moe == null ? null
+        : schoolPicking() ? `${click} to show only this school` : `${click} for Show only this school`,
       actions,
     };
   }
@@ -5198,10 +5326,26 @@ function describePoint(info) {
     const rows = stops && d >= 0 ? stopsAt(stops, d) : null;
     const said = rows ? nearStopWords(info.ks.map((k) => rows[k]).filter(Boolean), stops) : null;
     if (!said) return null;
-    const row = rows[info.ks[0]];
-    const sym = stopSymbol(row, stops);
-    const icon = { 'train-station': 'train-on', 'ferry-station': 'ferry-on', 'bus-near': 'bus-on', 'bus-none': 'bus-none' }[sym] || `${said.mode}-none`;
+    const icon = stopImage(rows[info.ks[0]], stops);
     return { icon, title: said.title, lines: said.lines, hint: null, actions: [] };
+  }
+  if (info.kind === 'station') {
+    // A station's platforms or a terminal's piers, drawn as one below zoom 16.
+    const station = layerStation(info.g);
+    if (!station) return null;
+    const ferry = station.mode === 'ferry';
+    const n = station.stops.length;
+    const busiest = Math.max(...station.stops.map((stop) => Number(stop.per_hour)).filter(Number.isFinite));
+    return {
+      icon: `${ferry ? 'ferry' : 'train'}-on`,
+      title: station.name || (ferry ? 'Ferry terminal' : 'Train station'),
+      lines: [
+        `${ferry ? 'Ferry terminal' : 'Train station'} · ${n} ${ferry ? 'piers' : 'platforms'}; zoom in to see each`,
+        Number.isFinite(busiest) ? `Up to ${busiest.toFixed(busiest < 10 ? 1 : 0)} departures an hour from one ${ferry ? 'pier' : 'platform'} at its busiest` : 'Departures not counted',
+      ],
+      hint: null,
+      actions: [],
+    };
   }
   if (info.kind === 'stop') {
     const stop = layerStop(info.k);
@@ -5307,15 +5451,68 @@ function openPoint(info, { focus = false } = {}) {
 
 let saidUnder = '';
 /** Read out what is under the map's middle ring, for someone moving the map
- *  with the keyboard. */
+ *  with the keyboard: after a step (N), which symbol of how many it is. */
 function sayUnderMark() {
   if (!map || card.picking) return;
   const p = markPoint();
   const said = describePoint(pointInfo(pointAt(map, p, 24)));
-  const text = said ? `${said.title}. ${said.lines[0]}. Press Enter for more.` : '';
+  const step = stepping.said;
+  stepping.said = '';
+  let text = said ? `${said.title}. ${said.lines[0]}. Press Enter for more.` : '';
+  if (step && said) text = `${step}: ${text}`;
   if (text === saidUnder) return;
   saidUnder = text;
   $('map-say').textContent = text;
+}
+
+// Stepping through the symbols in view from the keyboard: the list as it was
+// at the first step (nearest the ring first), the one at the ring, whether
+// the map is moving for a step, and what to say before the symbol's name.
+const stepping = { list: null, at: -1, moving: false, said: '' };
+
+/** The symbols in the part of the map left clear, one for each thing (a
+ *  stop and its badge are one), nearest the ring first. */
+function symbolsInView() {
+  const layers = SYMBOL_LAYERS.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none');
+  if (!layers.length) return [];
+  const p = markPoint();
+  const seen = new Map();
+  for (const feature of map.queryRenderedFeatures(clearBox(), { layers })) {
+    const info = pointInfo(feature);
+    if (!info || seen.has(info.key)) continue;
+    seen.set(info.key, info);
+  }
+  const far = (info) => {
+    const q = map.project(info.at);
+    return (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+  };
+  return [...seen.values()].sort((a, b) => far(a) - far(b));
+}
+
+/** Move the ring to the next (or, with -1, the previous) symbol in view and read it out. */
+function stepSymbols(by) {
+  if (!map) return;
+  if (!stepping.list) {
+    stepping.list = symbolsInView();
+    stepping.at = by > 0 ? -1 : 0;
+  }
+  const list = stepping.list;
+  if (!list.length) {
+    say('No symbols in view. Move the map with the arrow keys, or zoom in.');
+    stepping.list = null;
+    return;
+  }
+  stepping.at = (stepping.at + by + list.length) % list.length;
+  const info = list[stepping.at];
+  stepping.said = `${stepping.at + 1} of ${list.length}`;
+  // Move the map so the symbol sits under the ring.
+  const p = markPoint();
+  const box = map.getContainer().getBoundingClientRect();
+  const q = map.project(info.at);
+  const centre = map.unproject([q.x - (p.x - box.width / 2), q.y - (p.y - box.height / 2)]);
+  stepping.moving = true;
+  saidUnder = '';
+  map.easeTo({ center: centre, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 300 });
 }
 
 /** On a phone the card covers the lower half of the map: move the map so the
@@ -5441,7 +5638,7 @@ async function start() {
     button.addEventListener('click', () => goToCity(city.slug));
     return button;
   }));
-  const built = new Date(`${index.built}T12:00:00`).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
+  const built = shortDate(index.built);
   $('start-note').textContent = 'Each place takes in the towns and rural land that commute into it, as Stats NZ draws '
     + `its functional urban areas. Timetables from September 2026, 2023 Census. Built ${built}. Version ${index.version}.`;
   wireCityPicker(index, null);
@@ -5597,7 +5794,7 @@ async function init() {
     sheet: (size) => setSheet($('side'), size),
     drawer: (name) => setDrawer(name),
     // For tests: the symbols drawn on screen now, and the key's rows for them.
-    onScreen: () => [...onScreenNow(symbolsOnScreen(map))],
+    onScreen: () => [...onScreenNow(symbolsNow())],
     keyRows: () => [...document.querySelectorAll('#key-body [data-sym], #view .key-inline [data-sym]')].map((row) => row.dataset.sym),
   };
   if (MATE) window.team.mate = () => ({ ...mateState, loaded: Boolean(mate), painted: painted && painted !== current ? (painted.kind || 'catchment') : 'team' });
@@ -5721,9 +5918,8 @@ async function init() {
   wireControls();
   // The weekday and any other day a window was timed on, such as a Saturday.
   const days = [...new Set([data.meta.routing_date, ...Object.values(data.meta.windows || {}).map((w) => w.date).filter(Boolean)])].sort();
-  const last = new Date(`${days[days.length - 1]}T12:00:00`);
-  const dayList = days.map((d) => new Date(`${d}T12:00:00`).getDate()).join(' and ');
-  const month = last.toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' });
+  const dayList = days.map((d) => Number(String(d).slice(8, 10))).join(' and ');
+  const month = shortDate(days[days.length - 1], { day: false });
   $('build-note').textContent = `Timetables ${dayList} ${month} · Census 2023 · v${data.meta.version}`;
   // Phones open on the map, with the sheet at its lowest.
   if (phone()) setSheet($('side'), 'peek');

@@ -21,11 +21,13 @@ export const VILLAGE = '#5f9e94';
 export const DENSITY = ['#ddd3ee', '#a58ed1', '#6f4fb0', '#43287a'];
 
 // Destination pins by kind of place, so a pin says what it is before it is
-// clicked: food teal, health dark red, learning dark orange, anything else
-// navy, each with a white glyph (symbols.js). Not green against red, which
-// colour-blind readers cannot tell apart (tests/web/palette.test.mjs).
-// Learning was #e8890c until 0.12.1; a white glyph on it was 2.6:1.
-export const LEARNING = '#b35c00';
+// clicked: food teal, health dark red, learning purple, anything else dark
+// brown, each with a white glyph (symbols.js). Not green against red, which
+// colour-blind readers cannot tell apart, and none of them orange, which on
+// the map means beyond the standard, or navy, which is a train station
+// (tests/web/palette.test.mjs). Learning was orange (#e8890c) until 0.12.1,
+// and anything else navy.
+export const LEARNING = '#5b2a86';
 export const DESTINATION_COLOURS = {
   supermarket: '#0e7a7e',
   gp: '#a8172b',
@@ -37,14 +39,18 @@ export const DESTINATION_COLOURS = {
   tertiary: LEARNING,
   trades_training: LEARNING,
 };
-export const DESTINATION_OTHER = '#0c0c48';
+export const DESTINATION_OTHER = '#3e2723';
 
 // Public transport by mode, on stops, stations and lines: not any operator's
 // colours. A white glyph on each is 4.8:1 or more.
 export const MODE_COLOURS = { bus: '#455a64', train: '#0c0c48', ferry: '#0277bd' };
-// Every map symbol has a 1 px dark edge outside a 2 px white halo: the halo
-// carries it on dark ground, the edge on light (docs/design.md, Map symbols).
+// Every map symbol has a 1.5 px dark edge outside a 2 px white halo: the
+// halo carries it on dark ground, the edge on light (docs/design.md, Map
+// symbols). 1.5 px, so it still covers a whole device pixel at the smallest
+// size a symbol is drawn (EDGE_WIDTH times SMALLEST_ICON).
 export const SYMBOL_EDGE = 'rgba(21, 37, 46, 0.72)';
+export const EDGE_WIDTH = 1.5;
+export const SMALLEST_ICON = 0.7;
 // Not counted, and stops with no trips: a grey glyph and ring on white.
 export const SYMBOL_GREY = '#6b767c';
 

@@ -11,7 +11,7 @@ import {
   stopLabel, tripDrawing, tripLegend, tripMode, tripSentence, tripSteps, tripWindowOf, wholeParts,
 } from '../../web/js/trip.js';
 import { STATUS } from '../../web/js/mate.js';
-import { TRIP_LINE } from '../../web/js/palette.js';
+import { MODE_COLOURS, TRIP_LINE } from '../../web/js/palette.js';
 import { legSwap, originTimes, pairTimes, ptTrip, tripStore } from '../../web/js/trip_data.js';
 
 // The trip tab's figures, worked out from the real Auckland files cut down by tests/fixtures/make_trip_fixture.py
@@ -317,7 +317,10 @@ test('the key for a trip: the ride and its walks, and whose route on foot, in th
   // The colours are the ones the map draws with (palette.js TRIP_LINE) and MATE's for each status.
   assert.deepEqual(both[1].items.map((x) => x.colour), TRIP_LINE.status);
   assert.deepEqual(TRIP_LINE.status, STATUS.slice(0, 3).map((x) => x.colour));
-  assert.deepEqual(both[0].items.map((x) => x.colour), [TRIP_LINE.ride, TRIP_LINE.ride, TRIP_LINE.walk]);
+  // A and B take the ride's mode colour, as their tags on the map do (a bus by default).
+  assert.deepEqual(both[0].items.map((x) => x.colour), [MODE_COLOURS.bus, TRIP_LINE.ride, TRIP_LINE.walk]);
+  assert.equal(tripLegend({ pt: true, mode: 'train' }).at(0).items[0].colour, MODE_COLOURS.train);
+  assert.equal(tripLegend({ pt: true, mode: 'ferry' }).at(0).items[0].colour, MODE_COLOURS.ferry);
   assert.equal(tripLegend({ pt: true }).at(0).items[1].label, 'Bus, train or ferry');
   assert.equal(routeWho('manual_wheelchair', true), 'a manual wheelchair user', 'after dark changes only the older walker and the child');
   assert.equal(routeWho('child', true), 'a child on their own, after dark');

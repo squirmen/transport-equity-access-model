@@ -91,6 +91,19 @@ export function setPlace(naming) {
   if (naming.agency) place.agency = naming.agency;
 }
 
+// Month names from a fixed list, not the browser's: Chromium and Safari
+// abbreviate September differently.
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "15 Sep 2026" from "2026-09-15", or "Sep 2026" with `day` false; '' for anything else. */
+export function shortDate(iso, { day = true } = {}) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '';
+  const month = MONTHS_SHORT[Number(m[2]) - 1];
+  if (!month) return '';
+  return day ? `${Number(m[3])} ${month} ${m[1]}` : `${month} ${m[1]}`;
+}
+
 export function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;

@@ -42,8 +42,10 @@ export function setOpen(key, open) {
 }
 
 /** A fold: `title` on the left, a short `summary` on the right, then the
- *  children when opened. `open` is its state the first time it is seen. */
-export function fold(key, title, summary, children, { open = false, className = '' } = {}) {
+ *  children when opened. `open` is its state the first time it is seen.
+ *  With `reveal`, opening it by hand scrolls what it opens into view, so a
+ *  fold near the bottom of the panel does not seem to do nothing. */
+export function fold(key, title, summary, children, { open = false, className = '', reveal = false } = {}) {
   const box = el('details', `fold${className ? ` ${className}` : ''}`);
   box.dataset.fold = key;
   box.open = isOpen(key, open);
@@ -58,5 +60,13 @@ export function fold(key, title, summary, children, { open = false, className = 
   body.append(...[].concat(children).filter(Boolean).map((child) => (typeof child === 'string' ? el('p', 'note', child) : child)));
   box.append(body);
   box.addEventListener('toggle', () => setOpen(key, box.open));
+  if (reveal) {
+    // A click or a key on the summary, not the toggle a redraw also sends.
+    head.addEventListener('click', () => {
+      window.requestAnimationFrame(() => {
+        if (box.open && body.scrollIntoView) body.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    });
+  }
   return box;
 }

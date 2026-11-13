@@ -1336,6 +1336,21 @@ export function schoolFacts(dest, service, { zones = null, d = -1, moved = null 
   return [bits.join(' · '), more.join(' ')];
 }
 
+/** The initials a school may be known by: of its name, of its name with
+ *  School added (Mt Roskill Grammar, MRGS), and of the part before a hyphen
+ *  or a dash (Western Springs College-Ngā Puna o Waiōrea, WSC). */
+export function schoolInitials(parts, raw = '') {
+  const first = (words) => words.map((p) => p[0]).join('');
+  const out = new Set([first(parts)]);
+  if (parts.length && parts[parts.length - 1] !== 'school') out.add(`${first(parts)}s`);
+  const head = String(raw).split(/\s*[-–—]\s*/)[0];
+  if (head && head !== raw) {
+    const before = head.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/'/g, '').split(/[^a-z0-9]+/).filter(Boolean);
+    if (before.length >= 2) out.add(first(before));
+  }
+  return out;
+}
+
 /** Schools that teach a service whose name (or Ministry number) matches what
  *  was typed, best matches first. */
 export function findSchools(destinations, service, query, limit = 8) {
@@ -1345,15 +1360,15 @@ export function findSchools(destinations, service, query, limit = 8) {
     .replace(/'/g, '').split(/[^a-z0-9]+/).filter(Boolean).map((w) => SAME[w] || w);
   const words = fold(query);
   if (!words.length) return [];
-  // One word of three or more letters may be initials: MAGS, EGGS, AGS.
-  const initials = words.length === 1 && /^[a-z]{3,6}$/.test(words[0]) ? words[0] : null;
+  // One word of two to six letters may be initials: MAGS, EGGS, AGS, MRGS, WSC.
+  const initials = words.length === 1 && /^[a-z]{2,6}$/.test(words[0]) ? words[0] : null;
   const out = [];
   (destinations || []).forEach((dest, d) => {
     if (!serves(dest, service) || dest.moe == null) return;
     const parts = fold(dest.name);
     const name = parts.join(' ');
     const number = String(dest.moe);
-    if (initials && parts.map((p) => p[0]).join('') === initials) {
+    if (initials && (initials.length >= 3 || parts.length === 2) && schoolInitials(parts, dest.name).has(initials)) {
       out.push([10, dest.name || '', d]);
       return;
     }
@@ -1728,24 +1743,54 @@ export function stationNoun(rows, stops) {
 }
 
 /** The key's symbol for a stop near a school: train-station, ferry-station,
- *  bus-near (trips arriving in the window), bus-none, or station-none for a
- *  station with no trips then (symbols.js keyRows). */
+ *  bus-near (trips arriving in the window), or bus-none, train-none or
+ *  ferry-none with no trips then (symbols.js keyRows). */
 export function stopSymbol(row, stops) {
   return stopSymbolOf([row], stops).sym;
 }
 
-/** The line above the far stations: "Nearest train stations, beyond a 15-minute walk". */
-export function farStopsHeading(rows, stops) {
-  return `Nearest ${stationNoun(rows, stops)}, beyond a ${stops.maxWalk}-minute walk`;
+/** The image a stop near a school is drawn with (symbols.js IMAGES). */
+export function stopImage(row, stops) {
+  return stopSymbolOf([row], stops).img;
 }
 
-/** The section's folded summary: "32 within 15 min", with the far stations
- *  after it: "32 within 15 min · 2 train stations within 30 min". */
+const hasTrips = (row) => Number(row.trips) > 0;
+
+/** Whether a row is a train station or ferry terminal (not a bus interchange,
+ *  which the feed may also call a station). */
+const isStationRow = (row, stops) => rowMode(row, stops) !== 'bus';
+
+/** The line above the stations beyond the walk the list is for: "Train
+ *  stations, 15–30 min walk", or "Other train stations, …" when a station
+ *  is within the walk too. */
+export function farStopsHeading(rows, stops, near = []) {
+  const noun = stationNoun(rows, stops);
+  const other = near.some((row) => isStationRow(row, stops));
+  const what = other ? `Other ${noun}` : capital(noun);
+  return stops.farWalk ? `${what}, ${stops.maxWalk}–${stops.farWalk} min walk` : `${what} beyond a ${stops.maxWalk}-minute walk`;
+}
+
+/** The section's folded summary: the stops within the walk that have trips
+ *  arriving in the window, and the nearest train station and ferry
+ *  terminal, near or far: "29 stops with trips within 15 min · nearest
+ *  train station: Grafton Train Station, 5 min". */
 export function stopsSummary(split, stops) {
-  const near = split.near.length ? `${split.near.length} within ${stops.maxWalk} min` : 'none';
-  if (!split.far.length) return near;
-  const within = stops.farWalk ? ` within ${stops.farWalk} min` : '';
-  return `${split.near.length ? near : `none within ${stops.maxWalk} min`} · ${split.far.length} ${stationNoun(split.far, stops)}${within}`;
+  const served = split.near.filter(hasTrips).length;
+  const parts = [served ? `${thousands(served)} ${served === 1 ? 'stop' : 'stops'} with trips within ${stops.maxWalk} min` : `no stop with trips within ${stops.maxWalk} min`];
+  const stations = [...split.near, ...split.far].filter((row) => isStationRow(row, stops));
+  for (const mode of ['train', 'ferry']) {
+    const nearest = stations.filter((row) => stationMode(row, stops) === mode).sort((a, b) => a.walk - b.walk)[0];
+    if (!nearest) continue;
+    const none = hasTrips(nearest) ? '' : `, no trips ${stopHours(stops)}`;
+    parts.push(`nearest ${mode === 'train' ? 'train station' : 'ferry terminal'}: ${stopTitle(nearest && stops.stops[nearest.s])}, ${nearest.walk} min${none}`);
+  }
+  return parts.join(' · ');
+}
+
+/** School d's stops within the walk, those with trips arriving in the window
+ *  first and those without after, each quickest walk first: { served, none }. */
+export function nearByService(split) {
+  return { served: split.near.filter(hasTrips), none: split.near.filter((row) => !hasTrips(row)) };
 }
 
 const clockOf = (text) => {
@@ -1782,7 +1827,7 @@ export function stopsIntro(stops) {
   const { start, end } = stopWindow(stops);
   const when = windowWords({ start: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, '0')}`, minutes: end - start, date: stops && stops.date }, null);
   const arriving = stops && stops.counts === 'arrivals';
-  return `Stops and stations within a ${stops ? stops.maxWalk : 15}-minute walk of the school's map point, on the street network. `
+  return `Stops and stations within a ${stops ? stops.maxWalk : 15}-minute walk of the school's pin, on the street network. `
     + `${arriving ? 'Buses and trains arriving' : 'Buses and trains stopping'} ${when || 'in the morning window'}${arriving ? ', where students can get off' : ''}.`;
 }
 
@@ -1795,12 +1840,28 @@ function stopTitle(stop) {
   return (typeof stop.station === 'string' && stop.station) || stop.name || 'Unnamed stop';
 }
 
+/** A bus stop whose name could be taken for a train station's or ferry
+ *  terminal's: "Mount Albert Station" is a bus stop by Mt Albert Train Station. */
+const looksLikeStation = (name, mode) => mode === 'bus' && /\b(station|terminal)\b/i.test(name);
+
 /** With its stop number wherever the feed gives one, a station's too:
  *  Auckland's bus interchange bays are stations, and three near Mt Albert
- *  Grammar School are all called St Lukes. */
-function stopName(stop) {
-  return stop.code ? `${stopTitle(stop)} (stop ${stop.code})` : stopTitle(stop);
+ *  Grammar School are all called St Lukes. A bus stop named like a station
+ *  says it is a bus stop: "Mount Albert Station (bus stop 8233)". */
+function stopName(stop, mode = 'bus') {
+  const title = stopTitle(stop);
+  const bus = looksLikeStation(title, mode) ? 'bus stop' : 'stop';
+  if (stop.code) return `${title} (${bus} ${stop.code})`;
+  return bus === 'bus stop' ? `${title} (bus stop)` : title;
 }
+
+/** A stop near a school as the list names it, for its Show button too. */
+export function stopListName(row, stops) {
+  return stopName(stops.stops[row.s], rowMode(row, stops));
+}
+
+/** "7 min walk"; walks are rounded down, so 0 is "under 1 min walk". */
+const walkWords = (walk) => (Number(walk) < 1 ? 'under 1 min walk' : `${walk} min walk`);
 
 /** "Mount Albert Grammar School (stop 1427) · 1 min walk · 14 trips arriving 7–9am · 22N, 22R". */
 export function stopLine(row, stops) {
@@ -1811,8 +1872,8 @@ export function stopLine(row, stops) {
   const shown = routes.length > 6 ? `${routes.slice(0, 6).join(', ')} and ${routes.length - 6} more` : routes.join(', ');
   const arriving = stops.counts === 'arrivals' ? ' arriving' : '';
   return [
-    stopName(stop),
-    `${row.walk} min walk`,
+    stopName(stop, rowMode(row, stops)),
+    walkWords(row.walk),
     trips ? `${thousands(trips)} ${trips === 1 ? 'trip' : 'trips'}${arriving} ${hours}`
       : stop.served === false ? 'no trips on any day in the timetable used' : `no trips${arriving} ${hours} in the timetable used`,
     shown || null,
@@ -1830,11 +1891,12 @@ export function nearStopWords(rows, stops) {
   const quickest = list.reduce((a, b) => (b.walk < a.walk ? b : a));
   const stop = stops.stops[quickest.s];
   const codes = [...new Set(list.map((row) => stops.stops[row.s].code).filter(Boolean))];
-  const title = `${stopTitle(stop)}${codes.length ? ` (${codes.length > 1 ? 'stops' : 'stop'} ${andList(codes)})` : ''}`;
   const mode = list.map((row) => rowMode(row, stops)).find((m) => m !== 'bus') || 'bus';
+  const bus = looksLikeStation(stopTitle(stop), mode) ? 'bus ' : '';
+  const title = `${stopTitle(stop)}${codes.length ? ` (${bus}${codes.length > 1 ? 'stops' : 'stop'} ${andList(codes)})` : bus ? ' (bus stop)' : ''}`;
   const what = mode === 'train' ? 'Train station' : mode === 'ferry' ? 'Ferry terminal' : list.length > 1 ? `${list.length} bus stops` : 'Bus stop';
   const walks = [...new Set(list.map((row) => Number(row.walk)))].sort((a, b) => a - b);
-  const walk = walks.length > 1 ? `${walks[0]}–${walks[walks.length - 1]}` : `${walks[0]}`;
+  const walk = walks.length > 1 ? `${walks[0]}–${walks[walks.length - 1]}` : walks[0] < 1 ? 'under 1' : `${walks[0]}`;
   const metres = list.length === 1 && Number.isFinite(Number(quickest.metres)) ? ` (${thousands(Math.round(quickest.metres))} m)` : '';
   const trips = list.reduce((a, row) => a + (Number(row.trips) || 0), 0);
   const routes = [...new Set(list.flatMap((row) => (row.routes || []).map((r) => r.route)).filter(Boolean))];
@@ -1855,7 +1917,7 @@ export function stopsCsvLines(stops, d) {
   const when = windowWords({ start: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, '0')}`, minutes: end - start, date: stops.date }, null) || '';
   const day = when.replace(/^between .* on /, '');
   const verb = stops.counts === 'arrivals' ? 'arriving' : 'stopping';
-  const out = [`Stops within a ${stops.maxWalk}-minute walk of the school's map point (walking minutes on the street network, rounded down; trips ${verb} ${stopHours(stops, { ascii: true })}${day ? ` on ${day}` : ''}${stops.gtfs ? `, ${stops.gtfs}` : ''}):`];
+  const out = [`Stops within a ${stops.maxWalk}-minute walk of the school's point on the map (walking minutes on the street network, rounded down; trips ${verb} ${stopHours(stops, { ascii: true })}${day ? ` on ${day}` : ''}${stops.gtfs ? `, ${stops.gtfs}` : ''}):`];
   const near = rows.filter((row) => !isFarStop(row, stops));
   const far = rows.filter((row) => isFarStop(row, stops));
   const line = (row) => {
@@ -1870,7 +1932,7 @@ export function stopsCsvLines(stops, d) {
   out.push(...near.map(line));
   if (far.length) {
     const most = stops.farWalk ? ` (up to ${stops.farMost || 3} within a ${stops.farWalk}-minute walk)` : '';
-    out.push(`${farStopsHeading(far, stops)}${most}:`, ...far.map(line));
+    out.push(`${farStopsHeading(far, stops, near)}${most}:`, ...far.map(line));
   }
   return out;
 }

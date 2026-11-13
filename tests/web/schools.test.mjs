@@ -651,6 +651,11 @@ test('finding a school by name or number', () => {
   assert.deepEqual(findSchools(D, S, 'Mount Albert Grammar'), [MAGS]);
   assert.deepEqual(findSchools(D, S, 'MAGS'), [MAGS]);
   assert.equal(findSchools(D, S, 'AGGS')[0], AGGS);
+  // The 0.12.1 review: initials of the part before a hyphen (WSC), and of a name with School added (MRGS).
+  assert.equal(findSchools(D, S, 'WSC')[0], WSC);
+  const roskill = [...D.map((x) => ({ ...x })), { name: 'Mt Roskill Grammar', moe: 74, services: [S] }];
+  assert.equal(findSchools(roskill, S, 'MRGS')[0], roskill.length - 1);
+  assert.equal(findSchools(roskill, S, 'mrg')[0], roskill.length - 1);
 });
 
 // ---------------------------------------------------------------- stops near a school
@@ -663,7 +668,7 @@ test('stops near the school: the section, the rows and the CSV lines', () => {
   assert.equal(stopsAt(stops, WSC), null, 'not in the file');
   assert.equal(stopHours(stops), '7–9am');
   assert.equal(stopHours(stops, { ascii: true }), '7am-9am');
-  assert.equal(stopsIntro(stops), "Stops and stations within a 15-minute walk of the school's map point, on the street network. "
+  assert.equal(stopsIntro(stops), "Stops and stations within a 15-minute walk of the school's pin, on the street network. "
     + 'Buses and trains stopping between 7am and 9am on Tuesday 15 September 2026.');
   const rows = stopsAt(stops, MAGS).map((row) => stopLine(row, stops));
   assert.deepEqual(rows, [
@@ -672,7 +677,7 @@ test('stops near the school: the section, the rows and the CSV lines', () => {
     'Baldwin Ave Train Station (stop 9300) · 12 min walk · 12 trips 7–9am · WEST',
   ]);
   assert.deepEqual(stopsCsvLines(stops, MAGS), [
-    "Stops within a 15-minute walk of the school's map point (walking minutes on the street network, rounded down; trips stopping 7am-9am on Tuesday 15 September 2026, at_gtfs_2026-09-01.zip):",
+    "Stops within a 15-minute walk of the school's point on the map (walking minutes on the street network, rounded down; trips stopping 7am-9am on Tuesday 15 September 2026, at_gtfs_2026-09-01.zip):",
     'stop 1427 Mount Albert Grammar School: no service, 1 min walk, 0 trips stopping (none on any day in the timetable)',
     'stop 8861 St Lukes: bus, 7 min walk, 14 trips stopping (OUT 10, 22N 4)',
     'stop 9300 Baldwin Ave Train Station: train, 12 min walk, 12 trips stopping (WEST 12)',

@@ -8,7 +8,7 @@
 import { fold } from './fold.js';
 import { el, metres } from './format.js';
 import { PROFILES, profileOf, profileSum, variantOf, withUnit } from './mate.js';
-import { REACH, TRIP_LINE } from './palette.js';
+import { MODE_COLOURS, REACH, TRIP_LINE } from './palette.js';
 import { PT_PROFILES, WINDOWS } from './trip_data.js';
 
 // Every variant MATE's graph routes: the profiles, and the two after dark.
@@ -389,15 +389,15 @@ export function routeWho(profile, dark = false, view = 'nkb') {
 
 /** What a trip draws, for the key and a phone's strip: the ride with its stops and walks, and the route on foot,
  *  each a group of { swatch, colour, label }. pt and foot: what is drawn; straight: the ride is drawn straight
- *  between its stops. */
-export function tripLegend({ pt = false, foot = false, straight = false, profile = null, dark = false, view = 'nkb' }) {
+ *  between its stops; mode: the ride's (bus, train or ferry), whose colour its A and B tags take on the map. */
+export function tripLegend({ pt = false, foot = false, straight = false, profile = null, dark = false, view = 'nkb', mode = 'bus' }) {
   const groups = [];
   if (pt) {
     groups.push({
       key: 'pt',
       title: null,
       items: [
-        { swatch: 'stop', colour: TRIP_LINE.ride, label: 'Boards at A, leaves at B' },
+        { swatch: 'stop', colour: MODE_COLOURS[mode] || MODE_COLOURS.bus, label: 'Boards at A, leaves at B' },
         { swatch: 'line', colour: TRIP_LINE.ride, label: straight ? 'Bus, train or ferry, drawn straight' : 'Bus, train or ferry' },
         { swatch: 'dash', colour: TRIP_LINE.walk, label: 'Walk' },
       ],

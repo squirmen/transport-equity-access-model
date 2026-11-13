@@ -14,8 +14,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  ACCESS, CELL_OPACITY, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, FAIR, FARE, JOBS, LEAN, MODE_COLOURS, PEOPLE, REACH,
-  REASON_PALETTE, SCORE, SYMBOL_EDGE, SYMBOL_GREY, TRIP_ENDS,
+  ACCESS, CELL_OPACITY, CONCENTRATION, DENSITY, DESTINATION_COLOURS, DESTINATION_OTHER, EDGE_WIDTH, FAIR, FARE, JOBS, LEAN, LEARNING, MODE_COLOURS,
+  PEOPLE, REACH, REASON_PALETTE, SCORE, SMALLEST_ICON, SYMBOL_EDGE, SYMBOL_GREY, TRIP_ENDS,
 } from '../../web/js/palette.js';
 import { CATCHMENT, STATUS } from '../../web/js/mate.js';
 
@@ -211,10 +211,33 @@ test('a white glyph is 4.5:1 or more on every symbol fill, and a grey one on whi
   assert.ok(contrast('#ffffff', '#e8890c') < 3);
 });
 
-test('every symbol\'s halo or edge is 3:1 or more on every ground', () => {
+test('every symbol\'s halo or edge is 3:1 or more on every ground, at the smallest size a symbol is drawn', () => {
+  // The edge covers EDGE_WIDTH times the icon's size in screen pixels; under
+  // a whole pixel it is blended with the ground (the 0.12.1 review: a 1 px
+  // edge at size 0.7 fell under 3:1 on the light basemap).
+  const coverage = Math.min(1, EDGE_WIDTH * SMALLEST_ICON);
+  const alpha = Number(/,\s*([\d.]+)\)$/.exec(SYMBOL_EDGE)[1]) * coverage;
   for (const [name, ground] of Object.entries(GROUND)) {
     const halo = contrast('#ffffff', ground);
-    const edge = contrast(over(SYMBOL_EDGE, ground), ground);
+    const edge = contrast(over(SYMBOL_EDGE, ground, alpha), ground);
     assert.ok(Math.max(halo, edge) >= 3, `${name} ${ground}: halo ${halo.toFixed(2)}, edge ${edge.toFixed(2)}`);
+  }
+  assert.ok(coverage >= 1, `the edge is ${(EDGE_WIDTH * SMALLEST_ICON).toFixed(2)} px at the smallest size`);
+});
+
+test('a place\'s pin is never a public transport colour, and learning is not the orange of beyond the standard', () => {
+  // The 0.12.1 review: library and bank pins were the navy of train stations,
+  // and the orange school pin read as "beyond the standard". Each place colour
+  // differs from each mode's by 9 or more under normal vision, and by 6 or
+  // more under each simulated one (shape and glyph tell them apart too).
+  const places = [...new Set([...Object.values(DESTINATION_COLOURS), DESTINATION_OTHER])];
+  for (const place of places) {
+    for (const mode of Object.values(MODE_COLOURS)) {
+      assert.ok(delta(place, mode, null) >= MIN_BETWEEN, `${place} / ${mode}: ${delta(place, mode, null).toFixed(1)}`);
+      for (const vision of VISION.slice(1)) assert.ok(delta(place, mode, vision) >= 6, `${place} / ${mode} (${vision}): ${delta(place, mode, vision).toFixed(1)}`);
+    }
+  }
+  for (const step of ACCESS.slice(3)) {
+    for (const vision of VISION) assert.ok(delta(LEARNING, step, vision) >= 2 * MIN_BETWEEN, `${LEARNING} / ${step} (${vision || 'normal'})`);
   }
 });
