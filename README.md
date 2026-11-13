@@ -168,8 +168,9 @@ npm test
 
 The code is released under the [MIT licence](LICENSE). The map's glyphs in
 [`web/assets/icons/`](web/assets/icons/) are Material Icons by Google, under
-the Apache License 2.0 (the licence is kept beside them). Input and output data
-remain under their providers' terms; see
+the Apache License 2.0, and one Temaki icon (the train station's), under CC0
+1.0; the licences and each file's source are kept beside them. Input and
+output data remain under their providers' terms; see
 [`docs/data-sources.md`](docs/data-sources.md). To cite TEAM, use
 [`CITATION.cff`](CITATION.cff).
 

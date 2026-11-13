@@ -15,23 +15,26 @@ under Points checked by hand.
 - **Every point on the map says what it is.** Places you are getting to are
   discs with a glyph (a mortarboard for schools, a cart for supermarkets and
   so on); public transport is a rounded square with a bus, train or ferry, a
-  station's with a white line inside its edge; the school picked is a navy
-  map pin with its name beside it from zoom 14.5. Filled means counted, or a
-  stop with trips; white with a grey ring means not counted; a dashed ring
-  means no trips arriving 7–9am. Glyphs are Material Icons (Apache License
-  2.0), kept in `web/assets/icons/`. Schools keep a small mortarboard from
+  station's with a white line inside its edge; the school picked is a navy map
+  pin with its name beside it from zoom 14.5. Filled means counted, or a stop
+  with trips; white with a grey ring means not counted; a dashed ring means no
+  trips arriving 7–9am. A train station's glyph is a rail car in side view, so
+  it is not taken for a bus stop. Glyphs are Material Icons (Apache License
+  2.0) and, for stations, Temaki's `tram_side` (CC0), kept in
+  `web/assets/icons/` as fetched from Google's and Temaki's repositories, with
+  each file's source and both licences. Schools keep a small mortarboard from
   zoom 11, bus stops their glyph from 13, stations from 12; below that they
   are plain shapes, and the key shows them so.
 - **Stops near the school carry a walking badge.** A walking person and the
-  minutes to the school, on the side of the stop away from the school,
-  replace the numbered boxes and dots. Every stop is drawn. The nearest
-  station's badge and the nearest bus stop's always show; the rest show where
-  they fit, stations first and then the quickest walks, from zoom 13
-  (stations' from 12, so a school with a large zone shows them when it
-  opens). A stop with no trips arriving 7–9am has no badge. Two stops of the
-  same name either side of a road are one symbol below zoom 16.5 (35 stops
-  near Mt Albert Grammar School are 23 symbols). Below zoom 12 only the
-  stations are drawn, so the city view is not a heap on the pin.
+  minutes to the school ("7 min"; "<1 min" under a minute), on the side of the
+  stop away from the school, replace the numbered boxes and dots. Every stop
+  is drawn. The nearest station's badge and the nearest bus stop's always
+  show; the rest show where they fit, stations first and then the quickest
+  walks, from zoom 13 (stations' from 12, so a school with a large zone shows
+  them when it opens). A stop with no trips arriving 7–9am has no badge. Two
+  stops of the same name either side of a road are one symbol below zoom 16.5
+  (35 stops near Mt Albert Grammar School are 23 symbols). Below zoom 12 only
+  the stations are drawn, so the city view is not a heap on the pin.
 - **The stops list says which station is nearest.** Its summary counts the
   stops with trips arriving 7–9am and names the nearest train station and
   ferry terminal, within the walk or beyond it: "37 stops with trips within
@@ -132,7 +135,9 @@ under Points checked by hand.
 
 - `tests/web/symbols.test.mjs`: every symbol has a key row whose image is the
   one the map draws (dots below the glyph zoom), `glyphs.js` matches the icon
-  files, the walking badges are placed before the stops, a station's
+  files (each plain SVG, with its source in the folder's README and both
+  licences), stations use the Temaki glyph, a badge reads "7 min" and
+  "<1 min", the walking badges are placed before the stops, a station's
   platforms are one symbol, and Mt Albert Grammar School's 35 stops are 23
   symbols with no badge on the stops with no trips and Baldwin Ave's badge
   always shown.

@@ -9,12 +9,12 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { GLYPHS } from '../../web/js/glyphs.js';
+import { GLYPH_GRID, GLYPHS } from '../../web/js/glyphs.js';
 import { layerGroups, zoneLines } from '../../web/js/map.js';
 import { decodeStops, nearStopWords, stopsAt } from '../../web/js/schools.js';
 import {
   GLYPH_ZOOM, groupStops, IMAGES, isSymbolImage, keyHint, keyRows, layerStopProperties, MODE_GLYPH, modeOf, nearStopFeatures, SERVICE_GLYPH, symbolOf,
-  SYMBOL_LAYERS,
+  SYMBOL_LAYERS, walkText,
 } from '../../web/js/symbols.js';
 
 const ICONS = new URL('../../web/assets/icons/', import.meta.url);
@@ -34,20 +34,56 @@ const DRAWN = {
   'bus-none': 'bus-none', 'bus-frequent': 'bus-on', 'bus-other': 'bus-few',
 };
 
+// An icon file's shapes as one path, as scripts/build_glyphs.py reads them:
+// path, rect and polygon in order, leaving out those with fill="none".
+function shapesOf(svg) {
+  const out = [];
+  for (const [, kind, rest] of svg.matchAll(/<(path|rect|polygon)\b([^>]*?)\/?>/g)) {
+    const a = Object.fromEntries([...rest.matchAll(/([\w:-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
+    if (a.fill === 'none') continue;
+    if (kind === 'path') out.push(a.d);
+    else if (kind === 'rect') out.push(`M${a.x || '0'} ${a.y || '0'}h${a.width}v${a.height}h-${a.width}z`);
+    else {
+      const p = a.points.trim().split(/[\s,]+/);
+      const pairs = [];
+      for (let k = 0; k < p.length; k += 2) pairs.push(`${p[k]} ${p[k + 1]}`);
+      out.push(`M${pairs.join('L')}z`);
+    }
+  }
+  return out.join(' ');
+}
+
 test('glyphs.js is the icon files, one for each glyph the map uses', () => {
   const files = readdirSync(ICONS).filter((f) => f.endsWith('.svg')).sort();
   assert.deepEqual(Object.keys(GLYPHS).sort(), files.map((f) => f.replace(/\.svg$/, '')));
   for (const file of files) {
     const svg = readFileSync(new URL(file, ICONS), 'utf8');
-    assert.match(svg, /viewBox="0 0 24 24"/, file);
-    const paths = [...svg.matchAll(/<path\b[^>]*?\sd="([^"]+)"/g)].map((m) => m[1]).join(' ');
-    assert.equal(GLYPHS[file.replace(/\.svg$/, '')], paths, `${file}: run python scripts/build_glyphs.py`);
+    const name = file.replace(/\.svg$/, '');
+    // Material Icons are on a 24 px grid, Temaki's on 15 px.
+    const grid = Number(/viewBox="0 0 (\d+) \1"/.exec(svg)?.[1]);
+    assert.equal(GLYPH_GRID[name] || 24, grid, `${file}: run python scripts/build_glyphs.py`);
+    assert.equal(GLYPHS[name], shapesOf(svg), `${file}: run python scripts/build_glyphs.py`);
+    // Plain shapes only: nothing that runs, styles or fetches.
+    assert.doesNotMatch(svg, /<(script|style|use|image|foreignObject)\b|\bon\w+=|href=|url\(/i, file);
   }
   const used = new Set([...Object.values(SERVICE_GLYPH), ...Object.values(MODE_GLYPH), 'directions_walk', ...Object.values(IMAGES).map((i) => i.glyph).filter(Boolean)]);
   for (const name of used) assert.ok(GLYPHS[name], `no glyph ${name}`);
-  // The licence and where the files come from are kept beside them.
-  assert.match(readFileSync(new URL('LICENSE', ICONS), 'utf8'), /Apache License\s+Version 2\.0/);
-  assert.match(readFileSync(new URL('README.md', ICONS), 'utf8'), /Material Icons/);
+  // Stations are a rail car in side view, not a second vehicle seen from the front like the bus.
+  assert.equal(MODE_GLYPH.train, 'temaki_tram_side');
+  assert.equal(IMAGES['train-on'].glyph, 'temaki_tram_side');
+  // The licences and where each file comes from are kept beside them.
+  const licence = readFileSync(new URL('LICENSE', ICONS), 'utf8');
+  assert.match(licence, /Apache License\s+Version 2\.0/);
+  assert.match(licence, /CC0 1\.0/);
+  const readme = readFileSync(new URL('README.md', ICONS), 'utf8');
+  for (const file of files) assert.match(readme, new RegExp(`\\| \`${file}\` \\|[^\\n]*https://raw\\.githubusercontent\\.com/`), `${file}: no source in README.md`);
+});
+
+test('a walking badge reads "7 min", and "<1 min" for a walk under a minute', () => {
+  assert.equal(walkText(7), '7 min');
+  assert.equal(walkText(21), '21 min');
+  assert.equal(walkText(0), '<1 min');
+  assert.ok(isSymbolImage('walk-0'));
 });
 
 test('every symbol has a key row, and every key row an image', () => {

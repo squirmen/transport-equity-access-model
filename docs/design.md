@@ -98,19 +98,27 @@ the key did not explain.
 | Disc | a place you are getting to | schools, supermarkets, GPs, pharmacies, libraries, banks and post shops, early childhood, tertiary, trades training |
 | Rounded square | public transport | bus stop; train station and ferry terminal with a white line inside the edge; a trip's A and B |
 | Map pin | the one picked | the school picked under One school, with its name in a navy pill |
-| Pill | a number or a name | minutes on foot from a stop to the school, a trip's route |
+| Pill | a time or a name | the walk from a stop to the school ("7 min"), a trip's route |
 | Line | a network or a boundary | zone outline, rail, ferry, frequent bus, cycleway, trip lines |
 
-- **Glyphs.** Material Icons, filled, by Google (Apache License 2.0), kept in
-  `web/assets/icons/` with the licence and a note of where they came from.
-  `scripts/build_glyphs.py` writes their path data into `web/js/glyphs.js`,
-  and the page draws every symbol on a canvas from it (`web/js/symbols.js`),
-  at the screen's pixel ratio (2 or 3). Tertiary shares the schools'
+- **Glyphs.** Material Icons, filled, by Google (Apache License 2.0), and
+  for train stations Temaki's `tram_side` (CC0), kept in `web/assets/icons/`
+  as fetched, with both licences and each file's source address and commit.
+  `scripts/build_glyphs.py` writes their path data into `web/js/glyphs.js`
+  (with the grid of any not on Material's 24 px, Temaki's being 15 px), and
+  the page draws every symbol on a canvas from it (`web/js/symbols.js`), at
+  the screen's pixel ratio (2 or 3). Tertiary shares the schools'
   mortarboard; only one service's places are drawn at a time and the key
-  names it. No operator's marks. A train station's glyph is, like the bus's,
-  a vehicle seen from the front; the white line inside a station's edge, its
-  size and navy tell it apart. A train in side view from an open set (Maki or
-  Temaki rail, CC0) would be a clearer glyph; it needs the file fetched.
+  names it. No operator's marks. A station is a rail car in side view, so it
+  is not taken for a bus stop: Material's train and bus are both a vehicle
+  seen from the front and look alike at map size. The white line inside a
+  station's edge, its size and navy tell it apart as well.
+- **Walking badge.** A white pill on a stop near the school, with a walking
+  person, the minutes in bold and "min": "7 min", and "<1 min" for a walk
+  under a minute (walks are rounded down). Its width depends only on how many
+  digits the number has, so it is redrawn the same size once Inter loads.
+  The key's row and the stop list show the same badge; the tooltip and the
+  read-out say "7 min walk to the school".
 - **State.** Filled with a white glyph: counted, or a stop with trips. White
   with a grey glyph and ring: not counted, or another school under One school.
   White with a dashed grey ring: a stop with no trips arriving in the morning

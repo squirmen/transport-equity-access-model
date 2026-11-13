@@ -4,11 +4,11 @@
 //
 // Shape says what kind of thing: a disc is a place you are getting to, a
 // rounded square public transport (a station's with a white line inside its
-// edge), a map pin the school picked, a pill a number or a name. The glyph
-// says which one; fill and ring say its state. Every image is drawn here on
-// a canvas from glyphs.js, at the screen's pixel ratio (2 or 3).
+// edge), a map pin the school picked, a pill a walking time or a name. The
+// glyph says which one; fill and ring say its state. Every image is drawn
+// here on a canvas from glyphs.js, at the screen's pixel ratio (2 or 3).
 
-import { GLYPHS } from './glyphs.js';
+import { GLYPH_GRID, GLYPHS } from './glyphs.js';
 import { DESTINATION_COLOURS, DESTINATION_OTHER, EDGE_WIDTH, LEARNING, MODE_COLOURS, SYMBOL_EDGE, SYMBOL_GREY } from './palette.js';
 
 const NAVY = '#0c0c48';
@@ -38,7 +38,9 @@ export const SERVICE_GLYPH = {
   tertiary: 'school',
   trades_training: 'build',
 };
-export const MODE_GLYPH = { bus: 'directions_bus', train: 'train', ferry: 'directions_boat' };
+// A train is Temaki's rail car in side view, so a station is not taken for a
+// bus stop: Material's bus and train are both a vehicle seen from the front.
+export const MODE_GLYPH = { bus: 'directions_bus', train: 'temaki_tram_side', ferry: 'directions_boat' };
 
 /** GTFS route_type as bus, train or ferry: tram, metro and rail are trains
  *  (as the build's RAIL_TYPES), ferries ferries, the rest buses. */
@@ -96,7 +98,8 @@ IMAGES['box-outside'] = { shape: 'box', fill: OUTSIDE };
 IMAGES['box-hexagon'] = { shape: 'hexagon', colour: NAVY };
 
 /** Whether an image id is one this file draws: the fixed ones, a walking
- *  badge (walk-7) or a school's name (name-<index>, set with nameImage). */
+ *  badge (walk-7, drawn "7 min") or a school's name (name-<index>, set with
+ *  nameImage). */
 export function isSymbolImage(id) {
   return Boolean(IMAGES[id]) || /^walk-\d{1,3}$/.test(id) || /^name-\d+$/.test(id);
 }
@@ -123,9 +126,10 @@ function canvas(w, h) {
 const paths = new Map();
 function glyph(ctx, name, cx, cy, size, colour) {
   if (!paths.has(name)) paths.set(name, new Path2D(GLYPHS[name]));
+  const grid = GLYPH_GRID[name] || 24;
   ctx.save();
   ctx.translate(cx - size / 2, cy - size / 2);
-  ctx.scale(size / 24, size / 24);
+  ctx.scale(size / grid, size / grid);
   ctx.fillStyle = colour;
   ctx.fill(paths.get(name));
   ctx.restore();
@@ -175,27 +179,61 @@ function rounded(ctx, x, y, w, h, r) {
 
 const FONT = 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** A pill: a walking badge (a walking person and the minutes, in black on
- *  white) or a name (white on navy). A badge's width depends only on how
- *  many digits it has, so it can be redrawn the same size once Inter loads. */
-function pill(text, { g = null, fill = WHITE, colour = INK, weight = 700, size = 11, h = 18, digits = false } = {}) {
-  let tw;
-  if (digits) tw = Math.ceil(text.length * 6.8);
-  else {
-    const [, measure] = canvas(4, 4);
-    measure.font = `${weight} ${size}px ${FONT}`;
-    tw = Math.ceil(measure.measureText(text).width);
-  }
-  const gw = g ? 13 : 0;
-  const inner = 6 + gw + (g ? 1.5 : 0) + tw + 6;
+/** A pill with a name, white on navy, beside the school picked. */
+function pill(text, { fill = NAVY, colour = WHITE, weight = 600, size = 12, h = 20 } = {}) {
+  const [, measure] = canvas(4, 4);
+  measure.font = `${weight} ${size}px ${FONT}`;
+  const tw = Math.ceil(measure.measureText(text).width);
+  const inner = 6 + tw + 6;
   const [box, ctx] = canvas(inner + PAD * 2, h + PAD * 2);
   sticker(ctx, () => rounded(ctx, PAD, PAD, inner, h, h / 2), fill);
-  if (g) glyph(ctx, g, PAD + 5 + gw / 2, PAD + h / 2, 13, colour);
   ctx.font = `${weight} ${size}px ${FONT}`;
   ctx.fillStyle = colour;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-  ctx.fillText(text, PAD + 6 + gw + (g ? 1.5 : 0) + tw / 2, PAD + h / 2 + 0.5);
+  ctx.fillText(text, PAD + 6 + tw / 2, PAD + h / 2 + 0.5);
+  return box;
+}
+
+/** The words on a walking badge: "7 min". Walks are rounded down, so 0 is "<1 min". */
+export function walkText(minutes) {
+  const m = Math.max(0, Math.floor(Number(minutes) || 0));
+  return `${m < 1 ? '<1' : m} min`;
+}
+
+// A walking badge's room: 6.8 px for each character of the number (bold 11
+// px Inter's widest digit is 7.4, "1" 4.7) and 18 px for "min" (600 10 px
+// Inter, 17.7 px), so its width depends only on how many characters the
+// number has and it is redrawn the same size once Inter loads.
+const BADGE = { h: 18, glyphAt: 4, glyph: 13, digit: 6.8, gap: 2.5, unit: 18, end: 6 };
+
+/** A walking badge: a walking person, the minutes in bold and "min", in
+ *  black on white ("<walking person> 7 min"). */
+function walkBadge(minutes) {
+  const [number, unit] = walkText(minutes).split(' ');
+  const b = BADGE;
+  const start = b.glyphAt + b.glyph + 0.5;
+  const room = Math.ceil(number.length * b.digit) + b.gap + b.unit;
+  const inner = start + room + b.end;
+  const [box, ctx] = canvas(inner + PAD * 2, b.h + PAD * 2);
+  sticker(ctx, () => rounded(ctx, PAD, PAD, inner, b.h, b.h / 2), WHITE);
+  glyph(ctx, 'directions_walk', PAD + b.glyphAt + b.glyph / 2, PAD + b.h / 2, b.glyph, INK);
+  const big = `700 11px ${FONT}`;
+  const small = `600 10px ${FONT}`;
+  ctx.font = big;
+  const nw = ctx.measureText(number).width;
+  ctx.font = small;
+  const uw = ctx.measureText(unit).width;
+  // The number and "min" on one baseline, centred in their room.
+  const x = PAD + start + Math.max(0, (room - (nw + b.gap + uw)) / 2);
+  const baseline = PAD + b.h / 2 + 4;
+  ctx.fillStyle = INK;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = big;
+  ctx.fillText(number, x, baseline);
+  ctx.font = small;
+  ctx.fillText(unit, x + nw + b.gap, baseline);
   return box;
 }
 
@@ -297,10 +335,9 @@ function draw(spec) {
 export function drawSymbol(id) {
   if (IMAGES[id]) return draw(IMAGES[id]);
   let m = /^walk-(\d{1,3})$/.exec(id);
-  // Minutes are rounded down: 0 is under a minute.
-  if (m) return pill(m[1] === '0' ? '<1' : m[1], { g: 'directions_walk', digits: true });
+  if (m) return walkBadge(Number(m[1]));
   m = /^name-(\d+)$/.exec(id);
-  if (m) return pill(names.get(m[1]) || '', { fill: NAVY, colour: WHITE, weight: 600, size: 12, h: 20 });
+  if (m) return pill(names.get(m[1]) || '');
   return null;
 }
 
@@ -322,7 +359,7 @@ export function addSymbolImages(map) {
     if (!IMAGES[id]) text.add(id);
   });
   if (document.fonts && document.fonts.load) {
-    Promise.all([document.fonts.load(`700 11px ${FONT}`), document.fonts.load(`600 12px ${FONT}`)]).then(() => {
+    Promise.all([document.fonts.load(`700 11px ${FONT}`), document.fonts.load(`600 10px ${FONT}`), document.fonts.load(`600 12px ${FONT}`)]).then(() => {
       for (const id of text) {
         if (!map.hasImage(id)) continue;
         const box = drawSymbol(id);
@@ -454,7 +491,7 @@ export function keyRows(present, ctx = {}) {
   const school = (id) => (zoom < 11 ? `${id}-dot` : id);
   const all = {
     'school-picked': { icon: 'school-picked', scale: 0.55, label: ctx.school ? `${ctx.school}, the school picked` : 'The school picked', pair: 'School picked', short: 'School picked' },
-    walk: { icon: 'walk-7', scale: 0.8, label: 'Minutes on foot from the stop to the school', pair: 'Minutes on foot to the school', short: 'Minutes on foot' },
+    walk: { icon: 'walk-7', scale: 0.9, label: 'Walking time from the stop to the school', pair: 'Walk to the school', short: 'Walk to school' },
     'train-station': { icon: station('train-on'), label: 'Train station', pair: 'Train station', short: 'Train' },
     'ferry-station': { icon: station('ferry-on'), label: 'Ferry terminal', pair: 'Ferry terminal', short: 'Ferry' },
     'bus-near': { icon: bus('bus-on'), label: `Bus stop with trips arriving ${hours}`, pair: `Bus stop, trips ${hours}`, short: 'Bus stop' },

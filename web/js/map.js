@@ -9,7 +9,7 @@
 /* global maplibregl, h3 */
 
 import { shortDate } from './format.js';
-import { GLYPHS } from './glyphs.js';
+import { GLYPH_GRID, GLYPHS } from './glyphs.js';
 import { CELL_OPACITY, MODE_COLOURS, TRIP_LINE } from './palette.js';
 import {
   addSymbolImages, forgetImage, GLYPH_ZOOM, layerStopProperties, MODE_GLYPH, modeOf, nameImage, nearStopFeatures, pointAt, SERVICE_GLYPH,
@@ -804,7 +804,8 @@ export function fadeCells(map, on) {
 function glyphSvg(name) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
+  const grid = GLYPH_GRID[name] || 24;
+  svg.setAttribute('viewBox', `0 0 ${grid} ${grid}`);
   svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS(ns, 'path');
   path.setAttribute('d', GLYPHS[name]);

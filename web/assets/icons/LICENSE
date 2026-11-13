@@ -1,3 +1,24 @@
+Licences for the icon files in this folder (sources in README.md)
+
+1. Material Icons, by Google: account_balance.svg, build.svg,
+   child_friendly.svg, directions_boat.svg, directions_bus.svg,
+   directions_walk.svg, local_library.svg, local_pharmacy.svg,
+   medical_services.svg, school.svg, shopping_cart.svg and train.svg.
+   From https://github.com/google/material-design-icons (commit
+   10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7), under the Apache License,
+   Version 2.0, whose text is below.
+
+2. Temaki: temaki_tram_side.svg (Temaki's icons/tram_side.svg).
+   From https://github.com/rapideditor/temaki (commit
+   6d9ac860d1d615d4449aab049f630d25d036c19e). Its authors have dedicated it
+   to the public domain under CC0 1.0 Universal: "To the extent possible
+   under law, the author(s) have dedicated all copyright and related and
+   neighboring rights to this software to the public domain worldwide. This
+   software is distributed without any warranty."
+   https://creativecommons.org/publicdomain/zero/1.0/
+
+------------------------------------------------------------------------------
+
 
                                  Apache License
                            Version 2.0, January 2004

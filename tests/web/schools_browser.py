@@ -192,7 +192,7 @@ def desktop(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
     check(problems, f"{engine} MAGS", seen["strong"] == "Mt Albert Grammar School: 15 min on foot. No bus or train is quicker.", seen["strong"])
     check(problems, f"{engine} MAGS", "By bus or train: 26 min." in seen["band"] and "Inside its enrolment zone." in seen["band"], seen["band"])
     check(problems, f"{engine} MAGS", "Its home zone" in seen["key"] and "Outside its zone" in seen["key"], seen["key"])
-    check(problems, f"{engine} MAGS", "Minutes on foot from the stop to the school" in seen["key"] and "Train station" in seen["key"], seen["key"])
+    check(problems, f"{engine} MAGS", "Walking time from the stop to the school" in seen["key"] and "Train station" in seen["key"], seen["key"])
     # The key shows the walking badge's row, and the headline figure is in view too.
     room = page.evaluate("""() => {
       const key = document.getElementById('key-body').getBoundingClientRect();
