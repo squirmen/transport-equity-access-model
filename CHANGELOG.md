@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.12.1 (not yet released)
+## 0.12.1 (13 November 2026)
 
 Map symbols that say what they are, picking a school, and the 20 school
 map points that were in doubt. Looking at One school for Mt Albert Grammar
