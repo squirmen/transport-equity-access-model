@@ -85,8 +85,8 @@ test('the key says what a school pin is, and its last line how to pick one', () 
   assert.deepEqual(picked.map((r) => r.label), ['Mt Albert Grammar School, the school picked', 'Bus stop with no trips arriving 7–9am']);
   assert.deepEqual(picked.map((r) => r.pair), ['School picked', 'No trips 7–9am']);
   // One way of saying it everywhere: Show only this school.
-  assert.equal(keyHint(new Set(['school-other']), {}), 'Hover over a symbol for its name; click a school to show only it.');
-  assert.equal(keyHint(new Set(['school-on']), { touch: true }), 'Tap a symbol for its name; tap a school to show only it.');
+  assert.equal(keyHint(new Set(['school-other']), {}), 'Hover for names; click a school to show only it.');
+  assert.equal(keyHint(new Set(['school-on']), { touch: true }), 'Tap for names; tap a school to show only it.');
   assert.equal(keyHint(new Set(['bus-frequent']), {}), 'Hover over a symbol for its name.');
 });
 

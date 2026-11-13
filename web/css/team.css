@@ -875,7 +875,7 @@ body[data-place="open"] .maplibregl-ctrl-top-right .maplibregl-ctrl-group { marg
   /* In the peek the line above already says what the colours are for; the symbols on screen
      follow the scale, up to two lines of them. */
   .peek .k-what { display: none; }
-  .peek .k-pairs { max-height: 34px; overflow: hidden; }
+  .peek .k-pairs { max-height: 42px; overflow: hidden; }
   .side.has-symbols .peek-text { -webkit-line-clamp: 2; }
   .side.has-symbols[data-sheet="peek"] { height: 216px; }
   .sheet-pop { position: relative; display: block; padding: 2px 52px 12px 16px; border-bottom: 1px solid var(--line); }

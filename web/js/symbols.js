@@ -496,7 +496,7 @@ export function keyRows(present, ctx = {}) {
 export function keyHint(present, ctx = {}) {
   const touch = Boolean(ctx.touch);
   const first = touch ? 'Tap a symbol for its name' : 'Hover over a symbol for its name';
-  if (['school-on', 'school-out', 'school-other'].some((sym) => present.has(sym))) return `${first}; ${touch ? 'tap' : 'click'} a school to show only it.`;
+  if (['school-on', 'school-out', 'school-other'].some((sym) => present.has(sym))) return `${touch ? 'Tap for names' : 'Hover for names'}; ${touch ? 'tap' : 'click'} a school to show only it.`;
   return `${first}.`;
 }
 

@@ -166,7 +166,8 @@ export function createMap(container, { topRight = null } = {}) {
     layers: [
       { id: 'background', type: 'background', paint: { 'background-color': '#e6e6e3' } },
       { id: 'bm-light', type: 'raster', source: 'esri-light' },
-      { id: 'bm-osm', type: 'raster', source: 'osm', layout: { visibility: 'none' } },
+      // OpenStreetMap's own bus stop, ferry and station marks are blue; muted, they are not taken for TEAM's.
+      { id: 'bm-osm', type: 'raster', source: 'osm', layout: { visibility: 'none' }, paint: { 'raster-saturation': -0.7 } },
       { id: 'bm-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'none' } },
       { id: 'cells-fill', type: 'fill', source: 'cells', paint: { 'fill-color': cellColour(['#000000']), 'fill-opacity': CELL_OPACITY.usual } },
       {
@@ -253,7 +254,7 @@ export function createMap(container, { topRight = null } = {}) {
       // have room, and only where no walking badge is in its way. It takes no room itself.
       {
         id: 'picked-name', type: 'symbol', source: 'school-pins', minzoom: 14.5, filter: ['==', ['get', 'st'], 'picked'],
-        layout: { 'icon-image': ['get', 'name'], 'icon-anchor': 'left', 'icon-offset': [15, -24], 'icon-allow-overlap': false, 'icon-ignore-placement': true, 'icon-padding': 0 },
+        layout: { 'icon-image': ['get', 'name'], 'icon-anchor': 'left', 'icon-offset': [19, -24], 'icon-allow-overlap': false, 'icon-ignore-placement': true, 'icon-padding': 0 },
       },
       { id: 'near-badge-all', type: 'symbol', source: 'near-all', minzoom: STOPS_APART, filter: badgeFilter(false), layout: badge(false) },
       { id: 'near-badge', type: 'symbol', source: 'near', minzoom: 12, maxzoom: STOPS_APART, filter: badgeFilter(false), layout: badge(false) },
@@ -261,7 +262,7 @@ export function createMap(container, { topRight = null } = {}) {
       { id: 'near-badge-key', type: 'symbol', source: 'near', minzoom: 12, maxzoom: STOPS_APART, filter: badgeFilter(true), layout: badge(true) },
       {
         id: 'picked', type: 'symbol', source: 'school-pins', filter: ['==', ['get', 'st'], 'picked'],
-        layout: { 'icon-image': 'school-picked', 'icon-anchor': 'bottom', 'icon-offset': [0, 3.5], 'icon-size': zoomed(10, 0.85, 14, 1), 'icon-allow-overlap': true },
+        layout: { 'icon-image': 'school-picked', 'icon-anchor': 'bottom', 'icon-offset': [0, 3.5], 'icon-size': zoomed(10, 0.85, 14, 1), 'icon-allow-overlap': true, 'icon-padding': 0 },
       },
     ],
   };

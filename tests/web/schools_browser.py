@@ -28,6 +28,15 @@ page on the synthetic fixture (tests/fixtures/make_web_fixture.py). The scenes:
   only this school"; on a phone, a pick drops the sheet with the zone in
   view;
 - in every scene, every symbol drawn on the map has a row in the key;
+- from the 0.12.1 review: the nearest station's walking badge shows at the
+  school's opening zoom (St Peter's College, Grafton 5 min), the stops
+  summary names it, a stop with no trips has no badge, the key's walking
+  badge row and the headline figure are both in view at 1440 x 900, the
+  headline figure at 1280 x 720 and 1366 x 768, opening Stops near the school
+  scrolls it into view, Show keeps the school in sight, the zone is not in
+  the key when none of it is on screen, the keyboard read-out names what
+  one arrow press put under the ring, N steps through the symbols, and on a
+  phone the symbols show in the peek and over the map with a card open;
 - One school, Marist College (no home zone, a girls' school): a count of
   girls, and Who misses out off;
 - Wellington, In zone, girls, at 89bb295594fffff;
@@ -84,6 +93,7 @@ def panel(page: Page) -> dict:
       counting: document.querySelector('#view .counting')?.innerText || '',
       view: document.getElementById('view')?.innerText || '',
       school: document.getElementById('school-field')?.innerText || '',
+      more: document.getElementById('school-more')?.innerText || '',
       band: document.querySelector('#place-body .verdict')?.innerText || '',
       strong: (document.querySelector('#place-body .verdict strong')?.textContent || '').trim(),
       hash: location.hash,
@@ -99,20 +109,20 @@ def panel(page: Page) -> dict:
 
 def stop_symbols(page: Page, zoom: float) -> dict:
     """The stops near the school as the map draws them at `zoom`, centred on
-    the school: how many symbols, which carry a walking badge, and the
-    minutes on the stations' badges."""
+    the school: how many symbols, which carry a walking badge, the minutes on
+    the stations' badges, and how many badges are on stops with no trips."""
     page.evaluate(f"() => window.team.map.jumpTo({{ center: [174.7245, -36.8835], zoom: {zoom} }})")
     page.wait_for_function("() => window.team.map.loaded() && window.team.map.areTilesLoaded()", timeout=60_000)
     page.wait_for_timeout(1200)
     return page.evaluate("""() => {
       const m = window.team.map;
       const stops = m.queryRenderedFeatures({ layers: ['near-stop', 'near-stop-all'] });
-      const badges = m.queryRenderedFeatures({ layers: ['near-badge', 'near-badge-all'] });
+      const badges = m.queryRenderedFeatures({ layers: ['near-badge', 'near-badge-all', 'near-badge-key', 'near-badge-key-all'] });
       const ks = new Set(stops.map((f) => f.properties.ks));
       const badged = new Set(badges.map((f) => f.properties.ks));
       const station = badges.filter((f) => f.properties.station === 1).map((f) => f.properties.walk).sort((a, b) => a - b);
-      const stationsDrawn = stops.filter((f) => f.properties.station === 1).length;
-      return { symbols: ks.size, badges: badged.size, stations: station, stationsDrawn, one: badges.some((f) => f.properties.walk === 1) };
+      const stationsDrawn = stops.filter((f) => f.properties.station === 1 && f.properties.trips).length;
+      return { symbols: ks.size, badges: badged.size, stations: station, stationsDrawn, idle: badges.filter((f) => !f.properties.trips).length };
     }""")
 
 
@@ -175,50 +185,71 @@ def desktop(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
     seen = go(page, base, "auckland", f"s=secondary_school&m=pt&sch=one:69&o={SOUTH_EAST}")
     check(problems, f"{engine} MAGS", "living in Mt Albert Grammar School's zone are within 30 minutes of it by public transport, or on foot where that is quicker." in seen["hero"], seen["hero"])
     check(problems, f"{engine} MAGS", " are not." in seen["hero"], seen["hero"])
-    check(problems, f"{engine} MAGS", seen["outline"] in ("Polygon", "MultiPolygon"), f"outline {seen['outline']}")
-    check(problems, f"{engine} MAGS", "Stops near the school" in seen["school"], seen["school"])
+    check(problems, f"{engine} MAGS", seen["outline"] == "MultiLineString", f"outline {seen['outline']}")
+    check(problems, f"{engine} MAGS", "Stops near the school" in seen["more"], seen["more"])
     check(problems, f"{engine} MAGS", seen["stops"] == 35, f"{seen['stops']} stops on the map")
     symbols_in_key(problems, f"{engine} MAGS", seen)
     check(problems, f"{engine} MAGS", seen["strong"] == "Mt Albert Grammar School: 15 min on foot. No bus or train is quicker.", seen["strong"])
     check(problems, f"{engine} MAGS", "By bus or train: 26 min." in seen["band"] and "Inside its enrolment zone." in seen["band"], seen["band"])
     check(problems, f"{engine} MAGS", "Its home zone" in seen["key"] and "Outside its zone" in seen["key"], seen["key"])
     check(problems, f"{engine} MAGS", "Minutes on foot from the stop to the school" in seen["key"] and "Train station" in seen["key"], seen["key"])
-    # The key keeps room for what the map draws, on a laptop as well.
-    room = page.evaluate("() => { const rows = [...document.querySelectorAll('#key-body .k-layers .k-row')].slice(0, 4); const box = document.getElementById('key').getBoundingClientRect(); return rows.length && rows.every((r) => r.getBoundingClientRect().bottom <= box.bottom + 1); }")
-    check(problems, f"{engine} MAGS key room", room, "the first rows of On the map are cut off")
+    # The key shows the walking badge's row, and the headline figure is in view too.
+    room = page.evaluate("""() => {
+      const key = document.getElementById('key-body').getBoundingClientRect();
+      const walk = document.querySelector('#key-body .k-onmap [data-sym="walk"]');
+      const body = document.getElementById('panel-body').getBoundingClientRect();
+      const figure = document.querySelector('#view .hero-figure').getBoundingClientRect();
+      return { walk: Boolean(walk) && walk.getBoundingClientRect().bottom <= key.bottom + 1, figure: figure.top >= body.top && figure.bottom <= body.bottom };
+    }""")
+    check(problems, f"{engine} MAGS key room", room["walk"] and room["figure"], str(room))
     page.screenshot(path=str(out / f"{engine}-3-mags.png"))
-    page.click("#school-field details[data-fold='school-stops'] > summary")
-    page.wait_for_timeout(300)
-    stops = page.evaluate("() => document.querySelector('#school-field .stop-list')?.innerText || ''")
-    check(problems, f"{engine} MAGS stops", "Mount Albert Grammar School (stop 1427) · 1 min walk" in stops, stops[:300])
+    page.click("#school-more details[data-fold='school-stops'] > summary")
+    page.wait_for_timeout(900)
+    # Opening it scrolls what it opens into view.
+    shown = page.evaluate("""() => { const b = document.querySelector("#school-more details[data-fold='school-stops'] .fold-body").getBoundingClientRect();
+      const p = document.getElementById('panel-body').getBoundingClientRect(); return b.top < p.bottom - 40 && b.bottom > p.top; }""")
+    check(problems, f"{engine} MAGS stops open", shown, "the stops opened out of sight")
+    lists = page.evaluate("() => [...document.querySelectorAll('#school-more .stop-list')].map((l) => l.innerText)")
+    check(problems, f"{engine} MAGS stops", bool(lists) and "St Lukes" in lists[0] and "Mount Albert Grammar School (stop 1427)" not in lists[0], str(lists)[:300])
+    check(problems, f"{engine} MAGS stops", any("Mount Albert Grammar School (stop 1427) · 1 min walk" in text for text in lists[1:]), str(lists)[:400])
     far = page.evaluate("""() => ({
-      head: document.querySelector('#school-field .stop-far-head')?.textContent || '',
-      rows: [...document.querySelectorAll('#school-field .stop-list.is-far .stop-text')].map((li) => li.textContent),
-      summary: document.querySelector("#school-field details[data-fold='school-stops'] .fold-sum")?.textContent || '',
+      heads: [...document.querySelectorAll('#school-more .stop-far-head')].map((h) => h.textContent),
+      rows: [...document.querySelectorAll('#school-more .stop-list.is-far:last-of-type .stop-text')].map((li) => li.textContent),
+      summary: document.querySelector("#school-more details[data-fold='school-stops'] .fold-sum")?.textContent || '',
     })""")
-    check(problems, f"{engine} MAGS stations", far["head"] == "Nearest train stations, beyond a 15-minute walk", far["head"])
+    check(problems, f"{engine} MAGS stations", far["heads"] == ["No trips arriving 7–9am", "Train stations, 15–30 min walk"], str(far["heads"]))
     check(problems, f"{engine} MAGS stations", far["rows"][:2] == [
         "Baldwin Ave Train Station (stop 119) · 16 min walk · 23 trips arriving 7–9am · E-W",
         "Mt Albert Train Station (stop 120) · 17 min walk · 23 trips arriving 7–9am · E-W"], str(far["rows"]))
-    check(problems, f"{engine} MAGS stations", far["summary"].startswith("32 within 15 min · ") and "train stations within 30 min" in far["summary"], far["summary"])
-    # The Show button finds the stop on the map and opens what it says.
-    page.click("#school-field .stop-list .stop-show >> nth=0")
-    page.wait_for_timeout(1500)
+    check(problems, f"{engine} MAGS stations", far["summary"] == "27 stops with trips within 15 min · nearest train station: Baldwin Ave Train Station, 16 min", far["summary"])
+    # The Show button finds the stop on the map, with the school still in sight, and opens what it says.
+    page.click("#school-more .stop-list .stop-show >> nth=0")
+    page.wait_for_timeout(1800)
     pop = page.evaluate("() => document.querySelector('.point-popup')?.innerText || ''")
-    check(problems, f"{engine} MAGS stop show", "Mount Albert Grammar School (stop 1427)" in pop and "1 min walk to the school" in pop, pop)
+    framed = page.evaluate("""() => { const m = window.team.map; const f = m.getSource('school-pins')._data.features.find((x) => x.properties.st === 'picked');
+      const p = m.project(f.geometry.coordinates); const box = m.getContainer().getBoundingClientRect();
+      return { zoom: m.getZoom(), school: p.x > 380 && p.x < box.width && p.y > 0 && p.y < box.height }; }""")
+    check(problems, f"{engine} MAGS stop show", "min walk to the school" in pop and framed["school"] and framed["zoom"] <= 15.01, f"{pop[:120]} {framed}")
     page.keyboard.press("Escape")
-    for zoom, least in ((13, 7), (15, 20)):
+    for zoom, least in ((13, 7), (15, 15)):
         drawn = stop_symbols(page, zoom)
-        # Every station in view keeps its badge, and so does the 1-minute stop.
+        # Every station in view keeps its badge; a stop with no trips has none.
         check(problems, f"{engine} MAGS symbols z{zoom}", drawn["symbols"] >= 20 and drawn["stationsDrawn"] >= 2, str(drawn))
-        check(problems, f"{engine} MAGS badges z{zoom}", drawn["badges"] >= least and drawn["one"], str(drawn))
+        check(problems, f"{engine} MAGS badges z{zoom}", drawn["badges"] >= least and drawn["idle"] == 0, str(drawn))
         check(problems, f"{engine} MAGS station badges z{zoom}", len(drawn["stations"]) == drawn["stationsDrawn"] and drawn["stations"][:2] == [16, 17], str(drawn))
         symbols_in_key(problems, f"{engine} MAGS z{zoom}", panel(page))
+    # Close in, the zone's edge is off screen and the key does not list it.
+    page.evaluate("() => window.team.map.jumpTo({ center: [174.7253, -36.8847], zoom: 16.6 })")
+    page.wait_for_function("() => window.team.map.loaded() && window.team.map.areTilesLoaded()", timeout=60_000)
+    page.wait_for_timeout(1500)
+    close = panel(page)
+    check(problems, f"{engine} MAGS z16.6 key", "zone" not in close["keyRows"] and "zone" not in close["onScreen"], str(close["keyRows"]))
+    stop_symbols(page, 15)
     page.screenshot(path=str(out / f"{engine}-4-mags-stops.png"))
     # A stop's tooltip: its name, its walk and its trips.
     at = page.evaluate("""() => {
       const m = window.team.map;
-      const f = m.queryRenderedFeatures({ layers: ['near-stop'] }).find((x) => x.properties.station === 1);
+      const f = m.queryRenderedFeatures({ layers: ['near-stop', 'near-stop-all'] }).find((x) => x.properties.station === 1);
       if (!f) return null;
       const p = m.project(f.geometry.coordinates);
       const r = m.getContainer().getBoundingClientRect();
@@ -321,14 +352,83 @@ def picking(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
         page.mouse.move(at[0], at[1])
         page.wait_for_timeout(400)
         tip = page.evaluate("() => document.getElementById('tooltip').hidden ? '' : document.getElementById('tooltip').innerText")
-        check(problems, f"{engine} pin tooltip", "Not counted: One school counts Mt Albert Grammar School only." in tip and "Click to show only this school" in tip, tip)
+        check(problems, f"{engine} pin tooltip", "Not counted: One school counts Mt Albert Grammar School only." in tip and "Click for Show only this school" in tip, tip)
         page.mouse.click(at[0], at[1])
         page.wait_for_timeout(500)
         pop = page.evaluate("() => document.querySelector('.point-popup .point-button.is-primary')?.textContent || ''")
-        check(problems, f"{engine} pin popup", pop == "Show this school instead", pop)
+        check(problems, f"{engine} pin popup", pop == "Show only this school", pop)
         page.screenshot(path=str(out / f"{engine}-17-pin-popup.png"))
     else:
         check(problems, f"{engine} pin tooltip", False, "no other school drawn")
+    # Schools are on the map under every school choice: their Layers row is ticked and fixed.
+    row = page.evaluate("() => { const b = document.getElementById('layer-destinations'); return { checked: b.checked, disabled: b.disabled }; }")
+    check(problems, f"{engine} layers schools", row == {"checked": True, "disabled": True}, str(row))
+    stations(page, base, out, engine, problems)
+    keyboard(page, base, engine, problems)
+
+
+def stations(page: Page, base: str, out: Path, engine: str, problems: list[str]) -> None:
+    """St Peter's College (Epsom), at the zoom it opens at: Grafton Train
+    Station, a 5-minute walk, keeps its badge, and the summary names it."""
+    seen = go(page, base, "auckland", "s=secondary_school&m=pt&sch=one:62")
+    badges = page.evaluate("""() => window.team.map.queryRenderedFeatures({ layers: ['near-badge', 'near-badge-key'] })
+      .filter((f) => f.properties.station === 1).map((f) => f.properties.walk).sort((a, b) => a - b)""")
+    check(problems, f"{engine} St Peter's badges", badges[:3] == [5, 14, 18], str(badges))
+    summary = page.evaluate("() => document.querySelector(\"#school-more details[data-fold='school-stops'] .fold-sum\")?.textContent || ''")
+    check(problems, f"{engine} St Peter's summary", summary.endswith("nearest train station: Grafton Train Station, 5 min"), summary)
+    symbols_in_key(problems, f"{engine} St Peter's", seen)
+    page.screenshot(path=str(out / f"{engine}-19-st-peters.png"))
+
+
+def keyboard(page: Page, base: str, engine: str, problems: list[str]) -> None:
+    """With the map focused: one arrow press that puts a stop under the ring
+    names that stop, not what was there before; N steps through the symbols."""
+    go(page, base, "auckland", "s=secondary_school&m=pt&sch=one:69&at=15.5/-36.8847/174.7253")
+    stop = page.evaluate("""() => { const f = window.team.map.queryRenderedFeatures({ layers: ['near-stop'] })
+      .find((x) => x.properties.station === 0 && x.properties.walk > 3 && x.properties.trips); return f ? f.geometry.coordinates : null; }""")
+    if not stop:
+        check(problems, f"{engine} keyboard", False, "no stop drawn")
+        return
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("Shift")
+    page.evaluate("() => window.team.map.getCanvas().focus()")
+    # The stop 100 px right of the ring; ArrowRight moves the view 100 px.
+    page.evaluate("""([c]) => { const m = window.team.map; const box = m.getContainer().getBoundingClientRect();
+      const side = document.getElementById('side').getBoundingClientRect(); const ring = [(side.right - box.left + box.width) / 2, box.height / 2];
+      const at = m.project(c); m.jumpTo({ center: m.unproject([m.transform.width / 2 + at.x - ring[0] - 100, m.transform.height / 2 + at.y - ring[1]]) }); }""", [stop])
+    page.wait_for_timeout(1500)
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(2500)
+    said = page.evaluate("() => document.getElementById('map-say').textContent")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(900)
+    title = page.evaluate("() => (document.querySelector('.point-popup .point-title')?.textContent || '').trim()")
+    check(problems, f"{engine} keyboard read-out", bool(title) and said.startswith(f"{title}."), f"said {said[:80]!r}, Enter opened {title!r}")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(400)
+    page.keyboard.press("n")
+    page.wait_for_timeout(1800)
+    said = page.evaluate("() => document.getElementById('map-say').textContent")
+    check(problems, f"{engine} keyboard N", said.startswith("1 of "), said[:80])
+    label = page.evaluate("() => window.team.map.getCanvas().getAttribute('aria-label')")
+    check(problems, f"{engine} keyboard label", "Arrow keys" in label and page.evaluate("() => !document.getElementById('map').hasAttribute('role')"), label)
+
+
+def headline(browser, base: str, engine: str, problems: list[str]) -> None:
+    """The headline figure in view on laptop screens, under In zone and One
+    school, with the key beside it (the 0.12.1 review: the new search and the
+    key's room for its symbols pushed it out)."""
+    for width, height in ((1280, 720), (1280, 800), (1366, 768), (1440, 900), (1536, 864)):
+        page = browser.new_page(viewport={"width": width, "height": height})
+        held_back(page)
+        for scene in ("s=secondary_school&m=pt&sch=zone", "s=secondary_school&m=pt&sch=one:69"):
+            go(page, base, "auckland", scene)
+            seen = page.evaluate("""() => { const body = document.getElementById('panel-body').getBoundingClientRect();
+              const f = document.querySelector('#view .hero-figure')?.getBoundingClientRect();
+              const key = document.getElementById('key').getBoundingClientRect();
+              return { figure: Boolean(f) && f.top >= body.top && f.bottom <= body.bottom, key: Math.round(key.height) }; }""")
+            check(problems, f"{engine} headline {width}x{height} {scene[-8:]}", seen["figure"], str(seen))
+        page.close()
 
 
 def older(page: Page, base: str, city: str, out: Path, engine: str, problems: list[str]) -> None:
@@ -353,7 +453,7 @@ def fixture(page: Page, base: str, out: Path, engine: str, problems: list[str]) 
     ready(page)
     seen = panel(page)
     check(problems, f"{engine} fixture one", "living in Testville State Secondary 1's zone" in seen["hero"], seen["hero"])
-    check(problems, f"{engine} fixture one", seen["outline"] == "Polygon" and seen["stops"] == 2, f"{seen['outline']} {seen['stops']}")
+    check(problems, f"{engine} fixture one", seen["outline"] == "MultiLineString" and seen["stops"] == 2, f"{seen['outline']} {seen['stops']}")
     page.click("#tabs [data-view='people']")
     ready(page)
     seen = panel(page)
@@ -415,7 +515,7 @@ def phone(browser, base: str, out: Path, engine: str, problems: list[str], error
     framed = page.evaluate("""() => {
       const m = window.team.map;
       const s = m.getSource('school-zone')._data;
-      const ring = s && s.geometry ? (s.geometry.type === 'Polygon' ? s.geometry.coordinates[0] : s.geometry.coordinates[0][0]) : [];
+      const ring = s && s.geometry ? s.geometry.coordinates[0] : [];
       const top = document.getElementById('side').getBoundingClientRect().top;
       const inView = ring.filter(([x, y]) => { const p = m.project([x, y]); return p.x >= 0 && p.x <= innerWidth && p.y >= 0 && p.y <= top; }).length;
       return { sheet: document.getElementById('side').dataset.sheet, share: ring.length ? inView / ring.length : 0, scroll: document.documentElement.scrollWidth, width: innerWidth };
@@ -424,6 +524,24 @@ def phone(browser, base: str, out: Path, engine: str, problems: list[str], error
     check(problems, f"{engine} phone pick", framed["scroll"] <= framed["width"], f"page scrolls sideways: {framed}")
     symbols_in_key(problems, f"{engine} phone pick", seen)
     page.screenshot(path=str(out / f"{engine}-18-phone-pick.png"))
+    # The symbols on screen show in the peek, under the scale.
+    peek = page.evaluate("""() => { const pairs = [...document.querySelectorAll('#peek [data-sym]')];
+      const side = document.getElementById('side').getBoundingClientRect();
+      return { syms: pairs.map((p) => p.dataset.sym), seen: pairs.filter((p) => p.getBoundingClientRect().bottom <= side.bottom + 1).length }; }""")
+    check(problems, f"{engine} phone peek symbols", "school-picked" in peek["syms"] and peek["seen"] >= 3, str(peek))
+    # Up to full and back: the scale and the credits sit above the sheet again, not at the top.
+    for size in ("half", "full", "peek"):
+        page.evaluate(f"() => window.team.sheet('{size}')")
+        page.wait_for_timeout(700)
+    ctrls = page.evaluate("""() => { const c = document.querySelector('.maplibregl-ctrl-bottom-right').getBoundingClientRect();
+      return { bottom: Math.round(c.bottom), sheet: Math.round(document.getElementById('side').getBoundingClientRect().top) }; }""")
+    check(problems, f"{engine} phone controls", abs(ctrls["bottom"] - ctrls["sheet"]) <= 12, str(ctrls))
+    # With a hexagon's card open, the strip over the map has the symbols too.
+    page.mouse.click(195, 250)
+    page.wait_for_timeout(1500)
+    strip = page.evaluate("() => [...document.querySelectorAll('#key-strip [data-sym]')].map((p) => p.dataset.sym)")
+    if page.evaluate("() => !document.getElementById('place').hidden"):
+        check(problems, f"{engine} phone card strip", "school-picked" in strip or len(strip) >= 2, str(strip))
     context.close()
 
 
@@ -448,6 +566,7 @@ def main() -> int:
             page.on("pageerror", lambda exc, e=engine: errors.append(f"{e}: {exc}"))
             held_back(page)
             desktop(page, args.base, out, engine, problems)
+            headline(browser, args.base, engine, problems)
             if args.old_city != "none":
                 older(page, args.base, args.old_city, out, engine, problems)
             if args.fixture:
